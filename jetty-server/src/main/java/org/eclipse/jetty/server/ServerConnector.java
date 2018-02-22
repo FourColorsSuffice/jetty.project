@@ -18,6 +18,7 @@
 
 package org.eclipse.jetty.server;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -31,6 +32,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.ChannelEndPoint;
@@ -79,6 +81,7 @@ import org.eclipse.jetty.util.thread.Scheduler;
 public class ServerConnector extends AbstractNetworkConnector
 {
     private final SelectorManager _manager;
+    private final AtomicReference<Closeable> _acceptor = new AtomicReference<>();
     private volatile ServerSocketChannel _acceptChannel;
     private volatile boolean _inheritChannel = false;
     private volatile int _localPort = -1;
@@ -219,8 +222,7 @@ public class ServerConnector extends AbstractNetworkConnector
         @Name("factories") ConnectionFactory... factories)
     {
         super(server,executor,scheduler,bufferPool,acceptors,factories);
-        _manager = newSelectorManager(getExecutor(), getScheduler(),
-            selectors>0?selectors:Math.max(1,Math.min(4,Runtime.getRuntime().availableProcessors()/2)));
+        _manager = newSelectorManager(getExecutor(), getScheduler(),selectors);
         addBean(_manager, true);
         setAcceptorPriorityDelta(-2);
     }
@@ -238,7 +240,7 @@ public class ServerConnector extends AbstractNetworkConnector
         if (getAcceptors()==0)
         {
             _acceptChannel.configureBlocking(false);
-            _manager.acceptor(_acceptChannel);
+            _acceptor.set(_manager.acceptor(_acceptChannel));
         }
     }
 
@@ -266,7 +268,7 @@ public class ServerConnector extends AbstractNetworkConnector
      * <p>Use it with xinetd/inetd, to launch an instance of Jetty on demand. The port
      * used to access pages on the Jetty instance is the same as the port used to
      * launch Jetty.</p>
-     *
+     * @see ServerConnector#openAcceptChannel()
      * @param inheritChannel whether this connector uses a channel inherited from the JVM.
      */
     public void setInheritChannel(boolean inheritChannel)
@@ -274,41 +276,67 @@ public class ServerConnector extends AbstractNetworkConnector
         _inheritChannel = inheritChannel;
     }
 
+    /**
+     * Open the connector using the passed ServerSocketChannel.
+     * This open method can be called before starting the connector to pass it a ServerSocketChannel
+     * that will be used instead of one returned from {@link #openAcceptChannel()}
+     * @param acceptChannel the channel to use
+     * @throws IOException
+     */
+    public void open(ServerSocketChannel acceptChannel) throws IOException
+    {
+        if (isStarted())
+            throw new IllegalStateException(getState());
+        updateBean(_acceptChannel,acceptChannel);
+        _acceptChannel = acceptChannel;
+        _localPort = _acceptChannel.socket().getLocalPort();
+        if (_localPort <= 0)
+            throw new IOException("Server channel not bound");
+    }
+    
     @Override
     public void open() throws IOException
     {
         if (_acceptChannel == null)
         {
-            ServerSocketChannel serverChannel = null;
-            if (isInheritChannel())
-            {
-                Channel channel = System.inheritedChannel();
-                if (channel instanceof ServerSocketChannel)
-                    serverChannel = (ServerSocketChannel)channel;
-                else
-                    LOG.warn("Unable to use System.inheritedChannel() [{}]. Trying a new ServerSocketChannel at {}:{}", channel, getHost(), getPort());
-            }
-
-            if (serverChannel == null)
-            {
-                serverChannel = ServerSocketChannel.open();
-
-                InetSocketAddress bindAddress = getHost() == null ? new InetSocketAddress(getPort()) : new InetSocketAddress(getHost(), getPort());
-                serverChannel.socket().setReuseAddress(getReuseAddress());
-                serverChannel.socket().bind(bindAddress, getAcceptQueueSize());
-
-                _localPort = serverChannel.socket().getLocalPort();
-                if (_localPort <= 0)
-                    throw new IOException("Server channel not bound");
-            }
-
-            serverChannel.configureBlocking(true);
-            addBean(serverChannel);
-
-            _acceptChannel = serverChannel;
+            _acceptChannel = openAcceptChannel();
+            _acceptChannel.configureBlocking(true);
+            _localPort = _acceptChannel.socket().getLocalPort();
+            if (_localPort <= 0)
+                throw new IOException("Server channel not bound");
+            addBean(_acceptChannel);
         }
     }
 
+    /**
+     * Called by {@link #open()} to obtain the accepting channel.
+     * @return ServerSocketChannel used to accept connections.
+     * @throws IOException
+     */
+    protected ServerSocketChannel openAcceptChannel() throws IOException
+    {
+        ServerSocketChannel serverChannel = null;
+        if (isInheritChannel())
+        {
+            Channel channel = System.inheritedChannel();
+            if (channel instanceof ServerSocketChannel)
+                serverChannel = (ServerSocketChannel)channel;
+            else
+                LOG.warn("Unable to use System.inheritedChannel() [{}]. Trying a new ServerSocketChannel at {}:{}", channel, getHost(), getPort());
+        }
+
+        if (serverChannel == null)
+        {
+            serverChannel = ServerSocketChannel.open();
+
+            InetSocketAddress bindAddress = getHost() == null ? new InetSocketAddress(getPort()) : new InetSocketAddress(getHost(), getPort());
+            serverChannel.socket().setReuseAddress(getReuseAddress());
+            serverChannel.socket().bind(bindAddress, getAcceptQueueSize());
+        }
+
+        return serverChannel;
+    }
+    
     @Override
     public Future<Void> shutdown()
     {
@@ -319,14 +347,14 @@ public class ServerConnector extends AbstractNetworkConnector
     @Override
     public void close()
     {
+        super.close();
+        
         ServerSocketChannel serverChannel = _acceptChannel;
         _acceptChannel = null;
-
         if (serverChannel != null)
         {
             removeBean(serverChannel);
 
-            // If the interrupt did not close it, we should close it
             if (serverChannel.isOpen())
             {
                 try
@@ -339,7 +367,6 @@ public class ServerConnector extends AbstractNetworkConnector
                 }
             }
         }
-        // super.close();
         _localPort = -2;
     }
 
@@ -378,6 +405,7 @@ public class ServerConnector extends AbstractNetworkConnector
         }
     }
 
+    @ManagedAttribute("The Selector Manager")
     public SelectorManager getSelectorManager()
     {
         return _manager;
@@ -457,6 +485,38 @@ public class ServerConnector extends AbstractNetworkConnector
         _reuseAddress = reuseAddress;
     }
 
+   
+    @Override
+    public void setAccepting(boolean accepting)
+    {
+        super.setAccepting(accepting);
+        if (getAcceptors()>0)
+            return;
+        
+        try
+        {
+            if (accepting)
+            {
+                if (_acceptor.get()==null)
+                {
+                    Closeable acceptor = _manager.acceptor(_acceptChannel);
+                    if (!_acceptor.compareAndSet(null,acceptor))
+                        acceptor.close();
+                }
+            }
+            else
+            {
+                Closeable acceptor = _acceptor.get();
+                if (acceptor!=null && _acceptor.compareAndSet(acceptor,null))
+                    acceptor.close();
+            }
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        } 
+    }
+
     protected class ServerConnectorManager extends SelectorManager
     {
         public ServerConnectorManager(Executor executor, Scheduler scheduler, int selectors)
@@ -494,6 +554,12 @@ public class ServerConnector extends AbstractNetworkConnector
         {
             onEndPointClosed(endpoint);
             super.endPointClosed(endpoint);
+        }
+
+        @Override
+        public String toString()
+        {
+            return String.format("SelectorManager@%s",ServerConnector.this);
         }
     }
 }

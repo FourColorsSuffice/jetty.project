@@ -32,9 +32,11 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.concurrent.atomic.AtomicLong;
@@ -48,12 +50,19 @@ import org.eclipse.jetty.io.SocketChannelEndPoint;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.DefaultHandler;
 import org.eclipse.jetty.server.handler.HandlerList;
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.toolchain.test.OS;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.log.StacklessLogging;
 import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
+import static org.hamcrest.Matchers.greaterThan;
+import static org.junit.Assert.assertTrue;
+
+@RunWith(AdvancedRunner.class)
 public class ServerConnectorTest
 {
     public static class ReuseInfoHandler extends AbstractHandler
@@ -265,5 +274,39 @@ public class ServerConnectorTest
         {
             server.stop();
         }
+    }
+    
+    @Test
+    public void testOpenWithServerSocketChannel() throws Exception
+    {
+        Server server = new Server();
+        ServerConnector connector = new ServerConnector(server);
+        server.addConnector(connector);
+        
+        ServerSocketChannel channel = ServerSocketChannel.open();
+        channel.bind(new InetSocketAddress(0));
+        
+        assertTrue(channel.isOpen());
+        int port = channel.socket().getLocalPort();
+        assertThat(port,greaterThan(0));
+        
+        connector.open(channel);
+        
+        assertThat(connector.getLocalPort(),is(port));
+        
+        server.start();
+        
+        assertThat(connector.getLocalPort(),is(port));
+        assertThat(connector.getTransport(),is(channel));
+        
+        server.stop();
+        
+        assertThat(connector.getTransport(),Matchers.nullValue());
+        
+        
+        
+        
+        
+        
     }
 }

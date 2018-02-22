@@ -22,6 +22,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
@@ -38,6 +39,10 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSessionAttributeListener;
+import javax.servlet.http.HttpSessionBindingEvent;
+import javax.servlet.http.HttpSessionEvent;
+import javax.servlet.http.HttpSessionListener;
 
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.SecurityHandler;
@@ -68,6 +73,57 @@ public class ServletContextHandlerTest
 
     private static final AtomicInteger __testServlets = new AtomicInteger();
     
+    public static class MySessionHandler extends SessionHandler
+    {
+        public void checkSessionListeners (int size)
+        {
+            assertNotNull(_sessionListeners);
+            assertEquals(size, _sessionListeners.size());
+        }
+        
+        public void checkSessionAttributeListeners(int size)
+        {
+            assertNotNull(_sessionAttributeListeners);
+            assertEquals(size, _sessionAttributeListeners.size());
+        }
+        
+        public void checkSessionIdListeners(int size)
+        {
+            assertNotNull(_sessionIdListeners);
+            assertEquals(size, _sessionIdListeners.size());
+        }
+    }
+    
+    public static class MyTestSessionListener implements HttpSessionAttributeListener, HttpSessionListener
+    {
+
+        @Override
+        public void sessionCreated(HttpSessionEvent se)
+        {
+        }
+
+        @Override
+        public void sessionDestroyed(HttpSessionEvent se)
+        {
+        }
+
+        @Override
+        public void attributeAdded(HttpSessionBindingEvent event)
+        {
+        }
+
+        @Override
+        public void attributeRemoved(HttpSessionBindingEvent event)
+        {
+        }
+
+        @Override
+        public void attributeReplaced(HttpSessionBindingEvent event)
+        {            
+        }
+        
+    }
+    
     @Before
     public void createServer()
     {
@@ -83,6 +139,24 @@ public class ServletContextHandlerTest
     {
         _server.stop();
         _server.join();
+    }
+    
+    @Test
+    public void testAddSessionListener() throws Exception
+    {
+        ContextHandlerCollection contexts = new ContextHandlerCollection();
+        _server.setHandler(contexts);
+
+        ServletContextHandler root = new ServletContextHandler(contexts,"/",ServletContextHandler.SESSIONS);
+
+        MySessionHandler sessions = new MySessionHandler(); 
+        root.setSessionHandler(sessions);
+        assertNotNull(sessions);
+        
+        root.addEventListener(new MyTestSessionListener());
+        sessions.checkSessionAttributeListeners(1);
+        sessions.checkSessionIdListeners(0);
+        sessions.checkSessionListeners(1);
     }
 
     @Test
@@ -122,18 +196,18 @@ public class ServletContextHandlerTest
         
         assertEquals(2,__testServlets.get());
         
-        String response =_connector.getResponses("GET /test1 HTTP/1.0\r\n\r\n");
+        String response =_connector.getResponse("GET /test1 HTTP/1.0\r\n\r\n");
         Assert.assertThat(response,Matchers.containsString("200 OK"));
         
         assertEquals(2,__testServlets.get());
         
-        response =_connector.getResponses("GET /test2 HTTP/1.0\r\n\r\n");
+        response =_connector.getResponse("GET /test2 HTTP/1.0\r\n\r\n");
         Assert.assertThat(response,containsString("200 OK"));
         
         assertEquals(2,__testServlets.get());
         
         assertThat(holder0.getServletInstance(),nullValue());
-        response =_connector.getResponses("GET /test0 HTTP/1.0\r\n\r\n");
+        response =_connector.getResponse("GET /test0 HTTP/1.0\r\n\r\n");
         assertThat(response,containsString("200 OK"));
         assertEquals(3,__testServlets.get());
         assertThat(holder0.getServletInstance(),notNullValue(Servlet.class));
@@ -164,7 +238,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        String response = _connector.getResponses(request.toString());
+        String response = _connector.getResponse(request.toString());
         assertResponseContains("Test", response);
 
         context.addServlet(HelloServlet.class, "/hello");
@@ -174,7 +248,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        response = _connector.getResponses(request.toString());
+        response = _connector.getResponse(request.toString());
         assertResponseContains("Hello World", response);
     }
     
@@ -197,7 +271,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        String response = _connector.getResponses(request.toString());
+        String response = _connector.getResponse(request.toString());
         assertResponseContains("Test", response);
         
         assertEquals(extra,context.getSessionHandler().getHandler());
@@ -241,7 +315,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        String response = _connector.getResponses(request.toString());
+        String response = _connector.getResponse(request.toString());
         assertResponseContains("Test", response);
 
         context.stop();
@@ -255,7 +329,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        response = _connector.getResponses(request.toString());
+        response = _connector.getResponse(request.toString());
         assertResponseContains("Hello World", response);
     }
 
@@ -273,7 +347,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        String response = _connector.getResponses(request.toString());
+        String response = _connector.getResponse(request.toString());
         assertResponseContains("Test", response);
 
         context.stop();
@@ -288,7 +362,7 @@ public class ServletContextHandlerTest
         request.append("Host: localhost\n");
         request.append("\n");
 
-        response = _connector.getResponses(request.toString());
+        response = _connector.getResponse(request.toString());
         assertResponseContains("Hello World", response);
     }
     
@@ -357,10 +431,10 @@ public class ServletContextHandlerTest
 
         _server.start();
 
-        String response= _connector.getResponses("GET /hello HTTP/1.0\r\n\r\n");
+        String response= _connector.getResponse("GET /hello HTTP/1.0\r\n\r\n");
         Assert.assertThat(response, Matchers.containsString("200 OK"));
         
-        response= _connector.getResponses("GET /other HTTP/1.0\r\n\r\n");
+        response= _connector.getResponse("GET /other HTTP/1.0\r\n\r\n");
         Assert.assertThat(response, Matchers.containsString("404 Fell Through"));
         
     }
@@ -381,7 +455,7 @@ public class ServletContextHandlerTest
         context.addServlet(DecoratedObjectFactoryServlet.class, "/objfactory/*");
         _server.start();
 
-        String response= _connector.getResponses("GET /objfactory/ HTTP/1.0\r\n\r\n");
+        String response= _connector.getResponse("GET /objfactory/ HTTP/1.0\r\n\r\n");
         assertThat("Response status code", response, containsString("200 OK"));
         
         String expected = String.format("Attribute[%s] = %s", DecoratedObjectFactory.ATTR, DecoratedObjectFactory.class.getName());
@@ -408,7 +482,7 @@ public class ServletContextHandlerTest
         context.addServlet(DecoratedObjectFactoryServlet.class, "/objfactory/*");
         _server.start();
 
-        String response= _connector.getResponses("GET /objfactory/ HTTP/1.0\r\n\r\n");
+        String response= _connector.getResponse("GET /objfactory/ HTTP/1.0\r\n\r\n");
         assertThat("Response status code", response, containsString("200 OK"));
         
         String expected = String.format("Attribute[%s] = %s", DecoratedObjectFactory.ATTR, DecoratedObjectFactory.class.getName());

@@ -82,7 +82,7 @@ public abstract class AbstractClusteredSessionScavengingTest extends AbstractTes
     @Test
     public void testNoScavenging() throws Exception
     {
-        String contextPath = "";
+        String contextPath = "/";
         String servletMapping = "/server";
         int inactivePeriod = 3;
         int scavengePeriod = 0;
@@ -109,7 +109,7 @@ public abstract class AbstractClusteredSessionScavengingTest extends AbstractTes
             client.start();
             try
             {
-                String url = "http://localhost:" + port1 + contextPath + servletMapping;
+                String url = "http://localhost:" + port1 + contextPath + servletMapping.substring(1);
 
 
                 // Create the session
@@ -117,8 +117,6 @@ public abstract class AbstractClusteredSessionScavengingTest extends AbstractTes
                 assertEquals(HttpServletResponse.SC_OK,response1.getStatus());
                 String sessionCookie = response1.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
                 SessionHandler m1 = context1.getSessionHandler();
                 assertEquals(1,  m1.getSessionsCreated());
 
@@ -212,7 +210,6 @@ public abstract class AbstractClusteredSessionScavengingTest extends AbstractTes
 
                     // Check that node1 does not have any local session cached
                     request = client.newRequest(urls[0] + "?action=check");
-                    request.header("Cookie", sessionCookie);
                     response1 = request.send();
                     assertEquals(HttpServletResponse.SC_OK,response1.getStatus());
                     
@@ -224,7 +221,6 @@ public abstract class AbstractClusteredSessionScavengingTest extends AbstractTes
                     
                     // Check that node2 does not have any local session cached
                     request = client.newRequest(urls[1] + "?action=check");
-                    request.header("Cookie", sessionCookie);
                     response2 = request.send();
                     assertEquals(HttpServletResponse.SC_OK,response2.getStatus());
                 }

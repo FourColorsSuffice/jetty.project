@@ -23,7 +23,6 @@
 * Classname: `org.eclipse.jetty.server.handler.DebugHandler`
 * Maven Artifact: org.eclipse.jetty:jetty-server
 * Javadoc: {JDURL}/org/eclipse/jetty/server/handler/DebugHandler.html
-* Xref: {JXURL}/org/eclipse/jetty/server/handler/DebugHandler.html
 
 [[debug-handler-usage]]
 ==== Usage
@@ -31,9 +30,9 @@
 A simple handler that is useful to debug incoming traffic.
 It will log entry and exit points of HTTP requests as well as the response code.
 
-==== Usage in standard distribution
+==== Usage in Standard Distribution
 
-The debug handler can be added to Jetty by activating the debug module.
+The debug handler can be added to Jetty by activating the `debug` module.
 
 ==== Embedded usage
 

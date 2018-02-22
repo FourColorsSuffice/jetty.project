@@ -18,8 +18,10 @@
 
 package org.eclipse.jetty.http2.server;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.function.Consumer;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpField;
@@ -36,6 +38,7 @@ import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.WriteFlusher;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpChannel;
 import org.eclipse.jetty.server.HttpConfiguration;
@@ -46,7 +49,7 @@ import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
-public class HttpChannelOverHTTP2 extends HttpChannel
+public class HttpChannelOverHTTP2 extends HttpChannel implements Closeable, WriteFlusher.Listener
 {
     private static final Logger LOG = Log.getLogger(HttpChannelOverHTTP2.class);
     private static final HttpField SERVER_VERSION = new PreEncodedHttpField(HttpHeader.SERVER, HttpConfiguration.SERVER_VERSION);
@@ -54,7 +57,6 @@ public class HttpChannelOverHTTP2 extends HttpChannel
 
     private boolean _expect100Continue;
     private boolean _delayedUntilContent;
-    private boolean _handled;
 
     public HttpChannelOverHTTP2(Connector connector, HttpConfiguration configuration, EndPoint endPoint, HttpTransportOverHTTP2 transport)
     {
@@ -82,6 +84,12 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     public long getIdleTimeout()
     {
         return getStream().getIdleTimeout();
+    }
+
+    @Override
+    public void onFlushed(long bytes) throws IOException
+    {
+        getResponse().getHttpOutput().onFlushed(bytes);
     }
 
     public Runnable onRequest(HeadersFrame frame)
@@ -122,7 +130,6 @@ public class HttpChannelOverHTTP2 extends HttpChannel
 
             _delayedUntilContent = getHttpConfiguration().isDelayDispatchUntilContent() &&
                     !endStream && !_expect100Continue;
-            _handled = !_delayedUntilContent;
 
             if (LOG.isDebugEnabled())
             {
@@ -191,7 +198,6 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     {
         _expect100Continue = false;
         _delayedUntilContent = false;
-        _handled = false;
         super.recycle();
         getHttpTransport().recycle();
     }
@@ -278,8 +284,6 @@ public class HttpChannelOverHTTP2 extends HttpChannel
 
         boolean wasDelayed = _delayedUntilContent;
         _delayedUntilContent = false;
-        if (wasDelayed)
-            _handled = true;
         return handle || wasDelayed ? this : null;
     }
 
@@ -301,51 +305,50 @@ public class HttpChannelOverHTTP2 extends HttpChannel
 
         boolean wasDelayed = _delayedUntilContent;
         _delayedUntilContent = false;
-        if (wasDelayed)
-            _handled = true;
         return handle || wasDelayed ? this : null;
     }
 
-    public boolean isRequestHandled()
+    public boolean isRequestIdle()
     {
-        return _handled;
+        return getState().isIdle();
     }
 
-    public boolean onStreamTimeout(Throwable failure)
+    public boolean onStreamTimeout(Throwable failure, Consumer<Runnable> consumer)
     {
-        if (!_handled)
-            return true;
+        boolean result = false;
+        if (isRequestIdle())
+        {
+            consumeInput();
+            result = true;
+        }
 
-        HttpInput input = getRequest().getHttpInput();
-        boolean readFailed = input.failed(failure);
-        if (readFailed)
-            handle();
+        getHttpTransport().onStreamTimeout(failure);
+        if (getRequest().getHttpInput().onIdleTimeout(failure))
+            consumer.accept(this::handleWithContext);
 
-        boolean writeFailed = getHttpTransport().onStreamTimeout(failure);
-
-        return readFailed || writeFailed;
+        return result;
     }
 
-    public void onFailure(Throwable failure)
+    public Runnable onFailure(Throwable failure, Callback callback)
     {
         getHttpTransport().onStreamFailure(failure);
-        if (onEarlyEOF())
-        {
-            ContextHandler handler = getState().getContextHandler();
-            if (handler != null)
-                handler.handle(getRequest(), this);
-            else
-                handle();
-        }
-        else
-        {
-            getState().asyncError(failure);
-        }
+        boolean handle = getRequest().getHttpInput().failed(failure);
+        consumeInput();
+        return new FailureTask(failure, callback, handle);
     }
 
     protected void consumeInput()
     {
         getRequest().getHttpInput().consumeAll();
+    }
+
+    private void handleWithContext()
+    {
+        ContextHandler context = getState().getContextHandler();
+        if (context != null)
+            context.handle(getRequest(), this);
+        else
+            handle();
     }
 
     /**
@@ -378,6 +381,12 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     }
 
     @Override
+    public void close()
+    {
+        abort(new IOException("Unexpected close"));
+    }
+
+    @Override
     public String toString()
     {
         IStream stream = getStream();
@@ -385,5 +394,36 @@ public class HttpChannelOverHTTP2 extends HttpChannel
         if (stream != null)
             streamId = stream.getId();
         return String.format("%s#%d", super.toString(), getStream() == null ? -1 : streamId);
+    }
+
+    private class FailureTask implements Runnable
+    {
+        private final Throwable failure;
+        private final Callback callback;
+        private final boolean handle;
+
+        public FailureTask(Throwable failure, Callback callback, boolean handle)
+        {
+            this.failure = failure;
+            this.callback = callback;
+            this.handle = handle;
+        }
+
+        @Override
+        public void run()
+        {
+            try
+            {
+                if (handle)
+                    handleWithContext();
+                else if (getHttpConfiguration().isNotifyRemoteAsyncErrors())
+                    getState().asyncError(failure);
+                callback.succeeded();
+            }
+            catch (Throwable x)
+            {
+                callback.failed(x);
+            }
+        }
     }
 }

@@ -20,7 +20,9 @@ package org.eclipse.jetty.embedded;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.security.Security;
 
+import org.conscrypt.OpenSSLProvider;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpConfiguration;
@@ -37,19 +39,21 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 public class ManyConnectors
 {
     public static void main( String[] args ) throws Exception
-    {
+    {        
         // Since this example shows off SSL configuration, we need a keystore
         // with the appropriate key. These lookup of jetty.home is purely a hack
         // to get access to a keystore that we use in many unit tests and should
         // probably be a direct path to your own keystore.
 
-        String jettyDistKeystore = "../../jetty-distribution/target/distribution/demo-base/etc/keystore";
-        String keystorePath = System.getProperty(
-                "example.keystore", jettyDistKeystore);
+        String jettyDistKeystore = "../../jetty-distribution/target/distribution/demo-base/etc/test-keystore";
+        String keystorePath = System.getProperty("example.keystore", jettyDistKeystore);
         File keystoreFile = new File(keystorePath);
         if (!keystoreFile.exists())
         {
-            throw new FileNotFoundException(keystoreFile.getAbsolutePath());
+            keystorePath = "jetty-distribution/target/distribution/demo-base/etc/keystore";
+            keystoreFile = new File(keystorePath);
+            if (!keystoreFile.exists())
+                throw new FileNotFoundException(keystoreFile.getAbsolutePath());
         }
 
         // Create a basic jetty server object without declaring the port. Since
@@ -84,10 +88,17 @@ public class ManyConnectors
         // to know about. Much more configuration is available the ssl context,
         // including things like choosing the particular certificate out of a
         // keystore to be used.
+        
         SslContextFactory sslContextFactory = new SslContextFactory();
         sslContextFactory.setKeyStorePath(keystoreFile.getAbsolutePath());
         sslContextFactory.setKeyStorePassword("OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4");
         sslContextFactory.setKeyManagerPassword("OBF:1u2u1wml1z7s1z7a1wnl1u2g");
+
+        // OPTIONAL: Un-comment the following to use Conscrypt for SSL instead of
+        // the native JSSE implementation.
+
+        //Security.addProvider(new OpenSSLProvider());
+        //sslContextFactory.setProvider("Conscrypt");
 
         // HTTPS Configuration
         // A new HttpConfiguration object is needed for the next connector and
@@ -126,6 +137,7 @@ public class ManyConnectors
 
         // Start the server
         server.start();
+        
         server.join();
     }
 }

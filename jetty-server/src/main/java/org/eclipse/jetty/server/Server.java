@@ -18,26 +18,6 @@
 
 package org.eclipse.jetty.server;
 
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Date;
-import java.util.Enumeration;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-
-import javax.servlet.ServletContext;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import org.eclipse.jetty.http.DateGenerator;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpGenerator;
@@ -67,7 +47,24 @@ import org.eclipse.jetty.util.thread.Locker;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ShutdownThread;
 import org.eclipse.jetty.util.thread.ThreadPool;
-import org.eclipse.jetty.util.thread.ThreadPool.SizedThreadPool;
+
+import javax.servlet.ServletContext;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /* ------------------------------------------------------------ */
 /** Jetty HTTP Servlet Server.
@@ -356,6 +353,7 @@ public class Server extends HandlerWrapper implements Attributes
             setErrorHandler(new ErrorHandler());
         if (_errorHandler instanceof ErrorHandler.ErrorPageMapper)
             LOG.warn("ErrorPageMapper not supported for Server level Error Handling");
+        _errorHandler.setServer(this);
         
         //If the Server should be stopped when the jvm exits, register
         //with the shutdown handler thread.
@@ -369,7 +367,10 @@ public class Server extends HandlerWrapper implements Attributes
         //Start a thread waiting to receive "stop" commands.
         ShutdownMonitor.getInstance().start(); // initialize
 
-        LOG.info("jetty-" + getVersion());
+        String gitHash = Jetty.GIT_HASH;
+        String timestamp = Jetty.BUILD_TIMESTAMP;
+
+        LOG.info("jetty-{}, build timestamp: {}, git hash: {}", getVersion(), timestamp, gitHash);
         if (!Jetty.STABLE)
         {
             LOG.warn("THIS IS NOT A STABLE RELEASE! DO NOT USE IN PRODUCTION!");
@@ -377,41 +378,6 @@ public class Server extends HandlerWrapper implements Attributes
         }
         
         HttpGenerator.setJettyVersion(HttpConfiguration.SERVER_VERSION);
-
-        // Check that the thread pool size is enough.
-        SizedThreadPool pool = getBean(SizedThreadPool.class);
-        int max=pool==null?-1:pool.getMaxThreads();
-        int selectors=0;
-        int acceptors=0;
-
-        for (Connector connector : _connectors)
-        {
-            if (connector instanceof AbstractConnector)
-            {
-                AbstractConnector abstractConnector = (AbstractConnector)connector;
-                Executor connectorExecutor = connector.getExecutor();
-
-                if (connectorExecutor != pool)
-                {
-                    // Do not count the selectors and acceptors from this connector at
-                    // the server level, because the connector uses a dedicated executor.
-                    continue;
-                }
-
-                acceptors += abstractConnector.getAcceptors();
-
-                if (connector instanceof ServerConnector)
-                {
-                    // The SelectorManager uses 2 threads for each selector,
-                    // one for the normal and one for the low priority strategies.
-                    selectors += 2 * ((ServerConnector)connector).getSelectorManager().getSelectorCount();
-                }
-            }
-        }
-
-        int needed=1+selectors+acceptors;
-        if (max>0 && needed>max)
-            throw new IllegalStateException(String.format("Insufficient threads: max=%d < needed(acceptors=%d + selectors=%d + request=1)",max,acceptors,selectors));
 
         MultiException mex=new MultiException();
         try
@@ -744,7 +710,7 @@ public class Server extends HandlerWrapper implements Attributes
     @Override
     public String toString()
     {
-        return this.getClass().getName()+"@"+Integer.toHexString(hashCode());
+        return String.format("%s[%s]", super.toString(), getVersion());
     }
 
     /* ------------------------------------------------------------ */

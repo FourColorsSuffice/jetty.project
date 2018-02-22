@@ -39,14 +39,15 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.PushBuilder;
 
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpMethod;
+import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.HttpVersion;
-import org.eclipse.jetty.server.PushBuilder;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
@@ -175,7 +176,13 @@ public class PushCacheFilter implements Filter
             String host = referrerURI.getHost();
             int port = referrerURI.getPort();
             if (port <= 0)
-                port = request.isSecure() ? 443 : 80;
+            {
+                String scheme = referrerURI.getScheme();
+                if (scheme != null)
+                    port = HttpScheme.HTTPS.is(scheme) ? 443 : 80;
+                else
+                    port = request.isSecure() ? 443 : 80;
+            }
 
             boolean referredFromHere = _hosts.size() > 0 ? _hosts.contains(host) : host.equals(request.getServerName());
             referredFromHere &= _ports.size() > 0 ? _ports.contains(port) : port == request.getServerPort();
@@ -267,7 +274,7 @@ public class PushCacheFilter implements Filter
         // Push associated resources.
         if (!conditional && !primaryResource._associated.isEmpty())
         {
-            PushBuilder pushBuilder = jettyRequest.getPushBuilder();
+            PushBuilder pushBuilder = jettyRequest.newPushBuilder();
 
             // Breadth-first push of associated resources.
             Queue<PrimaryResource> queue = new ArrayDeque<>();

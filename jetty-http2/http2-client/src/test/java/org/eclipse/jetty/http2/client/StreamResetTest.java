@@ -24,7 +24,9 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -39,10 +41,13 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.HttpFields;
+import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.FlowControlStrategy;
+import org.eclipse.jetty.http2.HTTP2Flusher;
+import org.eclipse.jetty.http2.HTTP2Session;
 import org.eclipse.jetty.http2.ISession;
 import org.eclipse.jetty.http2.IStream;
 import org.eclipse.jetty.http2.api.Session;
@@ -51,13 +56,22 @@ import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
+import org.eclipse.jetty.http2.server.AbstractHTTP2ServerConnectionFactory;
+import org.eclipse.jetty.http2.server.HTTP2ServerConnectionFactory;
 import org.eclipse.jetty.server.HttpChannel;
+import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpOutput;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FutureCallback;
 import org.eclipse.jetty.util.FuturePromise;
-import org.eclipse.jetty.util.log.Log;
+import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.log.StacklessLogging;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Test;
@@ -242,7 +256,7 @@ public class StreamResetTest extends AbstractTest
 
                 response.setStatus(200);
                 response.setContentType("text/plain;charset=" + charset.name());
-                response.setContentLength(data.length*10);
+                response.setContentLength(data.length * 10);
                 response.flushBuffer();
 
                 try
@@ -259,7 +273,7 @@ public class StreamResetTest extends AbstractTest
                 {
                     // Write some content after the stream has
                     // been reset, it should throw an exception.
-                    for (int i=0;i<10;i++)
+                    for (int i = 0; i < 10; i++)
                     {
                         Thread.sleep(500);
                         response.getOutputStream().write(data);
@@ -408,6 +422,103 @@ public class StreamResetTest extends AbstractTest
     }
 
     @Test
+    public void testClientResetConsumesQueuedRequestWithData() throws Exception
+    {
+        // Use a small thread pool.
+        QueuedThreadPool serverExecutor = new QueuedThreadPool(4);
+        serverExecutor.setName("server");
+        serverExecutor.setDetailedDump(true);
+        server = new Server(serverExecutor);
+        HTTP2ServerConnectionFactory h2 = new HTTP2ServerConnectionFactory(new HttpConfiguration());
+        h2.setInitialSessionRecvWindow(FlowControlStrategy.DEFAULT_WINDOW_SIZE);
+        h2.setInitialStreamRecvWindow(FlowControlStrategy.DEFAULT_WINDOW_SIZE);
+        connector = new ServerConnector(server, 1, 1, h2);
+        server.addConnector(connector);
+        ServletContextHandler context = new ServletContextHandler(server, "/");
+        AtomicReference<CountDownLatch> phaser = new AtomicReference<>();
+        context.addServlet(new ServletHolder(new HttpServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            {
+                phaser.get().countDown();
+                IO.copy(request.getInputStream(), response.getOutputStream());
+            }
+        }), servletPath + "/*");
+        server.start();
+
+        prepareClient();
+        client.start();
+
+        Session client = newClient(new Session.Listener.Adapter());
+
+        // Send requests until one is queued on the server but not dispatched.
+        AtomicReference<CountDownLatch> latch = new AtomicReference<>();
+        List<Stream> streams = new ArrayList<>();
+        while (true)
+        {
+            phaser.set(new CountDownLatch(1));
+
+            MetaData.Request request = newRequest("GET", new HttpFields());
+            HeadersFrame frame = new HeadersFrame(request, null, false);
+            FuturePromise<Stream> promise = new FuturePromise<>();
+            client.newStream(frame, promise, new Stream.Listener.Adapter()
+            {
+                @Override
+                public void onHeaders(Stream stream, HeadersFrame frame)
+                {
+                    MetaData.Response response = (MetaData.Response)frame.getMetaData();
+                    if (response.getStatus() == HttpStatus.OK_200)
+                        latch.get().countDown();
+                }
+
+                @Override
+                public void onData(Stream stream, DataFrame frame, Callback callback)
+                {
+                    callback.succeeded();
+                    if (frame.isEndStream())
+                        latch.get().countDown();
+                }
+            });
+            Stream stream = promise.get(5, TimeUnit.SECONDS);
+            streams.add(stream);
+            ByteBuffer data = ByteBuffer.allocate(10);
+            stream.data(new DataFrame(stream.getId(), data, false), Callback.NOOP);
+
+            if (!phaser.get().await(1, TimeUnit.SECONDS))
+                break;
+        }
+
+        // Send one more request to consume the whole session flow control window, then reset it.
+        MetaData.Request request = newRequest("GET", "/x", new HttpFields());
+        HeadersFrame frame = new HeadersFrame(request, null, false);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        // This request will get no event from the server since it's reset by the client.
+        client.newStream(frame, promise, new Stream.Listener.Adapter());
+        Stream stream = promise.get(5, TimeUnit.SECONDS);
+        ByteBuffer data = ByteBuffer.allocate(((ISession)client).updateSendWindow(0));
+        stream.data(new DataFrame(stream.getId(), data, false), new Callback()
+        {
+            @Override
+            public void succeeded()
+            {
+                stream.reset(new ResetFrame(stream.getId(), ErrorCode.CANCEL_STREAM_ERROR.code), NOOP);
+            }
+        });
+
+        // Wait for WINDOW_UPDATEs to be processed by the client.
+        Thread.sleep(1000);
+
+        Assert.assertThat(((ISession)client).updateSendWindow(0), Matchers.greaterThan(0));
+
+        latch.set(new CountDownLatch(2 * streams.size()));
+        // Complete all streams.
+        streams.forEach(s -> s.data(new DataFrame(s.getId(), BufferUtil.EMPTY_BUFFER, true), Callback.NOOP));
+
+        Assert.assertTrue(latch.get().await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
     public void testServerExceptionConsumesQueuedData() throws Exception
     {
         try (StacklessLogging suppressor = new StacklessLogging(HttpChannel.class))
@@ -432,7 +543,6 @@ public class StreamResetTest extends AbstractTest
 
             Session client = newClient(new Session.Listener.Adapter());
          
-            Log.getLogger(HttpChannel.class).info("Expecting java.lang.IllegalStateException: explictly_thrown_by_test");
             MetaData.Request request = newRequest("GET", new HttpFields());
             HeadersFrame frame = new HeadersFrame(request, null, false);
             FuturePromise<Stream> promise = new FuturePromise<>();
@@ -522,6 +632,55 @@ public class StreamResetTest extends AbstractTest
                 .forEach(Callback::succeeded);
 
         Assert.assertTrue(writeLatch.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testResetAfterBlockingWrite() throws Exception
+    {
+        int windowSize = FlowControlStrategy.DEFAULT_WINDOW_SIZE;
+        CountDownLatch writeLatch = new CountDownLatch(1);
+        start(new HttpServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            {
+                try
+                {
+                    ServletOutputStream output = response.getOutputStream();
+                    output.write(new byte[10 * windowSize]);
+                }
+                catch (IOException e)
+                {
+                    writeLatch.countDown();
+                }
+            }
+        });
+
+        AtomicLong received = new AtomicLong();
+        CountDownLatch latch = new CountDownLatch(1);
+        Session client = newClient(new Session.Listener.Adapter());
+        MetaData.Request request = newRequest("GET", new HttpFields());
+        HeadersFrame frame = new HeadersFrame(request, null, true);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        client.newStream(frame, promise, new Stream.Listener.Adapter()
+        {
+            @Override
+            public void onData(Stream stream, DataFrame frame, Callback callback)
+            {
+                if (received.addAndGet(frame.getData().remaining()) == windowSize)
+                    latch.countDown();
+            }
+        });
+        Stream stream = promise.get(5, TimeUnit.SECONDS);
+        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+
+        // Reset.
+        stream.reset(new ResetFrame(stream.getId(), ErrorCode.CANCEL_STREAM_ERROR.code), Callback.NOOP);
+        Assert.assertTrue(writeLatch.await(5, TimeUnit.SECONDS));
+
+        HTTP2Session session = connector.getConnectionFactory(AbstractHTTP2ServerConnectionFactory.class).getBean(HTTP2Session.class);
+        HTTP2Flusher flusher = session.getBean(HTTP2Flusher.class);
+        Assert.assertEquals(0, flusher.getFrameQueueSize());
     }
 
     @Test

@@ -86,7 +86,7 @@ The default system classes are:
 .Default System Classes
 [width="100%",cols="8%,92%",options="header",]
 |=======================================================================
-|System Classes
+|System Classes | Note
 |java. |Java SE classes (per servlet spec v2.5 / SRV.9.7.2).
 |javax. |Java SE classes (per servlet spec v2.5 / SRV.9.7.2).
 |org.xml. |Needed by javax.xml.
@@ -98,7 +98,7 @@ The default system classes are:
 |org.eclipse.jetty.servlet.DefaultServlet |Webapp can see and not change default servlet.
 |=======================================================================
 
-Absolute classname can be passed, names ending with . are treated as packages names, and names starting with - are treated as negative matches and must be listed before any enclosing packages.
+Absolute classname can be passed, names ending with `.` are treated as packages names, and names starting with `-` are treated as negative matches and must be listed before any enclosing packages.
 
 [[setting-server-classes]]
 ===== Setting Server Classes
@@ -133,7 +133,7 @@ You can add extra classpaths to Jetty in several ways.
 [[classpaths-using-start-jar]]
 ===== Using `start.jar`
 
-If you are using xref:advanced-start-features[], at startup the jetty runtime automatically loads option Jars from the top level `$jetty.home/lib` directory. The default settings include:
+If you are using `start.jar` via the Jetty distribution, at startup the Jetty runtime automatically loads option Jars from the top level `$jetty.home/lib` directory. The default settings include:
 
 * Adding Jars under `$jetty.home/lib/ext` to the system classpath.
 You can place additional Jars here.

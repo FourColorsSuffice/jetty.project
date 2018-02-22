@@ -29,12 +29,16 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.eclipse.jetty.annotations.AnnotationParser.ClassInfo;
 import org.eclipse.jetty.annotations.AnnotationParser.FieldInfo;
@@ -44,6 +48,7 @@ import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.IO;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.toolchain.test.TestingDir;
+import org.eclipse.jetty.util.resource.Resource;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -68,6 +73,33 @@ public class TestAnnotationParser
                 return;
             foundClasses.add(info.getClassName());
         }
+    }
+    
+    
+    public static class DuplicateClassScanHandler extends AnnotationParser.AbstractHandler
+    {
+        private Map<String, List<String>> _classMap = new ConcurrentHashMap();
+
+        @Override
+        public void handle(ClassInfo info)
+        {
+            List<String> list = new CopyOnWriteArrayList<>();
+            Resource r = info.getContainingResource();
+            list.add((r==null?"":r.toString()));
+            
+            List<String> existing = _classMap.putIfAbsent(info.getClassName(), list);
+            if (existing != null)
+            {
+                existing.addAll(list);
+            }
+        }
+        
+        
+        public List<String> getParsedList(String classname)
+        {
+            return _classMap.get(classname);
+        }
+        
     }
 
     @Rule
@@ -164,6 +196,26 @@ public class TestAnnotationParser
     }
 
     @Test
+    public void testModuleInfoClassInJar() throws Exception
+    {
+        File badClassesJar = MavenTestingUtils.getTestResourceFile("jdk9/slf4j-api-1.8.0-alpha2.jar");
+        AnnotationParser parser = new AnnotationParser();
+        Set<Handler> emptySet = Collections.emptySet();
+        parser.parse(emptySet, badClassesJar.toURI());
+        // Should throw no exceptions, and happily skip the module-info.class files
+    }
+
+    @Test
+    public void testJep238MultiReleaseInJar() throws Exception
+    {
+        File badClassesJar = MavenTestingUtils.getTestResourceFile("jdk9/log4j-api-2.9.0.jar");
+        AnnotationParser parser = new AnnotationParser();
+        Set<Handler> emptySet = Collections.emptySet();
+        parser.parse(emptySet, badClassesJar.toURI());
+        // Should throw no exceptions, and skip the META-INF/versions/9/* files
+    }
+
+    @Test
     public void testBasedirExclusion() throws Exception
     {
         // Build up basedir, which itself has a path segment that violates java package and classnaming.
@@ -189,6 +241,42 @@ public class TestAnnotationParser
         // Validate
         Assert.assertThat("Found Class", tracker.foundClasses, contains(ClassA.class.getName()));
     }
+    
+    
+    @Test
+    public void testScanDuplicateClassesInJars() throws Exception
+    {
+        Resource testJar = Resource.newResource(MavenTestingUtils.getTestResourceFile("tinytest.jar"));
+        Resource testJar2 = Resource.newResource(MavenTestingUtils.getTestResourceFile("tinytest_copy.jar"));
+        AnnotationParser parser = new AnnotationParser();
+        DuplicateClassScanHandler handler = new DuplicateClassScanHandler();
+        Set<Handler> handlers = Collections.singleton(handler);
+        parser.parse(handlers, testJar);
+        parser.parse(handlers, testJar2);        
+        List<String> locations = handler.getParsedList("org.acme.ClassOne");
+        Assert.assertNotNull(locations);
+        Assert.assertEquals(2, locations.size());
+        Assert.assertTrue(!(locations.get(0).equals(locations.get(1))));
+    }
+    
+    
+    @Test
+    public void testScanDuplicateClasses() throws Exception
+    {
+        Resource testJar = Resource.newResource(MavenTestingUtils.getTestResourceFile("tinytest.jar"));
+        File testClasses = new File(MavenTestingUtils.getTargetDir(), "test-classes");
+        AnnotationParser parser = new AnnotationParser();
+        DuplicateClassScanHandler handler = new DuplicateClassScanHandler();
+        Set<Handler> handlers = Collections.singleton(handler);
+        parser.parse(handlers, testJar);
+        parser.parse(handlers, Resource.newResource(testClasses));        
+        List<String>locations = handler.getParsedList("org.acme.ClassOne");
+        Assert.assertNotNull(locations);
+        Assert.assertEquals(2, locations.size());
+        Assert.assertTrue(!(locations.get(0).equals(locations.get(1))));
+    }
+    
+    
 
     private void copyClass(Class<?> clazz, File basedir) throws IOException
     {

@@ -18,7 +18,6 @@
 
 package org.eclipse.jetty.webapp;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 
@@ -51,6 +50,11 @@ public class JettyWebXmlConfiguration extends AbstractConfiguration
     public static final String XML_CONFIGURATION = "org.eclipse.jetty.webapp.JettyWebXmlConfiguration";
     public static final String JETTY_WEB_XML = "jetty-web.xml";
 
+    public JettyWebXmlConfiguration()
+    {
+        addDependencies(WebXmlConfiguration.class, FragmentConfiguration.class, MetaInfConfiguration.class);
+    }
+    
     /**
      * Configure
      * Apply web-jetty.xml configuration
@@ -59,13 +63,6 @@ public class JettyWebXmlConfiguration extends AbstractConfiguration
     @Override
     public void configure (WebAppContext context) throws Exception
     {
-        //cannot configure if the _context is already started
-        if (context.isStarted())
-        {
-            LOG.debug("Cannot configure webapp after it is started");
-            return;
-        }
-
         LOG.debug("Configuring web-jetty.xml");
 
         Resource web_inf = context.getWebInf();
@@ -86,11 +83,10 @@ public class JettyWebXmlConfiguration extends AbstractConfiguration
 
                 Object xml_attr=context.getAttribute(XML_CONFIGURATION);
                 context.removeAttribute(XML_CONFIGURATION);
-                final XmlConfiguration jetty_config = xml_attr instanceof XmlConfiguration
-                    ?(XmlConfiguration)xml_attr
-                    :new XmlConfiguration(jetty.getURI().toURL());
-                setupXmlConfiguration(jetty_config, web_inf);
-                
+                final XmlConfiguration jetty_config = xml_attr instanceof XmlConfiguration?(XmlConfiguration)xml_attr:new XmlConfiguration(jetty.getURI().toURL());
+
+                setupXmlConfiguration(context, jetty_config, web_inf);
+
                 try
                 {
                     WebAppClassLoader.runWithServerClassAccess(()->{jetty_config.configure(context);return null;});
@@ -110,11 +106,12 @@ public class JettyWebXmlConfiguration extends AbstractConfiguration
      * @param jetty_config The configuration object.
      * @param web_inf the WEB-INF location
      */
-    private void setupXmlConfiguration(XmlConfiguration jetty_config, Resource web_inf) throws IOException
+    private void setupXmlConfiguration(WebAppContext context, XmlConfiguration jetty_config, Resource web_inf) throws IOException
     {
+        jetty_config.setJettyStandardIdsAndProperties(context.getServer(),null);
         Map<String,String> props = jetty_config.getProperties();
         props.put(PROPERTY_THIS_WEB_INF_URL, web_inf.getURI().toString());  
-        props.put(PROPERTY_WEB_INF_URI, web_inf.getURI().toString());
+        props.put(PROPERTY_WEB_INF_URI, XmlConfiguration.normalizeURI(web_inf.getURI().toString()));
         props.put(PROPERTY_WEB_INF, web_inf.toString());
     }
 }

@@ -59,6 +59,7 @@ import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
+import org.eclipse.jetty.util.component.DumpableCollection;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.Scheduler;
@@ -106,13 +107,8 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         this.recvWindow.set(FlowControlStrategy.DEFAULT_WINDOW_SIZE);
         this.pushEnabled = true; // SPEC: by default, push is enabled.
         this.idleTime = System.nanoTime();
-    }
-
-    @Override
-    protected void doStart() throws Exception
-    {
         addBean(flowControl);
-        super.doStart();
+        addBean(flusher);
     }
 
     @Override
@@ -243,6 +239,12 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
                         complete();
                     }
 
+                    @Override
+                    public InvocationType getInvocationType()
+                    {
+                        return InvocationType.NON_BLOCKING;
+                    }
+
                     private void complete()
                     {
                         notIdle();
@@ -280,7 +282,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
 
         IStream stream = getStream(frame.getStreamId());
         if (stream != null)
-            stream.process(frame, Callback.NOOP);
+            stream.process(frame, new ResetCallback());
         else
             notifyReset(this, frame);
     }
@@ -398,14 +400,14 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     /**
      * This method is called when receiving a GO_AWAY from the other peer.
      * We check the close state to act appropriately:
-     *
-     * * NOT_CLOSED: we move to REMOTELY_CLOSED and queue a disconnect, so
-     *   that the content of the queue is written, and then the connection
-     *   closed. We notify the application after being terminated.
-     *   See <code>HTTP2Session.ControlEntry#succeeded()</code>
-     *
-     * * In all other cases, we do nothing since other methods are already
-     *   performing their actions.
+     * <ul>
+     * <li>NOT_CLOSED: we move to REMOTELY_CLOSED and queue a disconnect, so
+     * that the content of the queue is written, and then the connection
+     * closed. We notify the application after being terminated.
+     * See <code>HTTP2Session.ControlEntry#succeeded()</code></li>
+     * <li>In all other cases, we do nothing since other methods are already
+     * performing their actions.</li>
+     * </ul>
      *
      * @param frame the GO_AWAY frame that has been received.
      * @see #close(int, String, Callback)
@@ -429,8 +431,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
                     {
                         // We received a GO_AWAY, so try to write
                         // what's in the queue and then disconnect.
-                        notifyClose(this, frame);
-                        control(null, Callback.NOOP, new DisconnectFrame());
+                        notifyClose(this, frame, new DisconnectCallback());
                         return;
                     }
                     break;
@@ -470,8 +471,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     @Override
     public void onConnectionFailure(int error, String reason)
     {
-        notifyFailure(this, new IOException(String.format("%d/%s", error, reason)));
-        close(error, reason, Callback.NOOP);
+        notifyFailure(this, new IOException(String.format("%d/%s", error, reason)), new CloseCallback(error, reason));
     }
 
     @Override
@@ -543,7 +543,6 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             flusher.iterate();
     }
 
-
     @Override
     public void settings(SettingsFrame frame, Callback callback)
     {
@@ -567,21 +566,21 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     /**
      * Invoked internally and by applications to send a GO_AWAY frame to the
      * other peer. We check the close state to act appropriately:
+     * <ul>
+     * <li>NOT_CLOSED: we move to LOCALLY_CLOSED and queue a GO_AWAY. When the
+     * GO_AWAY has been written, it will only cause the output to be shut
+     * down (not the connection closed), so that the application can still
+     * read frames arriving from the other peer.
+     * Ideally the other peer will notice the GO_AWAY and close the connection.
+     * When that happen, we close the connection from {@link #onShutdown()}.
+     * Otherwise, the idle timeout mechanism will close the connection, see
+     * {@link #onIdleTimeout()}.</li>
+     * <li>In all other cases, we do nothing since other methods are already
+     * performing their actions.</li>
+     * </ul>
      *
-     * * NOT_CLOSED: we move to LOCALLY_CLOSED and queue a GO_AWAY. When the
-     *   GO_AWAY has been written, it will only cause the output to be shut
-     *   down (not the connection closed), so that the application can still
-     *   read frames arriving from the other peer.
-     *   Ideally the other peer will notice the GO_AWAY and close the connection.
-     *   When that happen, we close the connection from {@link #onShutdown()}.
-     *   Otherwise, the idle timeout mechanism will close the connection, see
-     *   {@link #onIdleTimeout()}.
-     *
-     * * In all other cases, we do nothing since other methods are already
-     *   performing their actions.
-     *
-     * @param error the error code
-     * @param reason the reason
+     * @param error    the error code
+     * @param reason   the reason
      * @param callback the callback to invoke when the operation is complete
      * @see #onGoAway(GoAwayFrame)
      * @see #onShutdown()
@@ -754,8 +753,6 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         IStream removed = streams.remove(stream.getId());
         if (removed != null)
         {
-            assert removed == stream;
-
             boolean local = stream.isLocal();
             if (local)
                 localStreamCount.decrementAndGet();
@@ -841,19 +838,18 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
      * A typical close by a remote peer involves a GO_AWAY frame followed by TCP FIN.
      * This method is invoked when the TCP FIN is received, or when an exception is
      * thrown while reading, and we check the close state to act appropriately:
-     *
-     * * NOT_CLOSED: means that the remote peer did not send a GO_AWAY (abrupt close)
-     *   or there was an exception while reading, and therefore we terminate.
-     *
-     * * LOCALLY_CLOSED: we have sent the GO_AWAY to the remote peer, which received
-     *   it and closed the connection; we queue a disconnect to close the connection
-     *   on the local side.
-     *   The GO_AWAY just shutdown the output, so we need this step to make sure the
-     *   connection is closed. See {@link #close(int, String, Callback)}.
-     *
-     * * REMOTELY_CLOSED: we received the GO_AWAY, and the TCP FIN afterwards, so we
-     *   do nothing since the handling of the GO_AWAY will take care of closing the
-     *   connection. See {@link #onGoAway(GoAwayFrame)}.
+     * <ul>
+     * <li>NOT_CLOSED: means that the remote peer did not send a GO_AWAY (abrupt close)
+     * or there was an exception while reading, and therefore we terminate.</li>
+     * <li>LOCALLY_CLOSED: we have sent the GO_AWAY to the remote peer, which received
+     * it and closed the connection; we queue a disconnect to close the connection
+     * on the local side.
+     * The GO_AWAY just shutdown the output, so we need this step to make sure the
+     * connection is closed. See {@link #close(int, String, Callback)}.</li>
+     * <li>REMOTELY_CLOSED: we received the GO_AWAY, and the TCP FIN afterwards, so we
+     * do nothing since the handling of the GO_AWAY will take care of closing the
+     * connection. See {@link #onGoAway(GoAwayFrame)}.</li>
+     * </ul>
      *
      * @see #onGoAway(GoAwayFrame)
      * @see #close(int, String, Callback)
@@ -898,18 +894,17 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     /**
      * This method is invoked when the idle timeout triggers. We check the close state
      * to act appropriately:
-     *
-     * * NOT_CLOSED: it's a real idle timeout, we just initiate a close, see
-     *   {@link #close(int, String, Callback)}.
-     *
-     * * LOCALLY_CLOSED: we have sent a GO_AWAY and only shutdown the output, but the
-     *   other peer did not close the connection so we never received the TCP FIN, and
-     *   therefore we terminate.
-     *
-     * * REMOTELY_CLOSED: the other peer sent us a GO_AWAY, we should have queued a
-     *   disconnect, but for some reason it was not processed (for example, queue was
-     *   stuck because of TCP congestion), therefore we terminate.
-     *   See {@link #onGoAway(GoAwayFrame)}.
+     * <ul>
+     * <li>NOT_CLOSED: it's a real idle timeout, we just initiate a close, see
+     * {@link #close(int, String, Callback)}.</li>
+     * <li>LOCALLY_CLOSED: we have sent a GO_AWAY and only shutdown the output, but the
+     * other peer did not close the connection so we never received the TCP FIN, and
+     * therefore we terminate.</li>
+     * <li>REMOTELY_CLOSED: the other peer sent us a GO_AWAY, we should have queued a
+     * disconnect, but for some reason it was not processed (for example, queue was
+     * stuck because of TCP congestion), therefore we terminate.
+     * See {@link #onGoAway(GoAwayFrame)}.</li>
+     * </ul>
      *
      * @return true if the session should be closed, false otherwise
      * @see #onGoAway(GoAwayFrame)
@@ -960,6 +955,11 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     {
     }
 
+    void onFlushed(long bytes) throws IOException
+    {
+        flusher.onFlushed(bytes);
+    }
+
     public void disconnect()
     {
         if (LOG.isDebugEnabled())
@@ -999,8 +999,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
 
     protected void abort(Throwable failure)
     {
-        notifyFailure(this, failure);
-        terminate(failure);
+        notifyFailure(this, failure, new TerminateCallback(failure));
     }
 
     public boolean isDisconnected()
@@ -1062,11 +1061,11 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
     }
 
-    protected void notifyClose(Session session, GoAwayFrame frame)
+    protected void notifyClose(Session session, GoAwayFrame frame, Callback callback)
     {
         try
         {
-            listener.onClose(session, frame);
+            listener.onClose(session, frame, callback);
         }
         catch (Throwable x)
         {
@@ -1087,11 +1086,11 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
     }
 
-    protected void notifyFailure(Session session, Throwable failure)
+    protected void notifyFailure(Session session, Throwable failure, Callback callback)
     {
         try
         {
-            listener.onFailure(session, failure);
+            listener.onFailure(session, failure, callback);
         }
         catch (Throwable x)
         {
@@ -1115,14 +1114,20 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     }
 
     @Override
+    public void dump(Appendable out, String indent) throws IOException
+    {
+        super.dump(out, indent);
+        dump(out, indent, Collections.singleton(new DumpableCollection("streams", streams.values())));
+    }
+
+    @Override
     public String toString()
     {
-        return String.format("%s@%x{l:%s <-> r:%s,queueSize=%d,sendWindow=%s,recvWindow=%s,streams=%d,%s}",
+        return String.format("%s@%x{l:%s <-> r:%s,sendWindow=%s,recvWindow=%s,streams=%d,%s}",
                 getClass().getSimpleName(),
                 hashCode(),
                 getEndPoint().getLocalAddress(),
                 getEndPoint().getRemoteAddress(),
-                flusher.getQueueSize(),
                 sendWindow,
                 recvWindow,
                 streams.size(),
@@ -1132,15 +1137,28 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     private class ControlEntry extends HTTP2Flusher.Entry
     {
         private int bytes;
+        private int frameBytes;
 
         private ControlEntry(Frame frame, IStream stream, Callback callback)
         {
             super(frame, stream, callback);
         }
 
+        @Override
+        public int getFrameBytesRemaining()
+        {
+            return frameBytes;
+        }
+
+        @Override
+        public void onFrameBytesFlushed(int bytesFlushed)
+        {
+            frameBytes -= bytesFlushed;
+        }
+
         protected boolean generate(ByteBufferPool.Lease lease)
         {
-            bytes = generator.control(lease, frame);
+            bytes = frameBytes = generator.control(lease, frame);
             if (LOG.isDebugEnabled())
                 LOG.debug("Generated {}", frame);
             prepare();
@@ -1238,7 +1256,8 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     private class DataEntry extends HTTP2Flusher.Entry
     {
         private int bytes;
-        private int dataRemaining;
+        private int frameBytes;
+        private int dataBytes;
         private int dataWritten;
 
         private DataEntry(DataFrame frame, IStream stream, Callback callback)
@@ -1249,35 +1268,47 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             // of data frames that cannot be completely written due to
             // the flow control window exhausting, since in that case
             // we would have to count the padding only once.
-            dataRemaining = frame.remaining();
+            dataBytes = frame.remaining();
         }
 
         @Override
-        public int dataRemaining()
+        public int getFrameBytesRemaining()
         {
-            return dataRemaining;
+            return frameBytes;
+        }
+
+        @Override
+        public void onFrameBytesFlushed(int bytesFlushed)
+        {
+            frameBytes -= bytesFlushed;
+        }
+
+        @Override
+        public int getDataBytesRemaining()
+        {
+            return dataBytes;
         }
 
         protected boolean generate(ByteBufferPool.Lease lease)
         {
-            int dataRemaining = dataRemaining();
+            int dataBytes = getDataBytesRemaining();
 
             int sessionSendWindow = getSendWindow();
             int streamSendWindow = stream.updateSendWindow(0);
             int window = Math.min(streamSendWindow, sessionSendWindow);
-            if (window <= 0 && dataRemaining > 0)
+            if (window <= 0 && dataBytes > 0)
                 return false;
 
-            int length = Math.min(dataRemaining, window);
+            int length = Math.min(dataBytes, window);
 
             // Only one DATA frame is generated.
-            bytes = generator.data(lease, (DataFrame)frame, length);
+            bytes = frameBytes = generator.data(lease, (DataFrame)frame, length);
             int written = bytes - Frame.HEADER_LENGTH;
             if (LOG.isDebugEnabled())
-                LOG.debug("Generated {}, length/window/data={}/{}/{}", frame, written, window, dataRemaining);
+                LOG.debug("Generated {}, length/window/data={}/{}/{}", frame, written, window, dataBytes);
 
             this.dataWritten = written;
-            this.dataRemaining -= written;
+            this.dataBytes -= written;
 
             flowControl.onDataSending(stream, written);
 
@@ -1292,7 +1323,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
 
             // Do we have more to send ?
             DataFrame dataFrame = (DataFrame)frame;
-            if (dataRemaining() == 0)
+            if (getDataBytesRemaining() == 0)
             {
                 // Only now we can update the close state
                 // and eventually remove the stream.
@@ -1324,6 +1355,127 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         public void failed(Throwable x)
         {
             promise.failed(x);
+        }
+    }
+
+    private class ResetCallback implements Callback
+    {
+        @Override
+        public void succeeded()
+        {
+            complete();
+        }
+
+        @Override
+        public void failed(Throwable x)
+        {
+            complete();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
+        }
+
+        private void complete()
+        {
+            flusher.iterate();
+        }
+    }
+
+    private class CloseCallback implements Callback
+    {
+        private final int error;
+        private final String reason;
+
+        private CloseCallback(int error, String reason)
+        {
+            this.error = error;
+            this.reason = reason;
+        }
+
+        @Override
+        public void succeeded()
+        {
+            complete();
+        }
+
+        @Override
+        public void failed(Throwable x)
+        {
+            complete();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
+        }
+
+        private void complete()
+        {
+            close(error, reason, Callback.NOOP);
+        }
+    }
+
+    private class DisconnectCallback implements Callback
+    {
+        @Override
+        public void succeeded()
+        {
+            complete();
+        }
+
+        @Override
+        public void failed(Throwable x)
+        {
+            complete();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
+        }
+
+        private void complete()
+        {
+            control(null, Callback.NOOP, new DisconnectFrame());
+        }
+    }
+
+    private class TerminateCallback implements Callback
+    {
+        private final Throwable failure;
+
+        private TerminateCallback(Throwable failure)
+        {
+            this.failure = failure;
+        }
+
+        @Override
+        public void succeeded()
+        {
+            complete();
+        }
+
+        @Override
+        public void failed(Throwable x)
+        {
+            failure.addSuppressed(x);
+            complete();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
+        }
+
+        private void complete()
+        {
+            terminate(failure);
         }
     }
 }

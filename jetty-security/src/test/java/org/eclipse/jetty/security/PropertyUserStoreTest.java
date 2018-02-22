@@ -18,20 +18,6 @@
 
 package org.eclipse.jetty.security;
 
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
-import static org.junit.Assume.*;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.Writer;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.OS;
 import org.eclipse.jetty.toolchain.test.TestingDir;
@@ -39,6 +25,31 @@ import org.eclipse.jetty.util.security.Credential;
 import org.hamcrest.Matcher;
 import org.junit.Rule;
 import org.junit.Test;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FilePermission;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assume.assumeThat;
 
 public class PropertyUserStoreTest
 {
@@ -97,15 +108,55 @@ public class PropertyUserStoreTest
         Path dir = testdir.getPath().toRealPath();
         FS.ensureDirExists(dir.toFile());
         File users = dir.resolve("users.txt").toFile();
-        
-        try (Writer writer = new BufferedWriter(new FileWriter(users)))
+
+        writeUser( users );
+        return users;
+    }
+
+    private String initUsersPackedFileText()
+        throws Exception
+    {
+        Path dir = testdir.getPath().toRealPath();
+        FS.ensureDirExists( dir.toFile() );
+        File users = dir.resolve( "users.txt" ).toFile();
+        writeUser( users );
+        File usersJar = dir.resolve( "users.jar" ).toFile();
+        String entryPath = "mountain_goat/pale_ale.txt";
+        try (FileInputStream fileInputStream = new FileInputStream( users ))
+        {
+            try (OutputStream outputStream = new FileOutputStream( usersJar ))
+            {
+                try (JarOutputStream jarOutputStream = new JarOutputStream( outputStream ))
+                {
+                    // add fake entry
+                    jarOutputStream.putNextEntry( new JarEntry( "foo/wine" ) );
+
+                    JarEntry jarEntry = new JarEntry( entryPath );
+                    jarOutputStream.putNextEntry( jarEntry );
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+                    while ( ( bytesRead = fileInputStream.read( buffer ) ) != -1 )
+                    {
+                        jarOutputStream.write( buffer, 0, bytesRead );
+                    }
+                    // add fake entry
+                    jarOutputStream.putNextEntry( new JarEntry( "foo/cheese" ) );
+                }
+            }
+
+        }
+        return "jar:" + usersJar.toURI().toASCIIString() + "!/" + entryPath;
+    }
+
+    private void writeUser(File usersFile)
+        throws Exception
+    {
+        try (Writer writer = new BufferedWriter(new FileWriter(usersFile)))
         {
             writer.append("tom: tom, roleA\n");
             writer.append("dick: dick, roleB\n");
             writer.append("harry: harry, roleA, roleB\n");
         }
-        
-        return users;
     }
 
     private void addAdditionalUser(File usersFile, String userRef) throws Exception
@@ -124,7 +175,7 @@ public class PropertyUserStoreTest
         final File usersFile = initUsersText();
 
         PropertyUserStore store = new PropertyUserStore();
-        store.setConfigPath(usersFile);
+        store.setConfigFile(usersFile);
 
         store.registerUserListener(userCount);
 
@@ -138,28 +189,69 @@ public class PropertyUserStoreTest
     }
 
     @Test
+    public void testPropertyUserStoreLoadFromJarFile() throws Exception
+    {
+        final UserCount userCount = new UserCount();
+        final String usersFile = initUsersPackedFileText();
+
+        PropertyUserStore store = new PropertyUserStore();
+        store.setConfig(usersFile);
+
+        store.registerUserListener(userCount);
+
+        store.start();
+
+        assertThat("Failed to retrieve UserIdentity directly from PropertyUserStore", //
+                   store.getUserIdentity("tom"), notNullValue());
+        assertThat("Failed to retrieve UserIdentity directly from PropertyUserStore", //
+                   store.getUserIdentity("dick"), notNullValue());
+        assertThat("Failed to retrieve UserIdentity directly from PropertyUserStore", //
+                   store.getUserIdentity("harry"), notNullValue());
+        userCount.assertThatCount(is(3));
+        userCount.awaitCount(3);
+    }
+
+    @Test
     public void testPropertyUserStoreLoadUpdateUser() throws Exception
     {
         assumeThat("Skipping on OSX", OS.IS_OSX, is(false));
         final UserCount userCount = new UserCount();
         final File usersFile = initUsersText();
-
-        PropertyUserStore store = new PropertyUserStore();
+        final AtomicInteger loadCount = new AtomicInteger(0);
+        PropertyUserStore store = new PropertyUserStore()
+        {
+            @Override
+            protected void loadUsers() throws IOException
+            {
+                loadCount.incrementAndGet();
+                super.loadUsers();
+            }
+        };
         store.setHotReload(true);
-        store.setConfigPath(usersFile);
-
+        store.setConfigFile(usersFile);
         store.registerUserListener(userCount);
 
         store.start();
         
         userCount.assertThatCount(is(3));
-
-        addAdditionalUser(usersFile,"skip: skip, roleA\n");
-
-        userCount.awaitCount(4);
-
-        assertThat("Failed to retrieve UserIdentity from PropertyUserStore directly", store.getUserIdentity("skip"), notNullValue());
+        assertThat(loadCount.get(),is(1));
         
+        addAdditionalUser(usersFile,"skip: skip, roleA\n");
+        userCount.awaitCount(4);
+        assertThat(loadCount.get(),is(2));
+        assertThat(store.getUserIdentity("skip"), notNullValue());
+        userCount.assertThatCount(is(4));
+        userCount.assertThatUsers(hasItem("skip"));
+        
+        if (OS.IS_LINUX)
+            Files.createFile(testdir.getPath().toRealPath().resolve("unrelated.txt"),
+                PosixFilePermissions.asFileAttribute(EnumSet.noneOf(PosixFilePermission.class)));
+        else
+            Files.createFile(testdir.getPath().toRealPath().resolve("unrelated.txt"));
+        
+        Thread.sleep(1100);
+        assertThat(loadCount.get(),is(2));
+
         userCount.assertThatCount(is(4));
         userCount.assertThatUsers(hasItem("skip"));
     }
@@ -177,7 +269,7 @@ public class PropertyUserStoreTest
 
         PropertyUserStore store = new PropertyUserStore();
         store.setHotReload(true);
-        store.setConfigPath(usersFile);
+        store.setConfigFile(usersFile);
 
         store.registerUserListener(userCount);
 

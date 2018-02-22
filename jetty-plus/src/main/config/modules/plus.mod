@@ -1,7 +1,6 @@
 [description]
-Enables JNDI and resource injection for webapplications 
-and other servlet 3.x features not supported in the core
-jetty webapps module.
+Enables resource injection and other servlet 3.x 
+features not supported in the core jetty webapps module.
 
 [depend]
 server
@@ -11,6 +10,3 @@ webapp
 
 [lib]
 lib/jetty-plus-${jetty.version}.jar
-
-[xml]
-etc/jetty-plus.xml

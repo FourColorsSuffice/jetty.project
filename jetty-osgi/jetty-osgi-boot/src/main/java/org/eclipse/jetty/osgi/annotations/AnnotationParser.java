@@ -30,8 +30,8 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.jetty.osgi.boot.utils.BundleFileLocatorHelperFactory;
-import org.eclipse.jetty.util.ConcurrentHashSet;
 import org.eclipse.jetty.util.resource.Resource;
+import org.objectweb.asm.Opcodes;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.Constants;
 
@@ -40,13 +40,17 @@ import org.osgi.framework.Constants;
  */
 public class AnnotationParser extends org.eclipse.jetty.annotations.AnnotationParser
 {
-    private Set<URI> _alreadyParsed = new ConcurrentHashSet<URI>();
+    private Set<URI> _alreadyParsed = ConcurrentHashMap.newKeySet();
     
     private ConcurrentHashMap<URI,Bundle> _uriToBundle = new ConcurrentHashMap<URI, Bundle>();
     private ConcurrentHashMap<Bundle,Resource> _bundleToResource = new ConcurrentHashMap<Bundle,Resource>();
     private ConcurrentHashMap<Resource, Bundle> _resourceToBundle = new ConcurrentHashMap<Resource, Bundle>();
     private ConcurrentHashMap<Bundle,URI> _bundleToUri = new ConcurrentHashMap<Bundle, URI>();
     
+    public AnnotationParser(int javaPlatform)
+    {
+        super(javaPlatform, Opcodes.ASM5);
+    }
     
     /**
      * Keep track of a jetty URI Resource and its associated OSGi bundle.
@@ -204,12 +208,11 @@ public class AnnotationParser extends org.eclipse.jetty.annotations.AnnotationPa
             }
             //transform into a classname to pass to the resolver
             String shortName =  name.replace('/', '.').substring(0,name.length()-6);
-            if (!isParsed(shortName))
+
+            addParsedClass(shortName, getResource(bundle));
+            try (InputStream classInputStream = classUrl.openStream())
             {
-                try (InputStream classInputStream = classUrl.openStream())
-                {
-                    scanClass(handlers, getResource(bundle), classInputStream);
-                }
+                scanClass(handlers, getResource(bundle), classInputStream);
             }
         }
     }

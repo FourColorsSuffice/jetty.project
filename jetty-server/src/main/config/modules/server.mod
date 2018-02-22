@@ -8,8 +8,8 @@ resources
 logging
 
 [lib]
-lib/servlet-api-3.1.jar
-lib/jetty-schemas-3.1.jar
+lib/servlet-api-4.0.jar
+lib/jetty-schemas-4.0.jar
 lib/jetty-http-${jetty.version}.jar
 lib/jetty-server-${jetty.version}.jar
 lib/jetty-xml-${jetty.version}.jar
@@ -82,10 +82,3 @@ etc/jetty.xml
 
 ## Dump the state of the Jetty server, components, and webapps before shutdown
 # jetty.server.dumpBeforeStop=false
-
-## The name to uniquely identify this server instance
-#jetty.defaultSessionIdManager.workerName=node1
-
-## How frequently sessions are inspected
-#jetty.sessionInspectionInterval.seconds=60
-

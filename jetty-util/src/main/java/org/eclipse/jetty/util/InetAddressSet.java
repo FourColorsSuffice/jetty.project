@@ -41,8 +41,6 @@ import java.util.function.Predicate;
  * "192.168.255.255" </dd>
  * <dt>InetAddress-InetAddress</dt><dd>An inclusive range of InetAddresses. 
  * eg. "[a000::1]-[afff::]", "192.168.128.0-192.168.128.255"</dd>
- * <dt>Legacy format</dt><dd>The legacy format used by {@link IPAddressMap} for IPv4 only. 
- * eg. "10.10.10-14.0-128"</dd>
  * </dl>
  * <p>This class is designed to work with {@link IncludeExcludeSet}</p>
  * @see IncludeExcludeSet
@@ -246,11 +244,11 @@ public class InetAddressSet extends AbstractSet<String> implements Set<String>, 
             _octets = cidr/8;
             _mask = 0xff&(0xff<<(8-cidr%8));
             _masked = _mask==0?0:_raw[_octets]&_mask;
-            
+                        
             if (cidr>(_raw.length*8))
                 throw new IllegalArgumentException("CIDR too large: "+pattern);
                 
-            if (_mask!=0 && _raw[_octets]!=_masked)
+            if (_mask!=0 && (0xff&_raw[_octets])!=_masked)
                 throw new IllegalArgumentException("CIDR bits non zero: "+pattern);
             
             for (int o=_octets+(_mask==0?0:1);o<_raw.length;o++)

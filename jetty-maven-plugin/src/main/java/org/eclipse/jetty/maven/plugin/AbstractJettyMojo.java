@@ -24,6 +24,8 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -37,7 +39,6 @@ import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.project.MavenProject;
-import org.codehaus.plexus.util.FileUtils;
 import org.eclipse.jetty.security.LoginService;
 import org.eclipse.jetty.server.RequestLog;
 import org.eclipse.jetty.server.Server;
@@ -272,10 +273,7 @@ public abstract class AbstractJettyMojo extends AbstractMojo
     protected Thread consoleScanner;
     
     protected ServerSupport serverSupport;
-    
-    
-    
-    
+
     /**
      * <p>
      * Determines whether or not the server blocks when started. The default
@@ -287,8 +285,9 @@ public abstract class AbstractJettyMojo extends AbstractMojo
      * If true, the server will not block the execution of subsequent code. This
      * is the behaviour of the jetty:start and default behaviour of the jetty:deploy goals.
      * </p>
+     * @parameter  default-value="false"
      */
-    protected boolean nonblocking = false;
+    protected boolean nonBlocking = false;
       
     
     public abstract void restartWebApp(boolean reconfigureScanner) throws Exception;
@@ -341,7 +340,7 @@ public abstract class AbstractJettyMojo extends AbstractMojo
         {
             try
             {
-                List<URL> provided = new ArrayList<URL>();
+                List<URL> provided = new ArrayList<>();
                 URL[] urls = null;
                
                 for ( Iterator<Artifact> iter = projectArtifacts.iterator(); iter.hasNext(); )
@@ -429,11 +428,13 @@ public abstract class AbstractJettyMojo extends AbstractMojo
             // if a <httpConnector> was specified in the pom, use it
             if (httpConnector != null)
             {
+
                 // check that its port was set
                 if (httpConnector.getPort() <= 0)
                 {
                     //use any jetty.http.port settings provided
-                    String tmp = System.getProperty(MavenServerConnector.PORT_SYSPROPERTY, System.getProperty("jetty.port", MavenServerConnector.DEFAULT_PORT_STR));
+                    String tmp = System.getProperty(MavenServerConnector.PORT_SYSPROPERTY, //
+                                                    System.getProperty("jetty.port", MavenServerConnector.DEFAULT_PORT_STR));
                     httpConnector.setPort(Integer.parseInt(tmp.trim()));
                 }  
                 httpConnector.setServer(server);
@@ -459,7 +460,7 @@ public abstract class AbstractJettyMojo extends AbstractMojo
             // start Jetty
             this.server.start();
 
-            getLog().info("Started Jetty Server");
+            getLog().info( "Started Jetty Server" );
 
             if ( dumpOnStart )
             {
@@ -478,10 +479,11 @@ public abstract class AbstractJettyMojo extends AbstractMojo
             startConsoleScanner();
 
             // keep the thread going if not in daemon mode
-            if (!nonblocking )
+            if (!nonBlocking )
             {
                 server.join();
             }
+
         }
         catch (Exception e)
         {
@@ -489,7 +491,7 @@ public abstract class AbstractJettyMojo extends AbstractMojo
         }
         finally
         {
-            if (!nonblocking )
+            if (!nonBlocking )
             {
                 getLog().info("Jetty server exiting.");
             }            
@@ -504,7 +506,7 @@ public abstract class AbstractJettyMojo extends AbstractMojo
             ShutdownMonitor monitor = ShutdownMonitor.getInstance();
             monitor.setPort(stopPort);
             monitor.setKey(stopKey);
-            monitor.setExitVm(!nonblocking);
+            monitor.setExitVm(!nonBlocking );
         }
     }
 
@@ -530,8 +532,15 @@ public abstract class AbstractJettyMojo extends AbstractMojo
         //context xml file can OVERRIDE those settings
         if (contextXml != null)
         {
-            File file = FileUtils.getFile(contextXml);
-            XmlConfiguration xmlConfiguration = new XmlConfiguration(Resource.toURL(file));
+            Path path = Paths.get(contextXml);
+            if (!path.isAbsolute())
+            {
+                Path workDir = Paths.get(System.getProperty("user.dir"));
+                path = workDir.resolve(path);
+                contextXml = path.toFile().getAbsolutePath();
+            }
+    
+            XmlConfiguration xmlConfiguration = new XmlConfiguration(Resource.toURL(path.toFile()));
             getLog().info("Applying context xml file "+contextXml);
             xmlConfiguration.configure(webApp);   
         }

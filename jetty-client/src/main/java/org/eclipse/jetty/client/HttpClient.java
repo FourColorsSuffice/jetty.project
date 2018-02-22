@@ -73,6 +73,7 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
+import org.eclipse.jetty.util.thread.ThreadPool;
 
 /**
  * <p>{@link HttpClient} provides an efficient, asynchronous, non-blocking implementation
@@ -118,33 +119,34 @@ public class HttpClient extends ContainerLifeCycle
     private final ConcurrentMap<Origin, HttpDestination> destinations = new ConcurrentHashMap<>();
     private final ProtocolHandlers handlers = new ProtocolHandlers();
     private final List<Request.Listener> requestListeners = new ArrayList<>();
-    private final AuthenticationStore authenticationStore = new HttpAuthenticationStore();
     private final Set<ContentDecoder.Factory> decoderFactories = new ContentDecoderFactorySet();
     private final ProxyConfiguration proxyConfig = new ProxyConfiguration();
     private final HttpClientTransport transport;
     private final SslContextFactory sslContextFactory;
-    private volatile CookieManager cookieManager;
-    private volatile CookieStore cookieStore;
-    private volatile Executor executor;
-    private volatile ByteBufferPool byteBufferPool;
-    private volatile Scheduler scheduler;
-    private volatile SocketAddressResolver resolver;
-    private volatile HttpField agentField = new HttpField(HttpHeader.USER_AGENT, "Jetty/" + Jetty.VERSION);
-    private volatile boolean followRedirects = true;
-    private volatile int maxConnectionsPerDestination = 64;
-    private volatile int maxRequestsQueuedPerDestination = 1024;
-    private volatile int requestBufferSize = 4096;
-    private volatile int responseBufferSize = 16384;
-    private volatile int maxRedirects = 8;
-    private volatile SocketAddress bindAddress;
-    private volatile long connectTimeout = 15000;
-    private volatile long addressResolutionTimeout = 15000;
-    private volatile long idleTimeout;
-    private volatile boolean tcpNoDelay = true;
-    private volatile boolean strictEventOrdering = false;
-    private volatile HttpField encodingField;
-    private volatile boolean removeIdleDestinations = false;
-    private volatile boolean connectBlocking = false;
+    private AuthenticationStore authenticationStore = new HttpAuthenticationStore();
+    private CookieManager cookieManager;
+    private CookieStore cookieStore;
+    private Executor executor;
+    private ByteBufferPool byteBufferPool;
+    private Scheduler scheduler;
+    private SocketAddressResolver resolver;
+    private HttpField agentField = new HttpField(HttpHeader.USER_AGENT, "Jetty/" + Jetty.VERSION);
+    private boolean followRedirects = true;
+    private int maxConnectionsPerDestination = 64;
+    private int maxRequestsQueuedPerDestination = 1024;
+    private int requestBufferSize = 4096;
+    private int responseBufferSize = 16384;
+    private int maxRedirects = 8;
+    private SocketAddress bindAddress;
+    private long connectTimeout = 15000;
+    private long addressResolutionTimeout = 15000;
+    private long idleTimeout;
+    private boolean tcpNoDelay = true;
+    private boolean strictEventOrdering = false;
+    private HttpField encodingField;
+    private boolean removeIdleDestinations = false;
+    private boolean connectBlocking = false;
+    private String name = getClass().getSimpleName() + "@" + Integer.toHexString(hashCode());
 
     /**
      * Creates a {@link HttpClient} instance that can perform requests to non-TLS destinations only
@@ -195,8 +197,6 @@ public class HttpClient extends ContainerLifeCycle
         if (sslContextFactory != null)
             addBean(sslContextFactory);
 
-        String name = HttpClient.class.getSimpleName() + "@" + hashCode();
-
         if (executor == null)
         {
             QueuedThreadPool threadPool = new QueuedThreadPool();
@@ -204,9 +204,12 @@ public class HttpClient extends ContainerLifeCycle
             executor = threadPool;
         }
         addBean(executor);
-
+        
         if (byteBufferPool == null)
-            byteBufferPool = new MappedByteBufferPool();
+            byteBufferPool = new MappedByteBufferPool(2048,
+                executor instanceof ThreadPool.SizedThreadPool
+                    ? ((ThreadPool.SizedThreadPool)executor).getMaxThreads()/2
+                    : Runtime.getRuntime().availableProcessors()*2);
         addBean(byteBufferPool);
 
         if (scheduler == null)
@@ -300,6 +303,14 @@ public class HttpClient extends ContainerLifeCycle
     public AuthenticationStore getAuthenticationStore()
     {
         return authenticationStore;
+    }
+
+    /**
+     * @param authenticationStore the authentication store associated with this instance
+     */
+    public void setAuthenticationStore(AuthenticationStore authenticationStore)
+    {
+        this.authenticationStore = authenticationStore;
     }
 
     /**
@@ -628,6 +639,27 @@ public class HttpClient extends ContainerLifeCycle
     }
 
     /**
+     * @return the name of this HttpClient
+     */
+    @ManagedAttribute("The name of this HttpClient")
+    public String getName()
+    {
+        return name;
+    }
+
+    /**
+     * <p>Sets the name of this HttpClient.</p>
+     * <p>The name is also used to generate the JMX ObjectName of this HttpClient
+     * and must be set before the registration of the HttpClient MBean in the MBeanServer.</p>
+     *
+     * @param name the name of this HttpClient
+     */
+    public void setName(String name)
+    {
+        this.name = name;
+    }
+
+    /**
      * @return the max time, in milliseconds, a connection can take to connect to destinations
      */
     @ManagedAttribute("The timeout, in milliseconds, for connect() operations")
@@ -717,7 +749,7 @@ public class HttpClient extends ContainerLifeCycle
      */
     public void setUserAgentField(HttpField agent)
     {
-        if (agent.getHeader() != HttpHeader.USER_AGENT)
+        if (agent != null && agent.getHeader() != HttpHeader.USER_AGENT)
             throw new IllegalArgumentException();
         this.agentField = agent;
     }

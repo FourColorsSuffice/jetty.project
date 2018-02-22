@@ -35,13 +35,15 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.http.MimeTypes;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.util.IO;
 import org.hamcrest.Matchers;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
+@RunWith(AdvancedRunner.class)
 public class ForwardedRequestCustomizerTest
 {
     private Server _server;
@@ -112,7 +114,7 @@ public class ForwardedRequestCustomizerTest
         assertEquals("http",_results.poll());
         assertEquals("myhost",_results.poll());
         assertEquals("80",_results.poll());
-        assertEquals("[2001:db8:cafe::17]",_results.poll());
+        assertEquals("2001:db8:cafe::17",_results.poll());
         assertEquals("4711",_results.poll());
     }
     
@@ -182,6 +184,22 @@ public class ForwardedRequestCustomizerTest
         assertEquals("example.com",_results.poll());
         assertEquals("80",_results.poll());
         assertEquals("192.0.2.43",_results.poll());
+        assertEquals("0",_results.poll());
+    }
+    
+    @Test
+    public void testRFC7239_IPv6() throws Exception
+    {
+        _connector.getResponse(
+            "GET / HTTP/1.1\n"+
+             "Host: myhost\n"+
+             "Forwarded: for=\"[2001:db8:cafe::1]\";by=\"[2001:db8:cafe::2]\";host=\"[2001:db8:cafe::3]:8888\"\n"+
+            "\n");
+
+        assertEquals("http",_results.poll());
+        assertEquals("2001:db8:cafe::3",_results.poll());
+        assertEquals("8888",_results.poll());
+        assertEquals("2001:db8:cafe::1",_results.poll());
         assertEquals("0",_results.poll());
     }
 

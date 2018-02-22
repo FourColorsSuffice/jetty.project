@@ -14,9 +14,6 @@ server
 etc/jetty-ssl.xml
 etc/jetty-ssl-context.xml
 
-[files]
-basehome:modules/ssl/keystore|etc/keystore
-
 [ini-template]
 ### TLS(SSL) Connector Configuration
 
@@ -44,6 +41,12 @@ basehome:modules/ssl/keystore|etc/keystore
 ## Thread priority delta to give to acceptor threads
 # jetty.ssl.acceptorPriorityDelta=0
 
+## Preallocated producer threads (0 disables EatWhatYouKill scheduling)
+# jetty.ssl.reservedThreads=-1
+
+## Connect Timeout in milliseconds
+# jetty.ssl.connectTimeout=15000
+
 ## Whether request host names are checked to match any SNI names
 # jetty.ssl.sniHostCheck=true
 
@@ -57,6 +60,9 @@ basehome:modules/ssl/keystore|etc/keystore
 ## Note that OBF passwords are not secure, just protected from casual observation
 ## See http://www.eclipse.org/jetty/documentation/current/configuring-security-secure-passwords.html
 
+## SSL JSSE Provider
+# jetty.sslContext.provider=
+
 ## Keystore file path (relative to $jetty.base)
 # jetty.sslContext.keyStorePath=etc/keystore
 
@@ -64,17 +70,17 @@ basehome:modules/ssl/keystore|etc/keystore
 # jetty.sslContext.trustStorePath=etc/keystore
 
 ## Keystore password
-# jetty.sslContext.keyStorePassword=OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4
+# jetty.sslContext.keyStorePassword=
 
 ## Keystore type and provider
 # jetty.sslContext.keyStoreType=JKS
 # jetty.sslContext.keyStoreProvider=
 
 ## KeyManager password
-# jetty.sslContext.keyManagerPassword=OBF:1u2u1wml1z7s1z7a1wnl1u2g
+# jetty.sslContext.keyManagerPassword=
 
 ## Truststore password
-# jetty.sslContext.trustStorePassword=OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4
+# jetty.sslContext.trustStorePassword=
 
 ## Truststore type and provider
 # jetty.sslContext.trustStoreType=JKS

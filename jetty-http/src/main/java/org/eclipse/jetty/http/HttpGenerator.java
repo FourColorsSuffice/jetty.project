@@ -481,7 +481,7 @@ public class HttpGenerator
                 }
                 catch(BufferOverflowException e)
                 {
-                    throw new BadMessageException(INTERNAL_SERVER_ERROR_500,"Request header too large",e);
+                    throw new BadMessageException(INTERNAL_SERVER_ERROR_500,"Response header too large",e);
                 }
                 catch(Exception e)
                 {
@@ -560,10 +560,6 @@ public class HttpGenerator
         for (int f=0;f<n;f++)
         {
             HttpField field = trailer.getField(f);
-            String v = field.getValue();
-            if (v==null || v.length()==0)
-                continue; // rfc7230 does not allow no value
-
             putTo(field,buffer);
         }
 
@@ -662,10 +658,6 @@ public class HttpGenerator
             for (int f=0;f<n;f++)
             {
                 HttpField field = fields.getField(f);
-                String v = field.getValue();
-                if (v==null || v.length()==0)
-                    continue; // rfc7230 does not allow no value
-
                 HttpHeader h = field.getHeader();
                 if (h==null)
                     putTo(field,header);

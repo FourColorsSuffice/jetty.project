@@ -30,11 +30,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
 /**
  *
  */
+@RunWith(AdvancedRunner.class)
 public class CheckReverseProxyHeadersTest
 {
     @Test
@@ -66,7 +69,7 @@ public class CheckReverseProxyHeadersTest
             @Override
             public void validate(HttpServletRequest request)
             {
-                assertEquals("[::1]", request.getServerName());
+                assertEquals("::1", request.getServerName());
                 assertEquals(80, request.getServerPort());
                 assertEquals("10.20.30.40", request.getRemoteAddr());
                 assertEquals("10.20.30.40", request.getRemoteHost());
@@ -84,7 +87,7 @@ public class CheckReverseProxyHeadersTest
             @Override
             public void validate(HttpServletRequest request)
             {
-                assertEquals("[::1]", request.getServerName());
+                assertEquals("::1", request.getServerName());
                 assertEquals(8888, request.getServerPort());
                 assertEquals("10.20.30.40", request.getRemoteAddr());
                 assertEquals("10.20.30.40", request.getRemoteHost());
@@ -151,9 +154,7 @@ public class CheckReverseProxyHeadersTest
         try
         {
             server.start();
-            connector.getResponses("GET / HTTP/1.1\r\n" +"Connection: close\r\n" + headers + "\r\n\r\n",
-                1000,TimeUnit.SECONDS);
-
+            connector.getResponse("GET / HTTP/1.1\r\n" +"Connection: close\r\n" + headers + "\r\n\r\n");
             Error error = validationHandler.getError();
 
             if (error != null)

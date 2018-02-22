@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.AsyncContext;
 import javax.servlet.RequestDispatcher;
+import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -393,24 +394,18 @@ public class ResourceService
         
         // look for a welcome file
         String welcome=_welcomeFactory==null?null:_welcomeFactory.getWelcomeFile(pathInContext);
+                
         if (welcome!=null)
         {
+            if (_pathInfoOnly)
+                welcome = URIUtil.addPaths(request.getServletPath(),welcome);
+            
             if (LOG.isDebugEnabled())
                 LOG.debug("welcome={}",welcome);
 
-            RequestDispatcher dispatcher=_redirectWelcome?null:request.getRequestDispatcher(welcome);
-            if (dispatcher!=null)
-            {
-                // Forward to the index
-                if (included)
-                    dispatcher.include(request,response);
-                else
-                {
-                    request.setAttribute("org.eclipse.jetty.server.welcome",welcome);
-                    dispatcher.forward(request,response);
-                }   
-            }
-            else
+            ServletContext context = request.getServletContext();
+
+            if (_redirectWelcome || context==null)
             {
                 // Redirect to the index
                 response.setContentLength(0);
@@ -421,6 +416,20 @@ public class ResourceService
                     uri+="?"+q;
                 
                 response.sendRedirect(response.encodeRedirectURL(uri));
+                return;
+            }
+            
+            RequestDispatcher dispatcher=context.getRequestDispatcher(welcome);
+            if (dispatcher!=null)
+            {
+                // Forward to the index
+                if (included)
+                    dispatcher.include(request,response);
+                else
+                {
+                    request.setAttribute("org.eclipse.jetty.server.welcome",welcome);
+                    dispatcher.forward(request,response);
+                }   
             }
             return;
         }

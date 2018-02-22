@@ -2,7 +2,7 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>10.0.0-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>apache-jsp</artifactId>
@@ -83,11 +83,13 @@
       <artifactId>apache-jsp</artifactId>
     </dependency>
 
-    <!-- Eclipse Java Compiler (for JSP Compilation) -->
+    <!-- Running in jetty needs annotations -->
     <dependency>
-      <groupId>org.eclipse.jdt.core.compiler</groupId>
-      <artifactId>ecj</artifactId>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-annotations</artifactId>
+      <version>${project.version}</version>
     </dependency>
+
 
     <!-- tests -->
     <dependency>

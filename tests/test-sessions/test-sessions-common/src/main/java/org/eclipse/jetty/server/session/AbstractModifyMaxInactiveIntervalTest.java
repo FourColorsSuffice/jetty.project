@@ -81,18 +81,14 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request to reduce the maxinactive interval
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=change&val="+newMaxInactive+"&wait="+sleep);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
                 //do another request using the cookie to ensure the session is still there
                 request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
@@ -140,18 +136,14 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request to increase the maxinactive interval, first waiting until the old expiration should have passed
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=change&val="+newMaxInactive+"&wait="+sleep);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
                 //do another request using the cookie to ensure the session is still there
                 request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
@@ -199,18 +191,14 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request to reduce the maxinactive interval
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=change&val="+newMaxInactive+"&wait="+sleep);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
                 //do another request using the cookie to ensure the session is still there
                 request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
@@ -258,18 +246,14 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request to reduce the maxinactive interval
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=change&val="+newMaxInactive+"&wait="+sleep);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
                 //do another request using the cookie to ensure the session is still there
                 request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
@@ -314,18 +298,14 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request to change the maxinactive interval
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=change&val="+newMaxInactive+"&wait="+2);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
                 //do another request using the cookie to ensure the session is still there
                 request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
@@ -372,13 +352,10 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request that will sleep long enough for the session expiry time to have passed
                 //before trying to access the session and ensure it is still there
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=sleep&val="+sleep);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
 
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());             
@@ -426,12 +403,9 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 //do another request to change the maxinactive interval
                 Request request = client.newRequest("http://localhost:" + port + "/mod/test?action=change&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
 
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
@@ -441,11 +415,57 @@ public abstract class AbstractModifyMaxInactiveIntervalTest extends AbstractTest
                 
                 //do another request using the cookie to ensure the session is still there
                 request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+newMaxInactive);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 
                 
+            }
+            finally
+            {
+                client.stop();
+            }
+        }
+        finally
+        {
+            server.stop();
+        }
+    }
+
+    @Test
+    public void testGetMaxInactiveIntervalWithNegativeMaxInactiveInterval() throws Exception
+    {
+        int maxInactive = -1;
+        DefaultSessionCacheFactory cacheFactory = new DefaultSessionCacheFactory();
+        cacheFactory.setEvictionPolicy(SessionCache.NEVER_EVICT);
+        SessionDataStoreFactory storeFactory = createSessionDataStoreFactory();
+        ((AbstractSessionDataStoreFactory)storeFactory).setGracePeriodSec(TestServer.DEFAULT_SCAVENGE_SEC);
+
+        TestServer server = new TestServer(0, maxInactive,  __scavenge, cacheFactory, storeFactory);
+        ServletContextHandler ctxA = server.addContext("/mod");
+        ctxA.addServlet(TestModServlet.class, "/test");
+
+        server.start();
+        int port=server.getPort();
+        try
+        {
+            HttpClient client = new HttpClient();
+            client.start();
+            try
+            {
+                // Perform a request to create a session
+
+                ContentResponse response = client.GET("http://localhost:" + port + "/mod/test?action=create");
+
+                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+                String sessionCookie = response.getHeaders().get("Set-Cookie");
+                assertTrue(sessionCookie != null);
+
+                //Test that the maxInactiveInterval matches the expected value
+                Request request= client.newRequest("http://localhost:" + port + "/mod/test?action=test&val="+maxInactive);
+                response = request.send();
+                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+
+
             }
             finally
             {

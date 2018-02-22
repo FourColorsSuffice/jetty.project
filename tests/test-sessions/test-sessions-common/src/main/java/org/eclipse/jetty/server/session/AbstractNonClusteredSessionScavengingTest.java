@@ -82,7 +82,7 @@ public abstract class AbstractNonClusteredSessionScavengingTest extends Abstract
         _dataStore = context.getSessionHandler().getSessionCache().getSessionDataStore();
         
         context.addServlet(TestServlet.class, servletMapping);
-        String contextPath = "";
+        String contextPath = "/";
 
         try
         {
@@ -92,12 +92,10 @@ public abstract class AbstractNonClusteredSessionScavengingTest extends Abstract
             client.start();
             try
             {
-                ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping + "?action=create");
+                ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping.substring(1) + "?action=create");
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 // Let's wait for the scavenger to run
                 pause(maxInactivePeriod + scavengePeriod);
@@ -106,8 +104,7 @@ public abstract class AbstractNonClusteredSessionScavengingTest extends Abstract
 
                 // The session should not be there anymore, but we present an old cookie
                 // The server should create a new session.
-                Request request = client.newRequest("http://localhost:" + port + contextPath + servletMapping + "?action=old-create");
-                request.header("Cookie", sessionCookie);
+                Request request = client.newRequest("http://localhost:" + port + contextPath + servletMapping.substring(1) + "?action=old-create");
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
             }
@@ -139,7 +136,7 @@ public abstract class AbstractNonClusteredSessionScavengingTest extends Abstract
         ServletContextHandler context = server.addContext("/");
         _dataStore = context.getSessionHandler().getSessionCache().getSessionDataStore();
         context.addServlet(TestServlet.class, servletMapping);
-        String contextPath = "";
+        String contextPath = "/";
 
         try
         {
@@ -150,12 +147,10 @@ public abstract class AbstractNonClusteredSessionScavengingTest extends Abstract
             try
             {
                 //create an immortal session
-                ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping + "?action=create");
+                ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping.substring(1) + "?action=create");
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
 
                 // Let's wait for the scavenger to run
                 pause(2*scavengePeriod);
@@ -163,8 +158,7 @@ public abstract class AbstractNonClusteredSessionScavengingTest extends Abstract
                 assertSession(TestServer.extractSessionId(sessionCookie), true);
 
                 // Test that the session is still there
-                Request request = client.newRequest("http://localhost:" + port + contextPath + servletMapping + "?action=old-test");
-                request.header("Cookie", sessionCookie);
+                Request request = client.newRequest("http://localhost:" + port + contextPath + servletMapping.substring(1) + "?action=old-test");
                 response = request.send();
                 assertEquals(HttpServletResponse.SC_OK,response.getStatus());
             }

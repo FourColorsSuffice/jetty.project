@@ -44,6 +44,7 @@ public interface Container
      * @return the list of beans of the given class (or subclass)
      * @param <T> the Bean type
      * @see #getBeans()
+     * @see #getContainedBeans(Class)
      */
     public <T> Collection<T> getBeans(Class<T> clazz);
 
@@ -77,6 +78,39 @@ public interface Container
     public void removeEventListener(Listener listener);
 
     /**
+     * Unmanages a bean already contained by this aggregate, so that it is not started/stopped/destroyed with this
+     * aggregate.
+     *
+     * @param bean The bean to unmanage (must already have been added).
+     */
+    void unmanage(Object bean);
+
+    /**
+     * Manages a bean already contained by this aggregate, so that it is started/stopped/destroyed with this
+     * aggregate.
+     *
+     * @param bean The bean to manage (must already have been added).
+     */
+    void manage(Object bean);
+
+
+    /**
+     * Test if this container manages a bean
+     * @param bean the bean to test
+     * @return whether this aggregate contains and manages the bean
+     */
+    boolean isManaged(Object bean);
+
+    /**
+     * Adds the given bean, explicitly managing it or not.
+     *
+     * @param o       The bean object to add
+     * @param managed whether to managed the lifecycle of the bean
+     * @return true if the bean was added, false if it was already present
+     */
+    boolean addBean(Object o, boolean managed);
+
+    /**
      * A listener for Container events.
      * If an added bean implements this interface it will receive the events
      * for this container.
@@ -95,4 +129,11 @@ public interface Container
     public interface InheritedListener extends Listener
     {
     }
+
+    /**
+     * @param clazz the class of the beans
+     * @return the list of beans of the given class from the entire managed hierarchy
+     * @param <T> the Bean type
+     */
+    public <T> Collection<T> getContainedBeans(Class<T> clazz);
 }

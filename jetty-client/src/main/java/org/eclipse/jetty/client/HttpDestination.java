@@ -42,6 +42,7 @@ import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
+import org.eclipse.jetty.util.component.DumpableCollection;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.Sweeper;
@@ -114,7 +115,10 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         removeBean(connectionPool);
     }
 
-    protected abstract ConnectionPool newConnectionPool(HttpClient client);
+    protected ConnectionPool newConnectionPool(HttpClient client)
+    {
+        return client.getTransport().getConnectionPoolFactory().newConnectionPool(this);
+    }
 
     protected Queue<HttpExchange> newExchangeQueue(HttpClient client)
     {
@@ -232,9 +236,12 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
         int port = request.getPort();
         if (port >= 0 && getPort() != port)
             throw new IllegalArgumentException("Invalid request port " + port + " for destination " + this);
+        send(new HttpExchange(this, request, listeners));
+    }
 
-        HttpExchange exchange = new HttpExchange(this, request, listeners);
-
+    public void send(HttpExchange exchange)
+    {
+        HttpRequest request = exchange.getRequest();
         if (client.isRunning())
         {
             if (enqueue(exchanges, exchange))
@@ -331,12 +338,9 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
                     if (LOG.isDebugEnabled())
                         LOG.debug("Send failed {} for {}", result, exchange);
                     if (result.retry)
-                    {
-                        if (enqueue(getHttpExchanges(), exchange))
-                            return true;
-                    }
-
-                    request.abort(result.failure);
+                        send(exchange);
+                    else
+                        request.abort(result.failure);
                 }
             }
             return getHttpExchanges().peek() != null;
@@ -444,16 +448,10 @@ public abstract class HttpDestination extends ContainerLifeCycle implements Dest
     }
 
     @Override
-    public String dump()
-    {
-        return ContainerLifeCycle.dump(this);
-    }
-
-    @Override
     public void dump(Appendable out, String indent) throws IOException
     {
-        ContainerLifeCycle.dumpObject(out, toString());
-        ContainerLifeCycle.dump(out, indent, Collections.singletonList(connectionPool));
+        super.dump(out, indent);
+        ContainerLifeCycle.dump(out, indent, Collections.singleton(new DumpableCollection("exchanges", exchanges)));
     }
 
     public String asString()

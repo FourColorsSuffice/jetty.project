@@ -21,6 +21,7 @@ package org.eclipse.jetty.server;
 import java.io.IOException;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -34,6 +35,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
 
 import org.eclipse.jetty.io.ArrayByteBufferPool;
 import org.eclipse.jetty.io.ByteBufferPool;
@@ -48,8 +50,10 @@ import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.eclipse.jetty.util.thread.Locker;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
+import org.eclipse.jetty.util.thread.ThreadPoolBudget;
 
 /**
  * <p>An abstract implementation of {@link Connector} that provides a {@link ConnectionFactory} mechanism
@@ -137,8 +141,10 @@ import org.eclipse.jetty.util.thread.Scheduler;
 public abstract class AbstractConnector extends ContainerLifeCycle implements Connector, Dumpable
 {
     protected final Logger LOG = Log.getLogger(AbstractConnector.class);
-    // Order is important on server side, so we use a LinkedHashMap
-    private final Map<String, ConnectionFactory> _factories = new LinkedHashMap<>();
+
+    private final Locker _locker = new Locker();
+    private final Condition _setAccepting = _locker.newCondition();
+    private final Map<String, ConnectionFactory> _factories = new LinkedHashMap<>(); // Order is important on server side, so we use a LinkedHashMap
     private final Server _server;
     private final Executor _executor;
     private final Scheduler _scheduler;
@@ -146,13 +152,14 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
     private final Thread[] _acceptors;
     private final Set<EndPoint> _endpoints = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final Set<EndPoint> _immutableEndPoints = Collections.unmodifiableSet(_endpoints);
-    private volatile CountDownLatch _stopping;
+    private CountDownLatch _stopping;
     private long _idleTimeout = 30000;
     private String _defaultProtocol;
     private ConnectionFactory _defaultConnectionFactory;
     private String _name;
     private int _acceptorPriorityDelta=-2;
-
+    private boolean _accepting = true;
+    private ThreadPoolBudget.Lease _lease;
 
     /**
      * @param server The server this connector will be added to. Must not be null.
@@ -222,7 +229,7 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
     {
         return _idleTimeout;
     }
-
+    
     /**
      * <p>Sets the maximum Idle time for a connection, which roughly translates to the {@link Socket#setSoTimeout(int)}
      * call, although with NIO implementations other mechanisms may be used to implement the timeout.</p>
@@ -267,6 +274,7 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
                 throw new IllegalStateException("No protocol factory for SSL next protocol: '" + next + "' in " + this);
         }
 
+        _lease = ThreadPoolBudget.leaseFrom(getExecutor(),this,_acceptors.length);
         super.doStart();
 
         _stopping=new CountDownLatch(_acceptors.length);
@@ -283,7 +291,7 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
 
     protected void interruptAcceptors()
     {
-        synchronized (this)
+        try (Locker.Lock lock = _locker.lock())
         {
             for (Thread thread : _acceptors)
             {
@@ -302,6 +310,9 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
     @Override
     protected void doStop() throws Exception
     {
+        if (_lease!=null)
+            _lease.close();
+
         // Tell the acceptors we are stopping
         interruptAcceptors();
 
@@ -327,7 +338,7 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
 
     public void join(long timeout) throws InterruptedException
     {
-        synchronized (this)
+        try (Locker.Lock lock = _locker.lock())
         {
             for (Thread thread : _acceptors)
                 if (thread != null)
@@ -338,19 +349,30 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
     protected abstract void accept(int acceptorID) throws IOException, InterruptedException;
 
 
-    /* ------------------------------------------------------------ */
     /**
      * @return Is the connector accepting new connections
      */
-    protected boolean isAccepting()
+    public boolean isAccepting()
     {
-        return isRunning();
+        try (Locker.Lock lock = _locker.lock())
+        {
+            return _accepting;
+        }
+    }
+
+    public void setAccepting(boolean accepting)
+    {
+        try (Locker.Lock lock = _locker.lock())
+        {
+            _accepting=accepting;
+            _setAccepting.signalAll();
+        }
     }
 
     @Override
     public ConnectionFactory getConnectionFactory(String protocol)
     {
-        synchronized (_factories)
+        try (Locker.Lock lock = _locker.lock())
         {
             return _factories.get(StringUtil.asciiToLowerCase(protocol));
         }
@@ -359,7 +381,7 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
     @Override
     public <T> T getConnectionFactory(Class<T> factoryType)
     {
-        synchronized (_factories)
+        try (Locker.Lock lock = _locker.lock())
         {
             for (ConnectionFactory f : _factories.values())
                 if (factoryType.isAssignableFrom(f.getClass()))
@@ -370,108 +392,105 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
 
     public void addConnectionFactory(ConnectionFactory factory)
     {
-        synchronized (_factories)
+        if (isRunning())
+            throw new IllegalStateException(getState());
+
+        Set<ConnectionFactory> to_remove = new HashSet<>();
+        for (String key:factory.getProtocols())
         {
-            Set<ConnectionFactory> to_remove = new HashSet<>();
-            for (String key:factory.getProtocols())
+            key=StringUtil.asciiToLowerCase(key);
+            ConnectionFactory old=_factories.remove(key);
+            if (old!=null)
             {
-                key=StringUtil.asciiToLowerCase(key);
-                ConnectionFactory old=_factories.remove(key);
-                if (old!=null)
-                {
-                    if (old.getProtocol().equals(_defaultProtocol))
-                        _defaultProtocol=null;
-                    to_remove.add(old);
-                }
-                _factories.put(key, factory);
+                if (old.getProtocol().equals(_defaultProtocol))
+                    _defaultProtocol=null;
+                to_remove.add(old);
             }
-
-            // keep factories still referenced
-            for (ConnectionFactory f : _factories.values())
-                to_remove.remove(f);
-
-            // remove old factories
-            for (ConnectionFactory old: to_remove)
-            {
-                removeBean(old);
-                if (LOG.isDebugEnabled())
-                    LOG.debug("{} removed {}", this, old);
-            }
-
-            // add new Bean
-            addBean(factory);
-            if (_defaultProtocol==null)
-                _defaultProtocol=factory.getProtocol();
-            if (LOG.isDebugEnabled())
-                LOG.debug("{} added {}", this, factory);
+            _factories.put(key, factory);
         }
+
+        // keep factories still referenced
+        for (ConnectionFactory f : _factories.values())
+            to_remove.remove(f);
+
+        // remove old factories
+        for (ConnectionFactory old: to_remove)
+        {
+            removeBean(old);
+            if (LOG.isDebugEnabled())
+                LOG.debug("{} removed {}", this, old);
+        }
+
+        // add new Bean
+        addBean(factory);
+        if (_defaultProtocol==null)
+            _defaultProtocol=factory.getProtocol();
+        if (LOG.isDebugEnabled())
+            LOG.debug("{} added {}", this, factory);
     }
 
     public void addFirstConnectionFactory(ConnectionFactory factory)
     {
-        synchronized (_factories)
-        {
-            List<ConnectionFactory> existings = new ArrayList<>(_factories.values());
-            _factories.clear();
-            addConnectionFactory(factory);
-            for (ConnectionFactory existing : existings)
-                addConnectionFactory(existing);
-            _defaultProtocol = factory.getProtocol();
-        }
+        if (isRunning())
+            throw new IllegalStateException(getState());
+
+        List<ConnectionFactory> existings = new ArrayList<>(_factories.values());
+        _factories.clear();
+        addConnectionFactory(factory);
+        for (ConnectionFactory existing : existings)
+            addConnectionFactory(existing);
+        _defaultProtocol = factory.getProtocol();
     }
 
     public void addIfAbsentConnectionFactory(ConnectionFactory factory)
     {
-        synchronized (_factories)
+        if (isRunning())
+            throw new IllegalStateException(getState());
+
+        String key=StringUtil.asciiToLowerCase(factory.getProtocol());
+        if (_factories.containsKey(key))
         {
-            String key=StringUtil.asciiToLowerCase(factory.getProtocol());
-            if (_factories.containsKey(key))
-            {
-                if (LOG.isDebugEnabled())
-                    LOG.debug("{} addIfAbsent ignored {}", this, factory);
-            }
-            else
-            {
-                _factories.put(key, factory);
-                addBean(factory);
-                if (_defaultProtocol==null)
-                    _defaultProtocol=factory.getProtocol();
-                if (LOG.isDebugEnabled())
-                    LOG.debug("{} addIfAbsent added {}", this, factory);
-            }
+            if (LOG.isDebugEnabled())
+                LOG.debug("{} addIfAbsent ignored {}", this, factory);
+        }
+        else
+        {
+            _factories.put(key, factory);
+            addBean(factory);
+            if (_defaultProtocol==null)
+                _defaultProtocol=factory.getProtocol();
+            if (LOG.isDebugEnabled())
+                LOG.debug("{} addIfAbsent added {}", this, factory);
         }
     }
 
     public ConnectionFactory removeConnectionFactory(String protocol)
     {
-        synchronized (_factories)
-        {
-            ConnectionFactory factory= _factories.remove(StringUtil.asciiToLowerCase(protocol));
-            removeBean(factory);
-            return factory;
-        }
+        if (isRunning())
+            throw new IllegalStateException(getState());
+
+        ConnectionFactory factory= _factories.remove(StringUtil.asciiToLowerCase(protocol));
+        removeBean(factory);
+        return factory;
     }
 
     @Override
     public Collection<ConnectionFactory> getConnectionFactories()
     {
-        synchronized (_factories)
-        {
-            return _factories.values();
-        }
+        return _factories.values();
     }
 
     public void setConnectionFactories(Collection<ConnectionFactory> factories)
     {
-        synchronized (_factories)
-        {
-            List<ConnectionFactory> existing = new ArrayList<>(_factories.values());
-            for (ConnectionFactory factory: existing)
-                removeConnectionFactory(factory.getProtocol());
-            for (ConnectionFactory factory: factories)
-                if (factory!=null)
-                    addConnectionFactory(factory);
-        }
+        if (isRunning())
+            throw new IllegalStateException(getState());
+
+        List<ConnectionFactory> existing = new ArrayList<>(_factories.values());
+        for (ConnectionFactory factory: existing)
+            removeConnectionFactory(factory.getProtocol());
+        for (ConnectionFactory factory: factories)
+            if (factory!=null)
+                addConnectionFactory(factory);
     }
 
     @ManagedAttribute("The priority delta to apply to acceptor threads")
@@ -503,18 +522,15 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
     @ManagedAttribute("Protocols supported by this connector")
     public List<String> getProtocols()
     {
-        synchronized (_factories)
-        {
-            return new ArrayList<>(_factories.keySet());
-        }
+        return new ArrayList<>(_factories.keySet());
     }
 
     public void clearConnectionFactories()
     {
-        synchronized (_factories)
-        {
-            _factories.clear();
-        }
+        if (isRunning())
+            throw new IllegalStateException(getState());
+
+        _factories.clear();
     }
 
     @ManagedAttribute("This connector's default protocol")
@@ -538,14 +554,23 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
         return getConnectionFactory(_defaultProtocol);
     }
 
-    protected boolean handleAcceptFailure(Throwable previous, Throwable current)
+    protected boolean handleAcceptFailure(Throwable ex)
     {
-        if (isAccepting())
+        if (isRunning())
         {
-            if (previous == null)
-                LOG.warn(current);
-            else
-                LOG.debug(current);
+            if (ex instanceof InterruptedException)
+            {
+                LOG.debug(ex);
+                return true;
+            }
+
+            if (ex instanceof ClosedByInterruptException)
+            {
+                LOG.debug(ex);
+                return false;
+            }
+            
+            LOG.warn(ex);
             try
             {
                 // Arbitrary sleep to avoid spin looping.
@@ -556,12 +581,13 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
             }
             catch (Throwable x)
             {
-                return false;
+                LOG.ignore(x);
             }
+            return false;
         }
         else
         {
-            LOG.ignore(current);
+            LOG.ignore(ex);
             return false;
         }
     }
@@ -588,26 +614,32 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
             if (_acceptorPriorityDelta!=0)
                 thread.setPriority(Math.max(Thread.MIN_PRIORITY,Math.min(Thread.MAX_PRIORITY,priority+_acceptorPriorityDelta)));
 
-            synchronized (AbstractConnector.this)
-            {
-                _acceptors[_id] = thread;
-            }
+            _acceptors[_id] = thread;
 
             try
             {
-                Throwable exception = null;
-                while (isAccepting())
+                while (isRunning())
                 {
+                    try (Locker.Lock lock = _locker.lock())
+                    {
+                        if (!_accepting && isRunning())
+                        {
+                            _setAccepting.await();
+                            continue;
+                        }
+                    }
+                    catch (InterruptedException e) 
+                    {
+                        continue;
+                    }
+                    
                     try
                     {
                         accept(_id);
-                        exception = null;
                     }
                     catch (Throwable x)
                     {
-                        if (handleAcceptFailure(exception, x))
-                            exception = x;
-                        else
+                        if (!handleAcceptFailure(x))
                             break;
                     }
                 }
@@ -636,31 +668,8 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
                 return String.format("acceptor-%d@%x", _id, hashCode());
             return name;
         }
-
     }
 
-
-
-
-//    protected void connectionOpened(Connection connection)
-//    {
-//        _stats.connectionOpened();
-//        connection.onOpen();
-//    }
-//
-//    protected void connectionClosed(Connection connection)
-//    {
-//        connection.onClose();
-//        long duration = System.currentTimeMillis() - connection.getEndPoint().getCreatedTimeStamp();
-//        _stats.connectionClosed(duration, connection.getMessagesIn(), connection.getMessagesOut());
-//    }
-//
-//    public void connectionUpgraded(Connection oldConnection, Connection newConnection)
-//    {
-//        oldConnection.onClose();
-//        _stats.connectionUpgraded(oldConnection.getMessagesIn(), oldConnection.getMessagesOut());
-//        newConnection.onOpen();
-//    }
 
     @Override
     public Collection<EndPoint> getConnectedEndPoints()

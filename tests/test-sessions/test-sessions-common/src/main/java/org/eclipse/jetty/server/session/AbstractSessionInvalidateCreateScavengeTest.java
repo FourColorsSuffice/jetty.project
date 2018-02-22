@@ -87,7 +87,7 @@ public abstract class AbstractSessionInvalidateCreateScavengeTest extends Abstra
     @Test
     public void testSessionScavenge() throws Exception
     {
-        String contextPath = "";
+        String contextPath = "/";
         String servletMapping = "/server";
         int inactivePeriod = 6;
         int scavengePeriod = 3;
@@ -115,7 +115,7 @@ public abstract class AbstractSessionInvalidateCreateScavengeTest extends Abstra
             client.start();
             try
             {
-                String url = "http://localhost:" + port1 + contextPath + servletMapping;
+                String url = "http://localhost:" + port1 + contextPath + servletMapping.substring(1);
 
 
                 // Create the session
@@ -123,12 +123,9 @@ public abstract class AbstractSessionInvalidateCreateScavengeTest extends Abstra
                 assertEquals(HttpServletResponse.SC_OK,response1.getStatus());
                 String sessionCookie = response1.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
                 
                 // Make a request which will invalidate the existing session and create a new one
                 Request request2 = client.newRequest(url + "?action=test");
-                request2.header("Cookie", sessionCookie);
                 ContentResponse response2 = request2.send();
                 assertEquals(HttpServletResponse.SC_OK,response2.getStatus());
 

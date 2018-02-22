@@ -33,7 +33,6 @@ import java.util.Set;
 
 import javax.servlet.DispatcherType;
 import javax.servlet.MultipartConfigElement;
-import javax.servlet.ServletException;
 import javax.servlet.SessionTrackingMode;
 
 import org.eclipse.jetty.http.pathmap.ServletPathSpec;
@@ -52,7 +51,6 @@ import org.eclipse.jetty.servlet.ServletMapping;
 import org.eclipse.jetty.servlet.Source;
 import org.eclipse.jetty.util.ArrayUtil;
 import org.eclipse.jetty.util.Loader;
-import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.security.Constraint;
@@ -100,6 +98,10 @@ public class StandardDescriptorProcessor extends IterativeDescriptorProcessor
             registerVisitor("listener", this.getClass().getMethod("visitListener",  __signature));
             registerVisitor("distributable", this.getClass().getMethod("visitDistributable",  __signature));
             registerVisitor("deny-uncovered-http-methods", this.getClass().getMethod("visitDenyUncoveredHttpMethods", __signature));
+            registerVisitor("default-context-path", this.getClass().getMethod("visitDefaultContextPath", __signature));
+            registerVisitor("request-encoding", this.getClass().getMethod("visitRequestEncoding", __signature));
+            registerVisitor("response-encoding", this.getClass().getMethod("visitResponseEncoding", __signature));
+
         }
         catch (Exception e)
         {
@@ -1429,6 +1431,12 @@ public class StandardDescriptorProcessor extends IterativeDescriptorProcessor
 
     public void visitSecurityConstraint(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
     {
+        if (context.getSecurityHandler() == null)
+        {
+            LOG.warn("security-constraint declared but SecurityHandler==null");
+            return;
+        }
+
         Constraint scBase = new Constraint();
 
         //ServletSpec 3.0, p74 security-constraints, as minOccurs > 1, are additive
@@ -1702,6 +1710,11 @@ public class StandardDescriptorProcessor extends IterativeDescriptorProcessor
 
     public void visitSecurityRole(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
     {
+        if (context.getSecurityHandler() == null)
+        {
+            LOG.warn("security-role declared but SecurityHandler==null");
+            return;
+        }
         //ServletSpec 3.0, p74 elements with multiplicity >1 are additive when merged
         XmlParser.Node roleNode = node.get("role-name");
         String role = roleNode.toString(false, true);
@@ -1939,8 +1952,66 @@ public class StandardDescriptorProcessor extends IterativeDescriptorProcessor
      */
     public void visitDenyUncoveredHttpMethods(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
     {
+        if (context.getSecurityHandler() == null)
+        {
+            LOG.warn("deny-uncovered-http-methods declared but SecurityHandler==null");
+            return;
+        }
+
         ((ConstraintAware)context.getSecurityHandler()).setDenyUncoveredHttpMethods(true);
     }
+
+    /**
+     * When specified, this element provides a default context path
+     * of the web application. The default context path starts
+     * with a / character. If it is not rooted at the root of the
+     * server's name space, the path does not end with a / character.
+     * @since Servlet 4.0
+     * @param context the of the processing
+     * @param descriptor the descriptor
+     * @param node the xml node
+     */
+    public void visitDefaultContextPath(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
+    {
+        if (!(descriptor instanceof FragmentDescriptor))
+        {
+            if (context.isContextPathDefault())
+            {
+                context.setContextPath(node.toString(false, true));
+                context.getMetaData().setOrigin("default-context-path", descriptor);
+            }
+        }
+    }
+
+    /**
+     * When specified, this element provides a default request
+     * encoding of the web application.
+     * @since Servlet 4.0
+     * @param context the of the processing
+     * @param descriptor the descriptor
+     * @param node the xml node
+     */
+    public void visitRequestEncoding(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
+    {
+        // TODO
+        LOG.warn("Not implemented {}",node);
+        // TODO
+    }
+
+    /**
+     * When specified, this element provides a default response
+     * encoding of the web application.
+     * @since Servlet 4.0
+     * @param context the of the processing
+     * @param descriptor the descriptor
+     * @param node the xml node
+     */
+    public void visitResponseEncoding(WebAppContext context, Descriptor descriptor, XmlParser.Node node)
+    {
+        // TODO
+        LOG.warn("Not implemented {}",node);
+    }
+
 
     public EventListener newListenerInstance(WebAppContext context,Class<? extends EventListener> clazz, Descriptor descriptor) throws Exception
     {

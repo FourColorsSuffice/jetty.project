@@ -6,7 +6,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.eclipse.jetty</groupId>
   <artifactId>jetty-project</artifactId>
-  <version>9.4.6-SNAPSHOT</version>
+  <version>10.0.0-SNAPSHOT</version>
   <name>Jetty :: Project</name>
   <description>The Eclipse Jetty Project</description>
   <packaging>pom</packaging>
@@ -20,9 +20,12 @@
     <slf4j-version>1.6.6</slf4j-version>
     <jetty-test-policy-version>1.2</jetty-test-policy-version>
     <alpn.api.version>1.1.3.v20160715</alpn.api.version>
-    <jsp.version>8.5.9.1</jsp.version>
+    <jsp.version>8.5.23</jsp.version>
+    <servlet.api.version>4.0.0</servlet.api.version>
+    <servlet.schema.version>4.0.1</servlet.schema.version>
     <!-- default values are unsupported, but required to be defined for reactor sanity reasons -->
     <alpn.version>undefined</alpn.version>
+    <conscrypt.version>1.0.0.RC11</conscrypt.version>
   </properties>
 
   <licenses>
@@ -49,7 +52,6 @@
     <module>jetty-io</module>
     <module>jetty-http</module>
     <module>jetty-http2</module>
-    <module>jetty-continuation</module>
     <module>jetty-server</module>
     <module>jetty-xml</module>
     <module>jetty-security</module>
@@ -79,6 +81,7 @@
     <module>jetty-infinispan</module>
     <module>jetty-gcloud</module>
     <module>jetty-memcached</module>
+    <module>jetty-hazelcast</module>
     <module>jetty-unixsocket</module>
     <module>tests</module>
     <module>examples</module>
@@ -371,7 +374,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-assembly-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.1.0</version>
           <dependencies>
             <dependency>
               <groupId>org.eclipse.jetty.toolchain</groupId>
@@ -383,7 +386,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.6.0</version>
+          <version>3.6.2</version>
           <configuration>
             <source>1.8</source>
             <target>1.8</target>
@@ -392,7 +395,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-dependency-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.0.2</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -410,12 +413,12 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-enforcer-plugin</artifactId>
-          <version>1.4.1</version>
+          <version>3.0.0-M1</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-failsafe-plugin</artifactId>
-          <version>2.19.1</version>
+          <version>2.20.1</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -435,7 +438,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
-          <version>2.10.4</version>
+          <version>3.0.0-M1</version>
           <configuration>
             <charset>UTF-8</charset>
             <docencoding>UTF-8</docencoding>
@@ -444,8 +447,6 @@
             <detectLinks>false</detectLinks>
             <detectJavaApiLink>false</detectJavaApiLink>
             <show>protected</show>
-            <!-- needed for Java 8+ -->
-            <additionalparam>&#45;&#45;allow-script-in-comments</additionalparam>
             <excludePackageNames>com.acme.*;org.slf4j.*;org.mortbay.*</excludePackageNames>
             <links>
               <link>http://docs.oracle.com/javase/8/docs/api/</link>
@@ -509,20 +510,6 @@
                 <head />
               </tag>
             </tags>
-            <header>
-              <![CDATA[
-                  <script type="text/javascript">
-                    var _gaq = _gaq || [];
-                    _gaq.push(['_setAccount', 'UA-1149868-7']);
-                    _gaq.push(['_trackPageview']);
-                    (function() {
-                      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-                      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-                      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-                    })();
-                 </script>
-              ]]>
-            </header>
           </configuration>
         </plugin>
         <plugin>
@@ -538,7 +525,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-pmd-plugin</artifactId>
-          <version>3.7</version>
+          <version>3.8</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -558,12 +545,12 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-resources-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.0.2</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-shade-plugin</artifactId>
-          <version>2.4.3</version>
+          <version>3.0.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -573,7 +560,7 @@
             <dependency><!-- add support for ssh/scp -->
               <groupId>org.apache.maven.wagon</groupId>
               <artifactId>wagon-ssh</artifactId>
-              <version>1.0</version>
+              <version>3.0.0</version>
             </dependency>
           </dependencies>
         </plugin>
@@ -601,32 +588,32 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-war-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.1.0</version>
         </plugin>
         <plugin>
           <groupId>org.eclipse.jetty.toolchain</groupId>
           <artifactId>jetty-version-maven-plugin</artifactId>
-          <version>2.4</version>
+          <version>2.5</version>
         </plugin>
         <plugin>
           <groupId>org.jacoco</groupId>
           <artifactId>jacoco-maven-plugin</artifactId>
-          <version>0.7.8</version>
+          <version>0.7.9</version>
         </plugin>
         <plugin>
           <groupId>com.agilejava.docbkx</groupId>
           <artifactId>docbkx-maven-plugin</artifactId>
-          <version>2.0.14</version>
+          <version>2.0.17</version>
         </plugin>
         <plugin>
           <groupId>com.mycila</groupId>
           <artifactId>license-maven-plugin</artifactId>
-          <version>2.11</version>
+          <version>3.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.felix</groupId>
           <artifactId>maven-bundle-plugin</artifactId>
-          <version>3.0.1</version>
+          <version>3.3.0</version>
           <extensions>true</extensions>
           <configuration>
             <supportedProjectTypes>
@@ -642,19 +629,19 @@
               <Bundle-Classpath>.</Bundle-Classpath>
               <Export-Package>${bundle-symbolic-name}.*;version="${parsedVersion.majorVersion}.${parsedVersion.minorVersion}.${parsedVersion.incrementalVersion}"</Export-Package>
               <Bundle-Copyright>Copyright (c) 2008-2017 Mort Bay Consulting Pty. Ltd.</Bundle-Copyright>
-              <Import-Package>javax.servlet*;version="[2.6.0,3.2)",javax.transaction*;version="[1.1,1.3)",org.eclipse.jetty*;version="[$(version;===;${parsedVersion.osgiVersion}),$(version;==+;${parsedVersion.osgiVersion}))",*</Import-Package>
+              <Import-Package>javax.servlet*;version="[2.6.0,4.1)",javax.transaction*;version="[1.1,1.3)",org.eclipse.jetty*;version="[$(version;===;${parsedVersion.osgiVersion}),$(version;==+;${parsedVersion.osgiVersion}))",*</Import-Package>
             </instructions>
           </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.servicemix.tooling</groupId>
           <artifactId>depends-maven-plugin</artifactId>
-          <version>1.3.1</version>
+          <version>1.4.0</version>
         </plugin>
         <plugin>
           <groupId>org.asciidoctor</groupId>
           <artifactId>asciidoctor-maven-plugin</artifactId>
-          <version>1.5.3</version>
+          <version>1.5.5</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
@@ -664,7 +651,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>build-helper-maven-plugin</artifactId>
-          <version>1.12</version>
+          <version>3.0.0</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
@@ -674,7 +661,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>exec-maven-plugin</artifactId>
-          <version>1.5.0</version>
+          <version>1.6.0</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
@@ -856,6 +843,11 @@
             </lifecycleMappingMetadata>
           </configuration>
         </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>buildnumber-maven-plugin</artifactId>
+          <version>1.4</version>
+        </plugin>
       </plugins>
     </pluginManagement>
   </build>
@@ -865,12 +857,12 @@
       <dependency>
          <groupId>javax.servlet</groupId>
          <artifactId>javax.servlet-api</artifactId>
-         <version>3.1.0</version>
+         <version>${servlet.api.version}</version>
       </dependency>
       <dependency>
          <groupId>javax.websocket</groupId>
          <artifactId>javax.websocket-api</artifactId>
-         <version>1.0</version>
+         <version>1.1</version>
       </dependency>
       <dependency>
         <groupId>javax.annotation</groupId>
@@ -880,12 +872,12 @@
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm</artifactId>
-        <version>5.1</version>
+        <version>6.0</version>
       </dependency>
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm-commons</artifactId>
-        <version>5.1</version>
+        <version>6.0</version>
       </dependency>
       <dependency>
         <groupId>org.eclipse.jetty.orbit</groupId>
@@ -896,17 +888,12 @@
       <dependency>
         <groupId>org.eclipse.jetty.toolchain</groupId>
         <artifactId>jetty-schemas</artifactId>
-        <version>3.1</version>
+        <version>${servlet.schema.version}</version>
       </dependency>
       <dependency>
         <groupId>org.mortbay.jasper</groupId>
         <artifactId>apache-jsp</artifactId>
         <version>${jsp.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.eclipse.jdt.core.compiler</groupId>
-        <artifactId>ecj</artifactId>
-       <version>4.4.2</version>
       </dependency>
       <!-- JSTL Impl -->
       <dependency>
@@ -946,7 +933,7 @@
       <dependency>
         <groupId>org.eclipse.jetty.toolchain</groupId>
         <artifactId>jetty-test-helper</artifactId>
-        <version>4.0</version>
+        <version>4.2</version>
       </dependency>
       <dependency>
         <groupId>org.eclipse.jetty.toolchain</groupId>
@@ -986,15 +973,6 @@
     </dependencies>
   </dependencyManagement>
 
-  <!--
-    Usage:
-    configure settings.xml for jetty.eclipse.website server entry
-    > mvn -Paggregate-site javadoc:aggregate jxr:jxr
-    then
-    > mvn -N site:deploy
-    or
-    > mvn -N site:sshdeploy     (for ssh users w/passphrase and ssh-agent)
-   -->
   <profiles>
     <profile>
       <id>jdk8</id>
@@ -1005,9 +983,9 @@
         <pluginManagement>
           <plugins>
             <plugin>
-              <groupId>org.neo4j.build.plugins</groupId>
+              <groupId>org.codehaus.mojo</groupId>
               <artifactId>clirr-maven-plugin</artifactId>
-              <version>1.0.1</version>
+              <version>2.8</version>
               <configuration>
                 <htmlOutputFile>clirr-report.html</htmlOutputFile>
                 <xmlOutputFile>${project.build.directory}/clirr-report.xml</xmlOutputFile>
@@ -1016,7 +994,7 @@
                 <failOnInfo>false</failOnInfo>
                 <logResults>true</logResults>
                 <minSeverity>info</minSeverity>
-                <comparisonVersion>9.3.8.v20160314</comparisonVersion>
+                <comparisonVersion>9.4.6.v20170531</comparisonVersion>
                 <ignoreMaintenenceVersions>false</ignoreMaintenenceVersions>
               </configuration>
             </plugin>
@@ -1134,6 +1112,20 @@
                   <copyGenerated>true</copyGenerated>
                   <attachArtifact>false</attachArtifact>
                   <updateDate>true</updateDate>
+                  <versionTagHeader>Tag for release: jetty-${project.version}</versionTagHeader>
+                  <filenameExcludes>
+                    <filenameExclude>jetty-documentation/.*</filenameExclude>
+                    <filenameExclude>examples/.*</filenameExclude>
+                    <filenameExclude>aggregates/.*</filenameExclude>
+                    <filenameExclude>.*/test-.*</filenameExclude>
+                    <filenameExclude>.*/.*-test/.*</filenameExclude>
+                    <filenameExclude>.*/.*-tests/.*</filenameExclude>
+                    <filenameExclude>.*/src/test/.*</filenameExclude>
+                    <filenameExclude>\.git.*</filenameExclude>
+                    <filenameExclude>.*\.md$</filenameExclude>
+                    <filenameExclude>.*\.txt$</filenameExclude>
+                    <filenameExclude>Jenkinsfile</filenameExclude>
+                  </filenameExcludes>
                 </configuration>
               </execution>
             </executions>
@@ -1141,20 +1133,36 @@
         </plugins>
       </build>
     </profile>
+    <!--
+      Usage:
+      Javadoc aggregation for Jetty website
+      > mvn -Paggregate-site clean install javadoc:aggregate -Dtest=foo
+     -->
     <profile>
       <id>aggregate-site</id>
       <build>
         <plugins>
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-jxr-plugin</artifactId>
-            <configuration>
-              <aggregate>true</aggregate>
-            </configuration>
-          </plugin>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-javadoc-plugin</artifactId>
+            <configuration>
+              <!-- needed for Java 8+ -->
+              <additionalparam>&#45;&#45;allow-script-in-comments</additionalparam>
+              <header>
+                <![CDATA[
+                  <script type="text/javascript">
+                    var _gaq = _gaq || [];
+                    _gaq.push(['_setAccount', 'UA-1149868-7']);
+                    _gaq.push(['_trackPageview']);
+                    (function() {
+                      var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+                      ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+                      var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+                    })();
+                 </script>
+              ]]>
+              </header>
+            </configuration>
           </plugin>
         </plugins>
       </build>
@@ -1465,6 +1473,70 @@
         <alpn.version>8.1.11.v20170118</alpn.version>
       </properties>
     </profile>
+    <profile>
+      <id>8u141</id>
+      <activation>
+        <property>
+          <name>java.version</name>
+          <value>1.8.0_141</value>
+        </property>
+      </activation>
+      <properties>
+        <alpn.version>8.1.11.v20170118</alpn.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>8u144</id>
+      <activation>
+        <property>
+          <name>java.version</name>
+          <value>1.8.0_144</value>
+        </property>
+      </activation>
+      <properties>
+        <alpn.version>8.1.11.v20170118</alpn.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>8u151</id>
+      <activation>
+        <property>
+          <name>java.version</name>
+          <value>1.8.0_151</value>
+        </property>
+      </activation>
+      <properties>
+        <alpn.version>8.1.11.v20170118</alpn.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>8u152</id>
+      <activation>
+        <property>
+          <name>java.version</name>
+          <value>1.8.0_152</value>
+        </property>
+      </activation>
+      <properties>
+        <alpn.version>8.1.11.v20170118</alpn.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>jdk9</id>
+      <activation>
+        <jdk>[1.9,)</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <release>8</release>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <issueManagement>
@@ -1553,6 +1625,17 @@
     <name>Webtide</name>
     <url>https://webtide.com</url>
   </organization>
+
+  <repositories>
+    <repository>
+      <id>jetty-snapshots</id>
+      <name>jetty-snapshots</name>
+      <url>http://oss.sonatype.org/content/repositories/jetty-snapshots</url>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
 
   <distributionManagement>
     <repository>

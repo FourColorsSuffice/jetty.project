@@ -39,6 +39,7 @@ import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.component.LifeCycle;
+import org.eclipse.jetty.util.thread.ReservedThreadExecutor;
 import org.eclipse.jetty.util.thread.Scheduler;
 
 public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
@@ -67,10 +68,28 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
         FlowControlStrategy flowControl = client.getFlowControlStrategyFactory().newFlowControlStrategy();
         HTTP2ClientSession session = new HTTP2ClientSession(scheduler, endPoint, generator, listener, flowControl);
         Parser parser = new Parser(byteBufferPool, session, 4096, 8192);
-        HTTP2ClientConnection connection = new HTTP2ClientConnection(client, byteBufferPool, executor, endPoint,
+
+        ReservedThreadExecutor reservedExecutor = provideReservedThreadExecutor(client, executor);
+
+        HTTP2ClientConnection connection = new HTTP2ClientConnection(client, byteBufferPool, reservedExecutor, endPoint,
                 parser, session, client.getInputBufferSize(), promise, listener);
         connection.addListener(connectionListener);
         return customize(connection, context);
+    }
+
+    protected ReservedThreadExecutor provideReservedThreadExecutor(HTTP2Client client, Executor executor)
+    {
+        synchronized (this)
+        {
+            ReservedThreadExecutor reservedExecutor = client.getBean(ReservedThreadExecutor.class);
+            if (reservedExecutor == null)
+            {
+                // TODO: see HTTP2Connection.FillableCallback
+                reservedExecutor = new ReservedThreadExecutor(executor, 0);
+                client.addManaged(reservedExecutor);
+            }
+            return reservedExecutor;
+        }
     }
 
     private class HTTP2ClientConnection extends HTTP2Connection implements Callback
@@ -79,7 +98,7 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
         private final Promise<Session> promise;
         private final Session.Listener listener;
 
-        private HTTP2ClientConnection(HTTP2Client client, ByteBufferPool byteBufferPool, Executor executor, EndPoint endpoint, Parser parser, ISession session, int bufferSize, Promise<Session> promise, Session.Listener listener)
+        private HTTP2ClientConnection(HTTP2Client client, ByteBufferPool byteBufferPool, ReservedThreadExecutor executor, EndPoint endpoint, Parser parser, ISession session, int bufferSize, Promise<Session> promise, Session.Listener listener)
         {
             super(byteBufferPool, executor, endpoint, parser, session, bufferSize);
             this.client = client;

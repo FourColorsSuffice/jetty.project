@@ -21,10 +21,16 @@ package org.eclipse.jetty.server;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import javax.servlet.DispatcherType;
 import javax.servlet.RequestDispatcher;
@@ -34,6 +40,7 @@ import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpGenerator;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpMethod;
+import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
@@ -60,7 +67,6 @@ import org.eclipse.jetty.util.thread.Scheduler;
  * The HttpChannel signals the switch from passive mode to active mode by returning true to one of the
  * HttpParser.RequestHandler callbacks.   The completion of the active phase is signalled by a call to
  * HttpTransport.completed().
- *
  */
 public class HttpChannel implements Runnable, HttpOutput.Interceptor
 {
@@ -75,6 +81,9 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
     private final HttpChannelState _state;
     private final Request _request;
     private final Response _response;
+    private HttpFields _trailers;
+    private final Supplier<HttpFields> _trailerSupplier = () -> _trailers;
+    private final List<Listener> _listeners;
     private MetaData.Response _committedMetaData;
     private RequestLog _requestLog;
     private long _oldIdleTimeout;
@@ -96,8 +105,17 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         _executor = connector == null ? null : connector.getServer().getThreadPool();
         _requestLog = connector == null ? null : connector.getServer().getRequestLog();
 
+        List<Listener> listeners = new ArrayList<>();
+        if (connector != null)
+            listeners.addAll(connector.getBeans(Listener.class));
+        _listeners = listeners;
+
         if (LOG.isDebugEnabled())
-            LOG.debug("new {} -> {},{},{}",this,_endPoint,_endPoint.getConnection(),_state);
+            LOG.debug("new {} -> {},{},{}",
+                    this,
+                    _endPoint,
+                    _endPoint==null?null:_endPoint.getConnection(),
+                    _state);
     }
 
     protected HttpInput newHttpInput(HttpChannelState state)
@@ -252,10 +270,21 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         _committedMetaData=null;
         _requestLog=_connector==null?null:_connector.getServer().getRequestLog();
         _written=0;
+        _trailers=null;
+        _oldIdleTimeout=0;
     }
 
-    public void asyncReadFillInterested()
+    public void onAsyncWaitForContent()
     {
+    }
+
+    public void onBlockWaitForContent()
+    {
+    }
+
+    public void onBlockWaitForContentFailure(Throwable failure)
+    {
+        getRequest().getHttpInput().failed(failure);
     }
 
     @Override
@@ -289,7 +318,12 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                 {
                     case TERMINATED:
                     case WAIT:
+                        // break loop without calling unhandle
                         break loop;
+                        
+                    case NOOP:
+                        // do nothing other than call unhandle
+                        break;
 
                     case DISPATCH:
                     {
@@ -301,6 +335,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                         try
                         {
                             _request.setDispatcherType(DispatcherType.REQUEST);
+                            notifyBeforeDispatch(_request);
 
                             List<HttpConfiguration.Customizer> customizers = _configuration.getCustomizers();
                             if (!customizers.isEmpty())
@@ -316,8 +351,14 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                             if (!_request.isHandled())
                                 getServer().handle(this);
                         }
+                        catch (Throwable x)
+                        {
+                            notifyDispatchFailure(_request, x);
+                            throw x;
+                        }
                         finally
                         {
+                            notifyAfterDispatch(_request);
                             _request.setDispatcherType(null);
                         }
                         break;
@@ -331,10 +372,17 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                         try
                         {
                             _request.setDispatcherType(DispatcherType.ASYNC);
+                            notifyBeforeDispatch(_request);
                             getServer().handleAsync(this);
+                        }
+                        catch (Throwable x)
+                        {
+                            notifyDispatchFailure(_request, x);
+                            throw x;
                         }
                         finally
                         {
+                            notifyAfterDispatch(_request);
                             _request.setDispatcherType(null);
                         }
                         break;
@@ -355,10 +403,17 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                             try
                             {
                                 _request.setDispatcherType(DispatcherType.ERROR);
+                                notifyBeforeDispatch(_request);
                                 getServer().handle(this);
+                            }
+                            catch (Throwable x)
+                            {
+                                notifyDispatchFailure(_request, x);
+                                throw x;
                             }
                             finally
                             {
+                                notifyAfterDispatch(_request);
                                 _request.setDispatcherType(null);
                             }
                         }
@@ -373,7 +428,8 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                             }
                             else
                             {
-                                failure.addSuppressed(x);
+                                if (failure != x)
+                                    failure.addSuppressed(x);
                                 minimalErrorResponse(failure);
                             }
                         }
@@ -387,7 +443,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
 
                     case READ_PRODUCE:
                     {
-                        _request.getHttpInput().produceContent();
+                        _request.getHttpInput().asyncReadProduce();
                         break;
                     }
                     
@@ -429,7 +485,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                             if (hasContent && !_response.isContentComplete(_response.getHttpOutput().getWritten()))
                             {
                                 if (isCommitted())
-                                    _transport.abort(new IOException("insufficient content written"));
+                                    abort(new IOException("insufficient content written"));
                                 else
                                     _response.sendError(HttpStatus.INTERNAL_SERVER_ERROR_500,"insufficient content written");
                             }
@@ -505,7 +561,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
             if (LOG.isDebugEnabled())
                 LOG.debug(_request.getRequestURI(), failure);
         }
-        else if (failure instanceof BadMessageException)
+        else if (failure instanceof BadMessageException | failure instanceof IOException | failure instanceof TimeoutException)
         {
             if (LOG.isDebugEnabled())
                 LOG.debug(_request.getRequestURI(), failure);
@@ -542,7 +598,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         catch (Throwable x)
         {
             failure.addSuppressed(x);
-            _transport.abort(failure);
+            abort(failure);
         }
     }
 
@@ -581,7 +637,12 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         if (idleTO>=0 && _oldIdleTimeout!=idleTO)
             setIdleTimeout(idleTO);
 
+        request.setTrailerSupplier(_trailerSupplier);
         _request.setMetaData(request);
+
+        _request.setSecure(HttpScheme.HTTPS.is(request.getURI().getScheme()));
+
+        notifyRequestBegin(_request);
 
         if (LOG.isDebugEnabled())
             LOG.debug("REQUEST for {} on {}{}{} {} {}{}{}",request.getURIString(),this,System.lineSeparator(),
@@ -593,7 +654,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
     {
         if (LOG.isDebugEnabled())
             LOG.debug("{} onContent {}", this, content);
-
+        notifyRequestContent(_request, content.getByteBuffer());
         return _request.getHttpInput().addContent(content);
     }
 
@@ -601,6 +662,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
     {
         if (LOG.isDebugEnabled())
             LOG.debug("{} onContentComplete", this);
+        notifyRequestContentEnd(_request);
         return false;
     }
 
@@ -608,14 +670,17 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
     {
         if (LOG.isDebugEnabled())
             LOG.debug("{} onTrailers {}", this, trailers);
-        _request.setTrailers(trailers);
+        _trailers = trailers;
+        notifyRequestTrailers(_request);
     }
 
     public boolean onRequestComplete()
     {
         if (LOG.isDebugEnabled())
             LOG.debug("{} onRequestComplete", this);
-        return _request.getHttpInput().eof();
+        boolean result = _request.getHttpInput().eof();
+        notifyRequestEnd(_request);
+        return result;
     }
 
     public void onCompleted()
@@ -630,6 +695,8 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         if (idleTO>=0 && getIdleTimeout()!=_oldIdleTimeout)
             setIdleTimeout(_oldIdleTimeout);
 
+        notifyComplete(_request);
+
         _transport.onCompleted();
     }
 
@@ -642,6 +709,8 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
     {
         if (status < 400 || status > 599)
             status = HttpStatus.BAD_REQUEST_400;
+
+        notifyRequestFailure(_request, new BadMessageException(status, reason));
 
         Action action;
         try
@@ -706,7 +775,9 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
 
             // wrap callback to process 100 responses
             final int status=info.getStatus();
-            final Callback committed = (status<200&&status>=100)?new Commit100Callback(callback):new CommitCallback(callback);
+            final Callback committed = (status<200&&status>=100)?new Commit100Callback(callback):new CommitCallback(callback, content, complete);
+
+            notifyResponseBegin(_request);
 
             // committing write
             _transport.send(info, _request.isHead(), content, complete, committed);
@@ -714,7 +785,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         else if (info==null)
         {
             // This is a normal write
-            _transport.send(null,_request.isHead(), content, complete, callback);
+            _transport.send(null,_request.isHead(), content, complete, new ContentCallback(callback, content, complete));
         }
         else
         {
@@ -723,7 +794,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
         return committing;
     }
 
-    protected boolean sendResponse(MetaData.Response info, ByteBuffer content, boolean complete) throws IOException
+    public boolean sendResponse(MetaData.Response info, ByteBuffer content, boolean complete) throws IOException
     {
         try(Blocker blocker = _response.getHttpOutput().acquireWriteBlockingCallback())
         {
@@ -808,14 +879,317 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
      */
     public void abort(Throwable failure)
     {
+        notifyResponseFailure(_request, failure);
         _transport.abort(failure);
+    }
+
+    private void notifyRequestBegin(Request request)
+    {
+        notifyEvent1(listener -> listener::onRequestBegin, request);
+    }
+
+    private void notifyBeforeDispatch(Request request)
+    {
+        notifyEvent1(listener -> listener::onBeforeDispatch, request);
+    }
+
+    private void notifyDispatchFailure(Request request, Throwable failure)
+    {
+        notifyEvent2(listener -> listener::onDispatchFailure, request, failure);
+    }
+
+    private void notifyAfterDispatch(Request request)
+    {
+        notifyEvent1(listener -> listener::onAfterDispatch, request);
+    }
+
+    private void notifyRequestContent(Request request, ByteBuffer content)
+    {
+        notifyEvent2(listener -> listener::onRequestContent, request, content);
+    }
+
+    private void notifyRequestContentEnd(Request request)
+    {
+        notifyEvent1(listener -> listener::onRequestContentEnd, request);
+    }
+
+    private void notifyRequestTrailers(Request request)
+    {
+        notifyEvent1(listener -> listener::onRequestTrailers, request);
+    }
+
+    private void notifyRequestEnd(Request request)
+    {
+        notifyEvent1(listener -> listener::onRequestEnd, request);
+    }
+
+    private void notifyRequestFailure(Request request, Throwable failure)
+    {
+        notifyEvent2(listener -> listener::onRequestFailure, request, failure);
+    }
+
+    private void notifyResponseBegin(Request request)
+    {
+        notifyEvent1(listener -> listener::onResponseBegin, request);
+    }
+
+    private void notifyResponseCommit(Request request)
+    {
+        notifyEvent1(listener -> listener::onResponseCommit, request);
+    }
+
+    private void notifyResponseContent(Request request, ByteBuffer content)
+    {
+        notifyEvent2(listener -> listener::onResponseContent, request, content);
+    }
+
+    private void notifyResponseEnd(Request request)
+    {
+        notifyEvent1(listener -> listener::onResponseEnd, request);
+    }
+
+    private void notifyResponseFailure(Request request, Throwable failure)
+    {
+        notifyEvent2(listener -> listener::onResponseFailure, request, failure);
+    }
+
+    private void notifyComplete(Request request)
+    {
+        notifyEvent1(listener -> listener::onComplete, request);
+    }
+
+    private void notifyEvent1(Function<Listener, Consumer<Request>> function, Request request)
+    {
+        for (Listener listener : _listeners)
+        {
+            try
+            {
+                function.apply(listener).accept(request);
+            }
+            catch (Throwable x)
+            {
+                LOG.debug("Failure invoking listener " + listener, x);
+            }
+        }
+    }
+
+    private void notifyEvent2(Function<Listener, BiConsumer<Request, ByteBuffer>> function, Request request, ByteBuffer content)
+    {
+        for (Listener listener : _listeners)
+        {
+            ByteBuffer view = content.slice();
+            try
+            {
+                function.apply(listener).accept(request, view);
+            }
+            catch (Throwable x)
+            {
+                LOG.debug("Failure invoking listener " + listener, x);
+            }
+        }
+    }
+
+    private void notifyEvent2(Function<Listener, BiConsumer<Request, Throwable>> function, Request request, Throwable failure)
+    {
+        for (Listener listener : _listeners)
+        {
+            try
+            {
+                function.apply(listener).accept(request, failure);
+            }
+            catch (Throwable x)
+            {
+                LOG.debug("Failure invoking listener " + listener, x);
+            }
+        }
+    }
+
+    /**
+     * <p>Listener for {@link HttpChannel} events.</p>
+     * <p>HttpChannel will emit events for the various phases it goes through while
+     * processing a HTTP request and response.</p>
+     * <p>Implementations of this interface may listen to those events to track
+     * timing and/or other values such as request URI, etc.</p>
+     * <p>The events parameters, especially the {@link Request} object, may be
+     * in a transient state depending on the event, and not all properties/features
+     * of the parameters may be available inside a listener method.</p>
+     * <p>It is recommended that the event parameters are <em>not</em> acted upon
+     * in the listener methods, or undefined behavior may result. For example, it
+     * would be a bad idea to try to read some content from the
+     * {@link javax.servlet.ServletInputStream} in listener methods. On the other
+     * hand, it is legit to store request attributes in one listener method that
+     * may be possibly retrieved in another listener method in a later event.</p>
+     * <p>Listener methods are invoked synchronously from the thread that is
+     * performing the request processing, and they should not call blocking code
+     * (otherwise the request processing will be blocked as well).</p>
+     */
+    public interface Listener
+    {
+        /**
+         * Invoked just after the HTTP request line and headers have been parsed.
+         *
+         * @param request the request object
+         */
+        public default void onRequestBegin(Request request)
+        {
+        }
+
+        /**
+         * Invoked just before calling the application.
+         *
+         * @param request the request object
+         */
+        public default void onBeforeDispatch(Request request)
+        {
+        }
+
+        /**
+         * Invoked when the application threw an exception.
+         *
+         * @param request the request object
+         * @param failure the exception thrown by the application
+         */
+        public default void onDispatchFailure(Request request, Throwable failure)
+        {
+        }
+
+        /**
+         * Invoked just after the application returns from the first invocation.
+         *
+         * @param request the request object
+         */
+        public default void onAfterDispatch(Request request)
+        {
+        }
+
+        /**
+         * Invoked every time a request content chunk has been parsed, just before
+         * making it available to the application.
+         *
+         * @param request the request object
+         * @param content a {@link ByteBuffer#slice() slice} of the request content chunk
+         */
+        public default void onRequestContent(Request request, ByteBuffer content)
+        {
+        }
+
+        /**
+         * Invoked when the end of the request content is detected.
+         *
+         * @param request the request object
+         */
+        public default void onRequestContentEnd(Request request)
+        {
+        }
+
+        /**
+         * Invoked when the request trailers have been parsed.
+         *
+         * @param request the request object
+         */
+        public default void onRequestTrailers(Request request)
+        {
+        }
+
+        /**
+         * Invoked when the request has been fully parsed.
+         *
+         * @param request the request object
+         */
+        public default void onRequestEnd(Request request)
+        {
+        }
+
+        /**
+         * Invoked when the request processing failed.
+         *
+         * @param request the request object
+         * @param failure the request failure
+         */
+        public default void onRequestFailure(Request request, Throwable failure)
+        {
+        }
+
+        /**
+         * Invoked just before the response line is written to the network.
+         *
+         * @param request the request object
+         */
+        public default void onResponseBegin(Request request)
+        {
+        }
+
+        /**
+         * Invoked just after the response is committed (that is, the response
+         * line, headers and possibly some content have been written to the
+         * network).
+         *
+         * @param request the request object
+         */
+        public default void onResponseCommit(Request request)
+        {
+        }
+
+        /**
+         * Invoked after a response content chunk has been written to the network.
+         *
+         * @param request the request object
+         * @param content a {@link ByteBuffer#slice() slice} of the response content chunk
+         */
+        public default void onResponseContent(Request request, ByteBuffer content)
+        {
+        }
+
+        /**
+         * Invoked when the response has been fully written.
+         *
+         * @param request the request object
+         */
+        public default void onResponseEnd(Request request)
+        {
+        }
+
+        /**
+         * Invoked when the response processing failed.
+         *
+         * @param request the request object
+         * @param failure the response failure
+         */
+        public default void onResponseFailure(Request request, Throwable failure)
+        {
+        }
+
+        /**
+         * Invoked when the request <em>and</em> response processing are complete.
+         *
+         * @param request the request object
+         */
+        public default void onComplete(Request request)
+        {
+        }
     }
 
     private class CommitCallback extends Callback.Nested
     {
-        private CommitCallback(Callback callback)
+        private final ByteBuffer _content;
+        private final boolean _complete;
+
+        private CommitCallback(Callback callback, ByteBuffer content, boolean complete)
         {
             super(callback);
+            this._content = content == null ? BufferUtil.EMPTY_BUFFER : content.slice();
+            this._complete = complete;
+        }
+
+        @Override
+        public void succeeded()
+        {
+            super.succeeded();
+            notifyResponseCommit(_request);
+            if (_content.hasRemaining())
+                notifyResponseContent(_request, _content);
+            if (_complete)
+                notifyResponseEnd(_request);
         }
 
         @Override
@@ -838,14 +1212,14 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
                     @Override
                     public void failed(Throwable th)
                     {
-                        _transport.abort(x);
+                        abort(x);
                         super.failed(x);
                     }
                 });
             }
             else
             {
-                _transport.abort(x);
+                abort(x);
                 super.failed(x);
             }
         }
@@ -855,7 +1229,7 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
     {
         private Commit100Callback(Callback callback)
         {
-            super(callback);
+            super(callback, null, false);
         }
 
         @Override
@@ -866,8 +1240,28 @@ public class HttpChannel implements Runnable, HttpOutput.Interceptor
             else
                 super.failed(new IllegalStateException());
         }
-
     }
 
+    private class ContentCallback extends Callback.Nested
+    {
+        private final ByteBuffer _content;
+        private final boolean _complete;
 
+        private ContentCallback(Callback callback, ByteBuffer content, boolean complete)
+        {
+            super(callback);
+            this._content = content == null ? BufferUtil.EMPTY_BUFFER : content.slice();
+            this._complete = complete;
+        }
+
+        @Override
+        public void succeeded()
+        {
+            super.succeeded();
+            if (_content.hasRemaining())
+                notifyResponseContent(_request, _content);
+            if (_complete)
+                notifyResponseEnd(_request);
+        }
+    }
 }

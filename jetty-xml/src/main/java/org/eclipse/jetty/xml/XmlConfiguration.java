@@ -35,6 +35,7 @@ import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,6 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.eclipse.jetty.util.LazyList;
 import org.eclipse.jetty.util.Loader;
+import org.eclipse.jetty.util.MultiException;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.component.LifeCycle;
@@ -107,13 +109,63 @@ public class XmlConfiguration
         parser.redirectEntity("http://jetty.mortbay.org/configure.dtd",config93);
         parser.redirectEntity("http://jetty.eclipse.org/configure.dtd",config93);
         parser.redirectEntity("http://www.eclipse.org/jetty/configure.dtd",config93);
-
+        parser.redirectEntity("http://www.eclipse.org/jetty/configure_9_3.dtd",config93);
+        
         parser.redirectEntity("-//Mort Bay Consulting//DTD Configure//EN",config93);
         parser.redirectEntity("-//Jetty//Configure//EN",config93);
 
         return parser;
     }
 
+    /** 
+     * Set the standard IDs and properties expected in a jetty XML file:
+     * <ul>
+     * <li>RefId Server</li>
+     * <li>Property jetty.home</li>
+     * <li>Property jetty.home.uri</li>
+     * <li>Property jetty.base</li>
+     * <li>Property jetty.base.uri</li>
+     * <li>Property jetty.webapps</li>
+     * <li>Property jetty.webapps.uri</li>
+     * </ul>
+     * @param server The Server object to set
+     * @param webapp The webapps Resource
+     */
+    public void setJettyStandardIdsAndProperties(Object server, Resource webapp)
+    {
+        try
+        {
+            if (server!=null)
+                getIdMap().put("Server", server);
+            
+            Resource home = Resource.newResource(System.getProperty("jetty.home","."));
+            getProperties().put("jetty.home",home.toString());
+            getProperties().put("jetty.home.uri",normalizeURI(home.getURI().toString()));
+
+            Resource base = Resource.newResource(System.getProperty("jetty.base",home.toString()));
+            getProperties().put("jetty.base",base.toString());
+            getProperties().put("jetty.base.uri",normalizeURI(base.getURI().toString()));
+
+            if (webapp!=null)
+            {
+                getProperties().put("jetty.webapp",webapp.toString());
+                getProperties().put("jetty.webapps",webapp.getFile().toPath().getParent().toString());
+                getProperties().put("jetty.webapps.uri",normalizeURI(webapp.getURI().toString()));
+            }
+        }
+        catch(Exception e)
+        {
+            LOG.warn(e);
+        }
+    }
+    
+    public static String normalizeURI(String uri)
+    {
+        if (uri.endsWith("/"))
+            return uri.substring(0,uri.length()-1);
+        return uri;
+    }
+    
     private final Map<String, Object> _idMap = new HashMap<>();
     private final Map<String, String> _propertyMap = new HashMap<>();
     private final URL _url;
@@ -481,6 +533,8 @@ public class XmlConfiguration
             if (LOG.isDebugEnabled())
                 LOG.debug("XML " + (obj != null?obj.toString():oClass.getName()) + "." + name + "(" + value + ")");
 
+            MultiException me = new MultiException();
+            
             // Try for trivial match
             try
             {
@@ -491,6 +545,7 @@ public class XmlConfiguration
             catch (IllegalArgumentException | IllegalAccessException | NoSuchMethodException e)
             {
                 LOG.ignore(e);
+                me.add(e);
             }
 
             // Try for native match
@@ -505,6 +560,7 @@ public class XmlConfiguration
             catch (NoSuchFieldException | IllegalArgumentException | IllegalAccessException | NoSuchMethodException e)
             {
                 LOG.ignore(e);
+                me.add(e);
             }
 
             // Try a field
@@ -520,11 +576,13 @@ public class XmlConfiguration
             catch (NoSuchFieldException e)
             {
                 LOG.ignore(e);
+                me.add(e);
             }
 
             // Search for a match by trying all the set methods
             Method[] sets = oClass.getMethods();
             Method set = null;
+            String types = null;
             for (int s = 0; sets != null && s < sets.length; s++)
             {
                 if (sets[s].getParameterCount()!=1)
@@ -532,6 +590,7 @@ public class XmlConfiguration
                 Class<?>[] paramTypes = sets[s].getParameterTypes();
                 if (name.equals(sets[s].getName()))
                 {
+                    types = types==null?paramTypes[0].getName():(types+","+paramTypes[0].getName());
                     // lets try it
                     try
                     {
@@ -542,6 +601,7 @@ public class XmlConfiguration
                     catch (IllegalArgumentException | IllegalAccessException e)
                     {
                         LOG.ignore(e);
+                        me.add(e);
                     }
 
                     try
@@ -556,6 +616,7 @@ public class XmlConfiguration
                     catch (IllegalAccessException e)
                     {
                         LOG.ignore(e);
+                        me.add(e);
                     }
                 }
             }
@@ -586,11 +647,21 @@ public class XmlConfiguration
                 catch (NoSuchMethodException | IllegalAccessException | InstantiationException e)
                 {
                     LOG.ignore(e);
+                    me.add(e);
                 }
             }
 
             // No Joy
-            throw new NoSuchMethodException(oClass + "." + name + "(" + vClass[0] + ")");
+            String message = oClass + "." + name + "(" + vClass[0] + ")";
+            if (types!=null)
+                message += ". Found setters for "+types;
+            throw new NoSuchMethodException(message)
+            {
+                {
+                    for (int i=0; i<me.size(); i++)
+                        addSuppressed(me.getThrowable(i));
+                }
+            };
         }
 
         /**
@@ -1479,7 +1550,7 @@ public class XmlConfiguration
 
                     // For all arguments, parse XMLs
                     XmlConfiguration last = null;
-                    Object[] obj = new Object[args.length];
+                    List<Object> objects = new ArrayList<>(args.length);
                     for (int i = 0; i < args.length; i++)
                     {
                         if (!args[i].toLowerCase(Locale.ENGLISH).endsWith(".properties") && (args[i].indexOf('=')<0))
@@ -1496,17 +1567,20 @@ public class XmlConfiguration
                                 }
                                 configuration.getProperties().putAll(props);
                             }
-                            obj[i] = configuration.configure();
+                            
+                            Object obj = configuration.configure();
+                            if (obj!=null && !objects.contains(obj))
+                                objects.add(obj);
                             last = configuration;
                         }
                     }
 
                     // For all objects created by XmlConfigurations, start them if they are lifecycles.
-                    for (int i = 0; i < args.length; i++)
-                    {
-                        if (obj[i] instanceof LifeCycle)
+                    for (Object obj : objects)
+                    {           
+                        if (obj instanceof LifeCycle)
                         {
-                            LifeCycle lc = (LifeCycle)obj[i];
+                            LifeCycle lc = (LifeCycle)obj;
                             if (!lc.isRunning())
                                 lc.start();
                         }

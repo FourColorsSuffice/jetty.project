@@ -2,7 +2,7 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>10.0.0-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
@@ -20,8 +20,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <source>8</source>
-          <target>8</target>
           <compilerArgs>
             <arg>-profile</arg>
             <arg>compact3</arg>
@@ -57,8 +55,6 @@
               <includes>**/*</includes>
               <excludes>
                 META-INF/**,
-                **/Servlet3Continuation*,
-                **/Jetty6Continuation*,
                 **/AppContextLeakPreventer*.java,
                 **/AWTLeakPreventer*.java,
                 **/IntrospectorCleaner*.java,

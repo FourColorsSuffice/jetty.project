@@ -2,7 +2,7 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-alpn-parent</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>10.0.0-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-alpn-client</artifactId>
@@ -23,7 +23,8 @@
             </goals>
             <configuration>
               <instructions>
-               <Import-Package>org.eclipse.jetty.alpn;resolution:=optional</Import-Package>
+               <Import-Package>org.eclipse.jetty.alpn;resolution:=optional,*</Import-Package>
+               <Require-Capability>osgi.extender; filter:="(osgi.extender=osgi.serviceloader.processor)", osgi.serviceloader; filter:="(osgi.serviceloader=org.eclipse.jetty.io.ssl.ALPNProcessor$Client)";cardinality:=multiple</Require-Capability>
               </instructions>
             </configuration>
           </execution>
@@ -49,12 +50,6 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-io</artifactId>
       <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty.alpn</groupId>
-      <artifactId>alpn-api</artifactId>
-      <version>${alpn.api.version}</version>
-      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.eclipse.jetty.toolchain</groupId>

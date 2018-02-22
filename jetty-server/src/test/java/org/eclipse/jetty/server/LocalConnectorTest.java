@@ -30,11 +30,14 @@ import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.server.LocalConnector.LocalEndPoint;
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.util.BufferUtil;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
+@RunWith(AdvancedRunner.class)
 public class LocalConnectorTest
 {
     private Server _server;
@@ -79,7 +82,7 @@ public class LocalConnectorTest
             }
         });
 
-        _connector.getResponses("" +
+        _connector.getResponse("" +
                 "GET / HTTP/1.1\r\n" +
                 "Host: localhost\r\n" +
                 "Connection: close\r\n" +
@@ -92,7 +95,7 @@ public class LocalConnectorTest
     @Test
     public void testOneGET() throws Exception
     {
-        String response=_connector.getResponses("GET /R1 HTTP/1.0\r\n\r\n");
+        String response=_connector.getResponse("GET /R1 HTTP/1.0\r\n\r\n");
         assertThat(response,containsString("HTTP/1.1 200 OK"));
         assertThat(response,containsString("pathInfo=/R1"));
     }
@@ -301,14 +304,14 @@ public class LocalConnectorTest
     @Test
     public void testStopStart() throws Exception
     {
-        String response=_connector.getResponses("GET /R1 HTTP/1.0\r\n\r\n");
+        String response=_connector.getResponse("GET /R1 HTTP/1.0\r\n\r\n");
         assertThat(response,containsString("HTTP/1.1 200 OK"));
         assertThat(response,containsString("pathInfo=/R1"));
 
         _server.stop();
         _server.start();
 
-        response=_connector.getResponses("GET /R2 HTTP/1.0\r\n\r\n");
+        response=_connector.getResponse("GET /R2 HTTP/1.0\r\n\r\n");
         assertThat(response,containsString("HTTP/1.1 200 OK"));
         assertThat(response,containsString("pathInfo=/R2"));
     }
@@ -316,12 +319,15 @@ public class LocalConnectorTest
     @Test
     public void testTwoGETs() throws Exception
     {
-        String response=_connector.getResponses(
+        LocalEndPoint endp = _connector.connect();
+        endp.addInput(
             "GET /R1 HTTP/1.1\r\n"+
             "Host: localhost\r\n"+
             "\r\n"+
             "GET /R2 HTTP/1.0\r\n\r\n");
 
+        String response = endp.getResponse() + endp.getResponse();
+        
         assertThat(response,containsString("HTTP/1.1 200 OK"));
         assertThat(response,containsString("pathInfo=/R1"));
 
@@ -355,7 +361,8 @@ public class LocalConnectorTest
     @Test
     public void testManyGETs() throws Exception
     {
-        String response=_connector.getResponses(
+        LocalEndPoint endp = _connector.connect();
+        endp.addInput(
             "GET /R1 HTTP/1.1\r\n"+
             "Host: localhost\r\n"+
             "\r\n"+
@@ -376,7 +383,10 @@ public class LocalConnectorTest
             "Connection: close\r\n"+
             "\r\n");
         
-        String r=response;
+        String r="";
+        
+        for (String response=endp.getResponse();response!=null;response=endp.getResponse())
+            r+=response;
         
         for (int i=1;i<=6;i++)
         {

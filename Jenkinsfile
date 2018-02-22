@@ -38,7 +38,7 @@ node {
     stage('Javadoc') {
       withEnv(mvnEnv) {
         timeout(time: 20, unit: 'MINUTES') {
-          sh "mvn --offline -B javadoc:javadoc"
+          sh "mvn -B javadoc:javadoc"
         }
       }
     }
@@ -53,7 +53,7 @@ node {
       withEnv(mvnEnv) {
         timeout(time: 90, unit: 'MINUTES') {
           // Run test phase / ignore test failures
-          sh "mvn -B install -Dmaven.test.failure.ignore=true"
+          sh "mvn -B install -Dmaven.test.failure.ignore=true -Prun-its"
           // Report failures in the jenkins UI
           step([$class: 'JUnitResultArchiver', 
               testResults: '**/target/surefire-reports/TEST-*.xml'])

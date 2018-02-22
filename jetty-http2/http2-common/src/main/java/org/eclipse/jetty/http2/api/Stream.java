@@ -163,6 +163,19 @@ public interface Stream
          */
         public void onData(Stream stream, DataFrame frame, Callback callback);
 
+        public default void onReset(Stream stream, ResetFrame frame, Callback callback)
+        {
+            try
+            {
+                onReset(stream, frame);
+                callback.succeeded();
+            }
+            catch (Throwable x)
+            {
+                callback.failed(x);
+            }
+        }
+
         /**
          * <p>Callback method invoked when a RST_STREAM frame has been received for this stream.</p>
          *
@@ -170,18 +183,7 @@ public interface Stream
          * @param frame  the RST_FRAME received
          * @see Session.Listener#onReset(Session, ResetFrame)
          */
-        public void onReset(Stream stream, ResetFrame frame);
-
-        /**
-         * <p>Callback method invoked when the stream exceeds its idle timeout.</p>
-         *
-         * @param stream the stream
-         * @param x      the timeout failure
-         * @see #getIdleTimeout()
-         * @deprecated use {@link #onIdleTimeout(Stream, Throwable)} instead
-         */
-        @Deprecated
-        public default void onTimeout(Stream stream, Throwable x)
+        public default void onReset(Stream stream, ResetFrame frame)
         {
         }
 
@@ -193,11 +195,7 @@ public interface Stream
          * @see #getIdleTimeout()
          * @return true to reset the stream, false to ignore the idle timeout
          */
-        public default boolean onIdleTimeout(Stream stream, Throwable x)
-        {
-            onTimeout(stream, x);
-            return true;
-        }
+        public boolean onIdleTimeout(Stream stream, Throwable x);
 
         /**
          * <p>Empty implementation of {@link Listener}</p>
@@ -223,11 +221,6 @@ public interface Stream
 
             @Override
             public void onReset(Stream stream, ResetFrame frame)
-            {
-            }
-
-            @Override
-            public void onTimeout(Stream stream, Throwable x)
             {
             }
 

@@ -41,6 +41,7 @@ import org.eclipse.jetty.server.HttpOutput.Interceptor;
 import org.eclipse.jetty.server.LocalConnector.LocalEndPoint;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.HotSwapHandler;
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.resource.Resource;
@@ -49,10 +50,12 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
 /**
  *
  */
+@RunWith(AdvancedRunner.class)
 public class HttpOutputTest
 {
     private Server _server;
@@ -579,7 +582,7 @@ public class HttpOutputTest
         _handler._byteBuffer = BufferUtil.allocateDirect(8192);
         _handler._async = true;
 
-        String response = _connector.getResponses("GET / HTTP/1.0\nHost: localhost:80\n\n");
+        String response = _connector.getResponse("GET / HTTP/1.0\nHost: localhost:80\n\n");
         assertThat(response, containsString("HTTP/1.1 200 OK"));
         assertThat(response, Matchers.not(containsString("Content-Length")));
         assertThat(response, endsWith(toUTF8String(big)));

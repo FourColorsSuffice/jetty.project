@@ -22,22 +22,23 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Queue;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.AbstractConnection;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.WriteFlusher;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.ExecutionStrategy;
+import org.eclipse.jetty.util.thread.ReservedThreadExecutor;
 import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
 
-public class HTTP2Connection extends AbstractConnection
+public class HTTP2Connection extends AbstractConnection implements WriteFlusher.Listener
 {
     protected static final Logger LOG = Log.getLogger(HTTP2Connection.class);
 
@@ -50,15 +51,14 @@ public class HTTP2Connection extends AbstractConnection
     private final int bufferSize;
     private final ExecutionStrategy strategy;
 
-    public HTTP2Connection(ByteBufferPool byteBufferPool, Executor executor, EndPoint endPoint, Parser parser, ISession session, int bufferSize)
+    public HTTP2Connection(ByteBufferPool byteBufferPool, ReservedThreadExecutor executor, EndPoint endPoint, Parser parser, ISession session, int bufferSize)
     {
-        super(endPoint, executor);
+        super(endPoint, executor.getExecutor());
         this.byteBufferPool = byteBufferPool;
         this.parser = parser;
         this.session = session;
         this.bufferSize = bufferSize;
-        this.strategy = new EatWhatYouKill(producer, executor, 0);
-        
+        this.strategy = new EatWhatYouKill(producer, executor.getExecutor(), executor);
         LifeCycle.start(strategy);
     }
 
@@ -147,7 +147,10 @@ public class HTTP2Connection extends AbstractConnection
     protected void offerTask(Runnable task, boolean dispatch)
     {
         offerTask(task);
-        strategy.dispatch();
+        if (dispatch)
+            strategy.dispatch();
+        else
+            strategy.produce();
     }
 
     @Override
@@ -174,13 +177,21 @@ public class HTTP2Connection extends AbstractConnection
         }
     }
 
+    @Override
+    public void onFlushed(long bytes) throws IOException
+    {
+        // TODO: add method to ISession ?
+        ((HTTP2Session)session).onFlushed(bytes);
+    }
+
     protected class HTTP2Producer implements ExecutionStrategy.Producer
     {
         private final Callback fillableCallback = new FillableCallback();
         private ByteBuffer buffer;
+        private boolean shutdown;
 
         @Override
-        public synchronized Runnable produce()
+        public Runnable produce()
         {
             Runnable task = pollTask();
             if (LOG.isDebugEnabled())
@@ -188,7 +199,7 @@ public class HTTP2Connection extends AbstractConnection
             if (task != null)
                 return task;
 
-            if (isFillInterested())
+            if (isFillInterested() || shutdown)
                 return null;
 
             if (buffer == null)
@@ -224,6 +235,7 @@ public class HTTP2Connection extends AbstractConnection
                 else if (filled < 0)
                 {
                     release();
+                    shutdown = true;
                     session.onShutdown();
                     return null;
                 }
@@ -244,6 +256,12 @@ public class HTTP2Connection extends AbstractConnection
                 buffer = null;
             }
         }
+
+        @Override
+        public String toString()
+        {
+            return String.format("%s@%x", getClass().getSimpleName(), hashCode());
+        }
     }
 
     private class FillableCallback implements Callback
@@ -263,7 +281,9 @@ public class HTTP2Connection extends AbstractConnection
         @Override
         public InvocationType getInvocationType()
         {
-            return InvocationType.EITHER;
+            // TODO: see also AbstractHTTP2ServerConnectionFactory.reservedThreads.
+            // TODO: it's non blocking here because reservedThreads=0.
+            return InvocationType.NON_BLOCKING;
         }
     }
 }

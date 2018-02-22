@@ -4,7 +4,7 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>10.0.0-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-distribution</artifactId>
@@ -51,7 +51,7 @@
         <artifactId>maven-antrun-plugin</artifactId>
         <executions>
           <execution>
-            <id>popluate distribution from home</id>
+            <id>populate distribution from home</id>
             <phase>process-resources</phase>
             <goals>
               <goal>run</goal>
@@ -192,7 +192,7 @@
                   <overWrite>true</overWrite>
                   <includes>**</includes>
                   <outputDirectory>${assembly-directory}/demo-base/webapps</outputDirectory>
-                  <destFileName>xref-proxy.war</destFileName>
+                  <destFileName>javadoc-proxy.war</destFileName>
                 </artifactItem>
                 <artifactItem>
                   <groupId>org.eclipse.jetty.example-async-rest</groupId>
@@ -350,7 +350,7 @@
               <arguments>
                 <argument>jetty.home=${assembly-directory}</argument>
                 <argument>jetty.base=${assembly-directory}/demo-base</argument>
-                <argument>--add-to-startd=server,continuation,deploy,websocket,ext,resources,client,annotations,jndi,servlets,jsp,jstl,http,https</argument>
+                <argument>--add-to-startd=server,deploy,websocket,ext,resources,client,annotations,jndi,servlets,jsp,jstl,http,https,test-keystore</argument>
               </arguments>
             </configuration>
             <goals>
@@ -366,7 +366,7 @@
           <descriptors>
             <descriptor>src/main/assembly/jetty-assembly.xml</descriptor>
           </descriptors>
-          <tarLongFileMode>gnu</tarLongFileMode>
+          <tarLongFileMode>posix</tarLongFileMode>
           <appendAssemblyId>false</appendAssemblyId>
         </configuration>
         <executions>

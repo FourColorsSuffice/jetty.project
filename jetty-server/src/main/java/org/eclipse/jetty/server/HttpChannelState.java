@@ -73,6 +73,7 @@ public class HttpChannelState
      */
     public enum Action
     {
+        NOOP,             // No action 
         DISPATCH,         // handle a normal request dispatch
         ASYNC_DISPATCH,   // handle an async request dispatch
         ERROR_DISPATCH,   // handle a normal error
@@ -240,10 +241,11 @@ public class HttpChannelState
                             return Action.READ_CALLBACK;
                         case REGISTER:
                         case PRODUCING:
-                            throw new IllegalStateException(toStringLocked());
                         case IDLE:
                         case REGISTERED:
                             break;
+                        default:
+                            throw new IllegalStateException(getStatusStringLocked());
                     }
 
                     if (_asyncWritePossible)
@@ -268,16 +270,15 @@ public class HttpChannelState
                             _async=Async.NOT_ASYNC;
                             return Action.ERROR_DISPATCH;
                         case STARTED:
-                            case EXPIRING:
+                        case EXPIRING:
                         case ERRORING:
-                            return Action.WAIT;
+                            _state=State.ASYNC_WAIT;
+                            return Action.NOOP;
                         case NOT_ASYNC:
-                            break;
                         default:
                             throw new IllegalStateException(getStatusStringLocked());
                     }
 
-                    return Action.WAIT;
 
                 case ASYNC_ERROR:
                     return Action.ASYNC_ERROR;
@@ -382,7 +383,7 @@ public class HttpChannelState
 
     /**
      * Signal that the HttpConnection has finished handling the request.
-     * For blocking connectors,this call may block if the request has
+     * For blocking connectors, this call may block if the request has
      * been suspended (startAsync called).
      * @return next actions
      * be handled again (eg because of a resume that happened before unhandle was called)
@@ -409,6 +410,7 @@ public class HttpChannelState
                 case DISPATCHED:
                 case ASYNC_IO:
                 case ASYNC_ERROR:
+                case ASYNC_WAIT:
                     break;
 
                 default:
@@ -498,7 +500,7 @@ public class HttpChannelState
         finally
         {
             if (read_interested)
-                _channel.asyncReadFillInterested();
+                _channel.onAsyncWaitForContent();
         }
     }
 
@@ -1129,8 +1131,8 @@ public class HttpChannelState
     /**
      * Called to signal async read isReady() has returned false.
      * This indicates that there is no content available to be consumed
-     * and that once the channel enteres the ASYNC_WAIT state it will
-     * register for read interest by calling {@link HttpChannel#asyncReadFillInterested()}
+     * and that once the channel enters the ASYNC_WAIT state it will
+     * register for read interest by calling {@link HttpChannel#onAsyncWaitForContent()}
      * either from this method or from a subsequent call to {@link #unhandle()}.
      */
     public void onReadUnready()
@@ -1165,7 +1167,7 @@ public class HttpChannelState
         }
 
         if (interested)
-            _channel.asyncReadFillInterested();
+            _channel.onAsyncWaitForContent();
     }
 
     /**

@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.eclipse.jetty.util.resource.ResourceTest;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -182,9 +181,9 @@ public class RolloverFileOutputStreamTest
     }
     
     @Test
-    public void testFilehandling() throws Exception
+    public void testFileHandling() throws Exception
     {
-        File testDir = MavenTestingUtils.getTargetTestingDir(ResourceTest.class.getName());
+        File testDir = MavenTestingUtils.getTargetTestingDir(RolloverFileOutputStreamTest.class.getName() + "_testFileHandling");
         Path testPath = testDir.toPath();
         FS.ensureEmpty(testDir);
 
@@ -290,7 +289,7 @@ public class RolloverFileOutputStreamTest
     @Test
     public void testRollover() throws Exception
     {
-        File testDir = MavenTestingUtils.getTargetTestingDir(ResourceTest.class.getName());
+        File testDir = MavenTestingUtils.getTargetTestingDir(RolloverFileOutputStreamTest.class.getName() + "_testRollover");
         FS.ensureEmpty(testDir);
 
         ZoneId zone = toZoneId("Australia/Sydney");
@@ -322,6 +321,46 @@ public class RolloverFileOutputStreamTest
                 else
                 {
                     assertThat(content,is("AFTER"));
+                }
+            }
+        }
+    }
+    
+    @Test
+    public void testRolloverBackup() throws Exception
+    {
+        File testDir = MavenTestingUtils.getTargetTestingDir(RolloverFileOutputStreamTest.class.getName() + "_testRollover");
+        FS.ensureEmpty(testDir);
+
+        ZoneId zone = toZoneId("Australia/Sydney");
+        ZonedDateTime now = toDateTime("2016.04.10-11:59:55.0 PM AEDT", zone);
+        
+        File template = new File(testDir,"test-rofosyyyy_mm_dd.log");
+        
+        try (RolloverFileOutputStream rofos = 
+            new RolloverFileOutputStream(template.getAbsolutePath(),false,0,TimeZone.getTimeZone(zone),"",null,now))
+        {
+            rofos.write("BEFORE".getBytes());
+            rofos.flush();
+            String[] ls = testDir.list();
+            assertThat(ls.length,is(1));
+            assertThat(ls[0],is("test-rofos.log"));
+
+            TimeUnit.SECONDS.sleep(10);
+            rofos.write("AFTER".getBytes());
+            ls = testDir.list();
+            assertThat(ls.length,is(2));
+            
+            for (String n : ls)
+            {
+                String content = IO.toString(new FileReader(new File(testDir,n)));
+                if ("test-rofos.log".equals(n))
+                {
+                    assertThat(content,is("AFTER"));
+                }
+                else
+                {
+                    assertThat(content,is("BEFORE"));
                 }
             }
         }

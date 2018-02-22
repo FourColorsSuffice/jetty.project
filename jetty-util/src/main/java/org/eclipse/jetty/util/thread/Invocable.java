@@ -25,6 +25,7 @@ import java.util.concurrent.RejectedExecutionException;
 
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
+import org.eclipse.jetty.util.thread.Invocable.InvocationType;
 
 /**
  * <p>A task (typically either a {@link Runnable} or {@link Callable}
@@ -186,84 +187,13 @@ public interface Invocable
         return InvocationType.BLOCKING;
     }
     
-    /**
-     * An Executor wrapper that knows about Invocable
-     *
-     */
-    public static class InvocableExecutor implements Executor
+    public abstract class NonBlocking implements Runnable, Invocable
     {
-        private static final Logger LOG = Log.getLogger(InvocableExecutor.class);
-
-        private final Executor _executor;
-        private final InvocationType _preferredInvocationForExecute;
-        private final InvocationType _preferredInvocationForInvoke;
-
-        public InvocableExecutor(Executor executor,InvocationType preferred)
+        @Override
+        public final InvocationType getInvocationType()
         {
-            this(executor,preferred,preferred);
+            return InvocationType.NON_BLOCKING;
         }
-        
-        public InvocableExecutor(Executor executor,InvocationType preferredInvocationForExecute,InvocationType preferredInvocationForIvoke)
-        {
-            _executor=executor;
-            _preferredInvocationForExecute=preferredInvocationForExecute;
-            _preferredInvocationForInvoke=preferredInvocationForIvoke;
-        }
-
-        public Invocable.InvocationType getPreferredInvocationType()
-        {
-            return _preferredInvocationForInvoke;
-        }
-
-        public void invoke(Runnable task)
-        {
-            if (LOG.isDebugEnabled())
-                LOG.debug("{} invoke  {}", this, task);
-            Invocable.invokePreferred(task,_preferredInvocationForInvoke);
-            if (LOG.isDebugEnabled())
-                LOG.debug("{} invoked {}", this, task);
-        }
-        
-        public void execute(Runnable task)
-        {
-            tryExecute(task,_preferredInvocationForExecute);
-        }
-
-        public void execute(Runnable task, InvocationType preferred)
-        {
-            tryExecute(task,preferred);
-        }
-        
-        public boolean tryExecute(Runnable task)
-        {
-            return tryExecute(task,_preferredInvocationForExecute);
-        }
-        
-        public boolean tryExecute(Runnable task, InvocationType preferred)
-        {
-            try
-            {
-                _executor.execute(Invocable.asPreferred(task,preferred));
-                return true;
-            }
-            catch(RejectedExecutionException e)
-            {
-                // If we cannot execute, then close the task
-                LOG.debug(e);
-                LOG.warn("Rejected execution of {}",task);
-                try
-                {
-                    if (task instanceof Closeable)
-                        ((Closeable)task).close();
-                }
-                catch (Exception x)
-                {
-                    e.addSuppressed(x);
-                    LOG.warn(e);
-                }
-            }
-            return false;
-        }
-
     }
+
 }

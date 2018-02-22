@@ -66,33 +66,15 @@ public class SpnegoAuthenticator extends LoginAuthenticator
         HttpServletResponse res = (HttpServletResponse)response;
 
         String header = req.getHeader(HttpHeader.AUTHORIZATION.asString());
+        String authScheme = getAuthSchemeFromHeader(header);
 
         if (!mandatory)
         {
             return new DeferredAuthentication(this);
         }
 
-        // check to see if we have authorization headers required to continue
-        if ( header == null )
-        {
-            try
-            {
-                 if (DeferredAuthentication.isDeferred(res))
-                 {
-                     return Authentication.UNAUTHENTICATED;
-                 }
-
-                LOG.debug("SpengoAuthenticator: sending challenge");
-                res.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), HttpHeader.NEGOTIATE.asString());
-                res.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-                return Authentication.SEND_CONTINUE;
-            }
-            catch (IOException ioe)
-            {
-                throw new ServerAuthException(ioe);
-            }
-        }
-        else if (header != null && header.startsWith(HttpHeader.NEGOTIATE.asString()))
+        // The client has responded to the challenge we sent previously
+        if (header != null && isAuthSchemeNegotiate(authScheme))
         {
             String spnegoToken = header.substring(10);
 
@@ -104,7 +86,66 @@ public class SpnegoAuthenticator extends LoginAuthenticator
             }
         }
 
-        return Authentication.UNAUTHENTICATED;
+        // A challenge should be sent if any of the following cases are true:
+        //   1. There was no Authorization header provided
+        //   2. There was an Authorization header for a type other than Negotiate
+        try
+        {
+             if (DeferredAuthentication.isDeferred(res))
+             {
+                 return Authentication.UNAUTHENTICATED;
+             }
+
+            LOG.debug("SpengoAuthenticator: sending challenge");
+            res.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), HttpHeader.NEGOTIATE.asString());
+            res.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return Authentication.SEND_CONTINUE;
+        }
+        catch (IOException ioe)
+        {
+            throw new ServerAuthException(ioe);
+        }
+    }
+
+    /**
+     * Extracts the auth_scheme from the HTTP Authorization header, {@code Authorization: <auth_scheme> <token>}.
+     *
+     * @param header The HTTP Authorization header or null.
+     * @return The parsed auth scheme from the header, or the empty string.
+     */
+    String getAuthSchemeFromHeader(String header)
+    {
+        // No header provided, return the empty string
+        if (header == null || header.isEmpty())
+        {
+            return "";
+        }
+        // Trim any leading whitespace
+        String trimmed_header = header.trim();
+        // Find the first space, all characters prior should be the auth_scheme
+        int index = trimmed_header.indexOf(' ');
+        if (index > 0) {
+            return trimmed_header.substring(0, index);
+        }
+        // If we don't find a space, this is likely malformed, just return the entire value
+        return trimmed_header;
+    }
+
+    /**
+     * Determines if provided auth scheme text from the Authorization header is case-insensitively
+     * equal to {@code negotiate}.
+     *
+     * @param authScheme The auth scheme component of the Authorization header
+     * @return True if the auth scheme component is case-insensitively equal to {@code negotiate}, False otherwise.
+     */
+    boolean isAuthSchemeNegotiate(String authScheme)
+    {
+        if (authScheme == null || authScheme.length() != HttpHeader.NEGOTIATE.asString().length())
+        {
+            return false;
+        }
+        // Headers should be treated case-insensitively, so we have to jump through some extra hoops.
+        return authScheme.equalsIgnoreCase(HttpHeader.NEGOTIATE.asString());
     }
 
     @Override

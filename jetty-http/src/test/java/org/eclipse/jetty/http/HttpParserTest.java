@@ -350,7 +350,7 @@ public class HttpParserTest
     }
 
     @Test
-    public void testNoColon2616() throws Exception
+    public void testNoColonLegacy() throws Exception
     {
         ByteBuffer buffer = BufferUtil.toBuffer(
                 "GET / HTTP/1.0\r\n" +
@@ -360,7 +360,7 @@ public class HttpParserTest
                         "\r\n");
 
         HttpParser.RequestHandler handler = new Handler();
-        HttpParser parser = new HttpParser(handler,HttpCompliance.RFC2616);
+        HttpParser parser = new HttpParser(handler,HttpCompliance.LEGACY);
         parseAll(parser, buffer);
 
         Assert.assertTrue(_headerCompleted);
@@ -375,7 +375,7 @@ public class HttpParserTest
         Assert.assertEquals("Other", _hdr[2]);
         Assert.assertEquals("value", _val[2]);
         Assert.assertEquals(2, _headers);
-        Assert.assertThat(_complianceViolation, Matchers.containsString("name only"));
+        Assert.assertThat(_complianceViolation, Matchers.containsString("No colon"));
     }
     
     @Test
@@ -573,7 +573,9 @@ public class HttpParserTest
         BufferUtil.put(BufferUtil.toBuffer(" HTTP/1.0\r\n"), buffer);
         BufferUtil.put(BufferUtil.toBuffer("Header1: "), buffer);
         buffer.put("\u00e6 \u00e6".getBytes(StandardCharsets.ISO_8859_1));
-        BufferUtil.put(BufferUtil.toBuffer("  \r\n\r\n"), buffer);
+        BufferUtil.put(BufferUtil.toBuffer("  \r\nHeader2: "), buffer);
+        buffer.put((byte)-1);
+        BufferUtil.put(BufferUtil.toBuffer("\r\n\r\n"), buffer);
         BufferUtil.flipToFlush(buffer, 0);
 
         HttpParser.RequestHandler handler = new Handler();
@@ -585,7 +587,9 @@ public class HttpParserTest
         Assert.assertEquals("HTTP/1.0", _versionOrReason);
         Assert.assertEquals("Header1", _hdr[0]);
         Assert.assertEquals("\u00e6 \u00e6", _val[0]);
-        Assert.assertEquals(0, _headers);
+        Assert.assertEquals("Header2", _hdr[1]);
+        Assert.assertEquals(""+(char)255, _val[1]);
+        Assert.assertEquals(1, _headers);
         Assert.assertEquals(null, _bad);
     }
     
@@ -670,10 +674,42 @@ public class HttpParserTest
     }
 
     @Test
-    public void testCaseInsensitive() throws Exception
+    public void testCaseSensitiveMethod() throws Exception
     {
         ByteBuffer buffer = BufferUtil.toBuffer(
-                "get / http/1.0\r\n" +
+                "gEt / http/1.0\r\n" +
+                "Host: localhost\r\n" +
+                "Connection: close\r\n" +
+                "\r\n");
+        HttpParser.RequestHandler handler = new Handler();
+        HttpParser parser = new HttpParser(handler, -1, HttpCompliance.RFC7230);
+        parseAll(parser, buffer);
+        Assert.assertNull(_bad);
+        Assert.assertEquals("GET", _methodOrVersion);
+        Assert.assertThat(_complianceViolation, Matchers.containsString("case insensitive method gEt"));
+    }
+
+    @Test
+    public void testCaseSensitiveMethodLegacy() throws Exception
+    {
+        ByteBuffer buffer = BufferUtil.toBuffer(
+                "gEt / http/1.0\r\n" +
+                "Host: localhost\r\n" +
+                "Connection: close\r\n" +
+                "\r\n");
+        HttpParser.RequestHandler handler = new Handler();
+        HttpParser parser = new HttpParser(handler, -1, HttpCompliance.LEGACY);
+        parseAll(parser, buffer);
+        Assert.assertNull(_bad);
+        Assert.assertEquals("gEt", _methodOrVersion);
+        Assert.assertNull(_complianceViolation);
+    }
+
+    @Test
+    public void testCaseInsensitiveHeader() throws Exception
+    {
+        ByteBuffer buffer = BufferUtil.toBuffer(
+                "GET / http/1.0\r\n" +
                         "HOST: localhost\r\n" +
                         "cOnNeCtIoN: ClOsE\r\n" +
                         "\r\n");
@@ -693,10 +729,10 @@ public class HttpParserTest
     }
 
     @Test
-    public void testCaseSensitiveLegacy() throws Exception
+    public void testCaseInSensitiveHeaderLegacy() throws Exception
     {
         ByteBuffer buffer = BufferUtil.toBuffer(
-                "gEt / http/1.0\r\n" +
+                "GET / http/1.0\r\n" +
                         "HOST: localhost\r\n" +
                         "cOnNeCtIoN: ClOsE\r\n" +
                         "\r\n");
@@ -704,7 +740,7 @@ public class HttpParserTest
         HttpParser parser = new HttpParser(handler, -1, HttpCompliance.LEGACY);
         parseAll(parser, buffer);
         Assert.assertNull(_bad);
-        Assert.assertEquals("gEt", _methodOrVersion);
+        Assert.assertEquals("GET", _methodOrVersion);
         Assert.assertEquals("/", _uriOrStatus);
         Assert.assertEquals("HTTP/1.0", _versionOrReason);
         Assert.assertEquals("HOST", _hdr[0]);
@@ -798,6 +834,30 @@ public class HttpParserTest
         Assert.assertTrue(_messageCompleted);
     }
 
+
+    @Test
+    public void testBadChunkParse() throws Exception
+    {
+        ByteBuffer buffer = BufferUtil.toBuffer(
+                "GET /chunk HTTP/1.0\r\n"
+                        + "Header1: value1\r\n"
+                        + "Transfer-Encoding: chunked, identity\r\n"
+                        + "\r\n"
+                        + "a;\r\n"
+                        + "0123456789\r\n"
+                        + "1a\r\n"
+                        + "ABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n"
+                        + "0\r\n"
+                        + "\r\n");
+        HttpParser.RequestHandler handler = new Handler();
+        HttpParser parser = new HttpParser(handler);
+        parseAll(parser, buffer);
+
+        Assert.assertEquals("GET", _methodOrVersion);
+        Assert.assertEquals("/chunk", _uriOrStatus);
+        Assert.assertEquals("HTTP/1.0", _versionOrReason);
+        Assert.assertThat(_bad,Matchers.containsString("Bad chunking"));
+    }
     @Test
     public void testChunkParseTrailer() throws Exception
     {
@@ -1305,6 +1365,22 @@ public class HttpParserTest
     }
 
     @Test
+    public void testResponseReasonIso8859_1() throws Exception
+    {   
+        ByteBuffer buffer = BufferUtil.toBuffer(
+                "HTTP/1.1 302 déplacé temporairement\r\n"
+                        + "Content-Length: 0\r\n" 
+                        + "\r\n",StandardCharsets.ISO_8859_1);
+
+        HttpParser.ResponseHandler handler = new Handler();
+        HttpParser parser = new HttpParser(handler);
+        parser.parseNext(buffer);
+        Assert.assertEquals("HTTP/1.1", _methodOrVersion);
+        Assert.assertEquals("302", _uriOrStatus);
+        Assert.assertEquals("déplacé temporairement", _versionOrReason);
+    }
+
+    @Test
     public void testSeekEOF() throws Exception
     {
         ByteBuffer buffer = BufferUtil.toBuffer(
@@ -1782,7 +1858,7 @@ public class HttpParserTest
         HttpParser.RequestHandler handler = new Handler();
         HttpParser parser = new HttpParser(handler);
         parser.parseNext(buffer);
-        Assert.assertEquals("[::1]", _host);
+        Assert.assertEquals("::1", _host);
         Assert.assertEquals(0, _port);
     }
 
@@ -1863,7 +1939,7 @@ public class HttpParserTest
         HttpParser.RequestHandler handler = new Handler();
         HttpParser parser = new HttpParser(handler);
         parser.parseNext(buffer);
-        Assert.assertEquals("[::1]", _host);
+        Assert.assertEquals("::1", _host);
         Assert.assertEquals(8888, _port);
     }
 

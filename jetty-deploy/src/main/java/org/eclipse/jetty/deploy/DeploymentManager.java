@@ -288,13 +288,13 @@ public class DeploymentManager extends ContainerLifeCycle
 
     public Collection<AppEntry> getAppEntries()
     {
-        return _apps;
+        return Collections.unmodifiableCollection(_apps);
     }
 
     @ManagedAttribute("Deployed Apps")
     public Collection<App> getApps()
     {
-        List<App> ret = new ArrayList<App>();
+        List<App> ret = new ArrayList<  >();
         for (AppEntry entry : _apps)
         {
             ret.add(entry.app);
@@ -311,7 +311,7 @@ public class DeploymentManager extends ContainerLifeCycle
      */
     public Collection<App> getApps(Node node)
     {
-        List<App> ret = new ArrayList<App>();
+        List<App> ret = new ArrayList<>();
         for (AppEntry entry : _apps)
         {
             if (entry.lifecyleNode == node)
@@ -592,33 +592,16 @@ public class DeploymentManager extends ContainerLifeCycle
     {
         return _lifecycle.getNodes();
     }
-    
-    @ManagedOperation(value="list apps that are located at specified App LifeCycle nodes", impact="ACTION")
-    public Collection<App> getApps(@Name("nodeName") String nodeName)
+
+    public Collection<App> getApps(String nodeName)
     {
         return getApps(_lifecycle.getNodeByName(nodeName));
     }
 
+
     public void scope(XmlConfiguration xmlc, Resource webapp)
         throws IOException
     {
-        xmlc.getIdMap().put("Server", getServer());
-        Resource home = Resource.newResource(System.getProperty("jetty.home","."));
-        xmlc.getProperties().put("jetty.home",home.toString());
-        xmlc.getProperties().put("jetty.home.uri",normalizeURI(home.getURI().toString()));
-    
-        Resource base = Resource.newResource(System.getProperty("jetty.base",home.toString()));
-        xmlc.getProperties().put("jetty.base",base.toString());
-        xmlc.getProperties().put("jetty.base.uri",normalizeURI(base.getURI().toString()));
-        
-        xmlc.getProperties().put("jetty.webapp",webapp.toString());
-        xmlc.getProperties().put("jetty.webapps",webapp.getFile().toPath().getParent().toString());
-    }
-    
-    private String normalizeURI(String uri)
-    {
-        if (uri.endsWith("/"))
-            return uri.substring(0,uri.length()-1);
-        return uri;
+        xmlc.setJettyStandardIdsAndProperties(getServer(),webapp);
     }
 }

@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -58,15 +59,16 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.Part;
 
 import org.eclipse.jetty.http.BadMessageException;
-import org.eclipse.jetty.http.CookieCompliance;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.MimeTypes;
 import org.eclipse.jetty.server.LocalConnector.LocalEndPoint;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.ErrorHandler;
+import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
+import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.MultiPartInputStreamParser;
 import org.eclipse.jetty.util.log.Log;
@@ -77,7 +79,9 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 
+@RunWith(AdvancedRunner.class)
 public class RequestTest
 {
     private static final Logger LOG = Log.getLogger(RequestTest.class);
@@ -97,10 +101,12 @@ public class RequestTest
         http.getHttpConfiguration().addCustomizer(new ForwardedRequestCustomizer());
         _connector = new LocalConnector(_server,http);
         _server.addConnector(_connector);
+        _connector.setIdleTimeout(500);
         _handler = new RequestHandler();
         _server.setHandler(_handler);
         
         ErrorHandler errors = new ErrorHandler();
+        errors.setServer(_server);
         errors.setShowStacks(true);
         _server.addBean(errors);
         _server.start();
@@ -147,6 +153,65 @@ public class RequestTest
         String responses=_connector.getResponse(request);
         assertTrue(responses.startsWith("HTTP/1.1 200"));
     }
+
+    @Test
+    public void testParamExtraction_BadSequence() throws Exception
+    {
+        _handler._checker = new RequestTester()
+        {
+            @Override
+            public boolean check(HttpServletRequest request,HttpServletResponse response)
+            {
+                Map<String, String[]> map = request.getParameterMap();
+                // should have thrown a BadMessageException
+                return false;
+            }
+        };
+
+        //Send a request with query string with illegal hex code to cause
+        //an exception parsing the params
+        String request="GET /?test_%e0%x8%81=missing HTTP/1.1\r\n"+
+                "Host: whatever\r\n"+
+                "Content-Type: text/html;charset=utf8\n"+
+                "Connection: close\n"+
+                "\n";
+
+        String responses=_connector.getResponse(request);
+        assertThat("Responses", responses, startsWith("HTTP/1.1 400"));
+    }
+
+
+    @Test
+    public void testParamExtraction_Timeout() throws Exception
+    {
+        _handler._checker = new RequestTester()
+        {
+            @Override
+            public boolean check(HttpServletRequest request,HttpServletResponse response)
+            {
+                Map<String, String[]> map = request.getParameterMap();
+                // should have thrown a BadMessageException
+                return false;
+            }
+        };
+
+        //Send a request with query string with illegal hex code to cause
+        //an exception parsing the params
+        String request="POST / HTTP/1.1\r\n"+
+                       "Host: whatever\r\n"+
+                       "Content-Type: "+MimeTypes.Type.FORM_ENCODED.asString()+"\n"+
+                       "Connection: close\n"+
+                       "Content-Length: 100\n"+
+                       "\n"+
+                       "name=value";
+
+        LocalEndPoint endp = _connector.connect();
+        endp.addInput(request);
+
+        String response = BufferUtil.toString(endp.waitForResponse(false, 1, TimeUnit.SECONDS));
+        assertThat("Responses", response, startsWith("HTTP/1.1 500"));
+    }
+
 
     @Test
     public void testEmptyHeaders() throws Exception
@@ -628,7 +693,7 @@ public class RequestTest
         assertThat(response, containsString("200 OK"));
         assertEquals("http://[::1]/",results.get(i++));
         assertEquals("0.0.0.0",results.get(i++));
-        assertEquals("[::1]",results.get(i++));
+        assertEquals("::1",results.get(i++));
         assertEquals("80",results.get(i++));
 
 
@@ -642,7 +707,7 @@ public class RequestTest
         assertThat(response, containsString("200 OK"));
         assertEquals("http://[::1]:8888/",results.get(i++));
         assertEquals("0.0.0.0",results.get(i++));
-        assertEquals("[::1]",results.get(i++));
+        assertEquals("::1",results.get(i++));
         assertEquals("8888",results.get(i++));
 
 
@@ -658,7 +723,7 @@ public class RequestTest
         assertThat(response, containsString("200 OK"));
         assertEquals("https://[::1]/",results.get(i++));
         assertEquals("remote",results.get(i++));
-        assertEquals("[::1]",results.get(i++));
+        assertEquals("::1",results.get(i++));
         assertEquals("443",results.get(i++));
 
 
@@ -674,7 +739,7 @@ public class RequestTest
         assertThat(response, containsString("200 OK"));
         assertEquals("https://[::1]:8888/",results.get(i++));
         assertEquals("remote",results.get(i++));
-        assertEquals("[::1]",results.get(i++));
+        assertEquals("::1",results.get(i++));
         assertEquals("8888",results.get(i++));
     }
 
@@ -1334,6 +1399,42 @@ public class RequestTest
         assertEquals("__utmz", cookies.get(0).getName());
         assertEquals("14316.133020.1.1.utr=gna.de|ucn=(real)|utd=reral|utct=/games/hen-one,gnt-50-ba-keys:key,2072262.html", cookies.get(0).getValue());
 
+    }
+    
+    @Test
+    public void testBadCookies() throws Exception
+    {
+        final ArrayList<Cookie> cookies = new ArrayList<>();
+
+        _handler._checker = new RequestTester()
+        {
+            @Override
+            public boolean check(HttpServletRequest request,HttpServletResponse response) throws IOException
+            {
+                javax.servlet.http.Cookie[] ca = request.getCookies();
+                if (ca!=null)
+                    cookies.addAll(Arrays.asList(ca));
+                response.getOutputStream().println("Hello World");
+                return true;
+            }
+        };
+
+        String response;
+
+        cookies.clear();
+        response=_connector.getResponse(
+                    "GET / HTTP/1.1\n"+
+                    "Host: whatever\n"+
+                    "Cookie: Path=value\n" +
+                    "Cookie: name=value\n" +
+                    "Connection: close\n"+
+                    "\n"
+        );
+        assertTrue(response.startsWith("HTTP/1.1 200 OK"));
+        assertEquals(1,cookies.size());
+        assertEquals("name", cookies.get(0).getName());
+        assertEquals("value", cookies.get(0).getValue());
+        
     }
 
     @Ignore("No longer relevant")

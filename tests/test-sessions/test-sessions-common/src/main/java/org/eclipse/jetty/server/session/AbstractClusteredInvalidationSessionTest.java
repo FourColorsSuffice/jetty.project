@@ -52,7 +52,7 @@ public abstract class AbstractClusteredInvalidationSessionTest extends AbstractT
     @Test
     public void testInvalidation() throws Exception
     {
-        String contextPath = "";
+        String contextPath = "/";
         String servletMapping = "/server";
         int maxInactiveInterval = 30;
         int scavengeInterval = 1;
@@ -84,8 +84,8 @@ public abstract class AbstractClusteredInvalidationSessionTest extends AbstractT
                 try
                 {
                     String[] urls = new String[2];
-                    urls[0] = "http://localhost:" + port1 + contextPath + servletMapping;
-                    urls[1] = "http://localhost:" + port2 + contextPath + servletMapping;
+                    urls[0] = "http://localhost:" + port1 + contextPath + servletMapping.substring(1);
+                    urls[1] = "http://localhost:" + port2 + contextPath + servletMapping.substring(1);
 
                     // Create the session on node1
                     ContentResponse response1 = client.GET(urls[0] + "?action=init");
@@ -104,13 +104,11 @@ public abstract class AbstractClusteredInvalidationSessionTest extends AbstractT
 
                     // Invalidate on node1
                     Request request1 = client.newRequest(urls[0] + "?action=invalidate");
-                    request1.header("Cookie", sessionCookie);
                     response1 = request1.send();
                     assertEquals(HttpServletResponse.SC_OK, response1.getStatus());         
 
                     // Be sure on node2 we don't see the session anymore
                     request2 = client.newRequest(urls[1] + "?action=test");
-                    request2.header("Cookie", sessionCookie);
                     response2 = request2.send();
                     assertEquals(HttpServletResponse.SC_OK,response2.getStatus());
                 }

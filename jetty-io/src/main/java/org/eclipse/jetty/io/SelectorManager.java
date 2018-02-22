@@ -18,6 +18,7 @@
 
 package org.eclipse.jetty.io;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -29,12 +30,17 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.Executor;
 
+import org.eclipse.jetty.util.annotation.ManagedAttribute;
+import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
-import org.eclipse.jetty.util.thread.ExecutionStrategy;
+import org.eclipse.jetty.util.thread.ReservedThreadExecutor;
 import org.eclipse.jetty.util.thread.Scheduler;
+import org.eclipse.jetty.util.thread.ThreadPool;
+import org.eclipse.jetty.util.thread.ThreadPoolBudget;
+import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
 
 /**
  * <p>{@link SelectorManager} manages a number of {@link ManagedSelector}s that
@@ -42,6 +48,8 @@ import org.eclipse.jetty.util.thread.Scheduler;
  * <p>{@link SelectorManager} subclasses implement methods to return protocol-specific
  * {@link EndPoint}s and {@link Connection}s.</p>
  */
+
+@ManagedObject("Manager of the NIO Selectors")
 public abstract class SelectorManager extends ContainerLifeCycle implements Dumpable
 {
     public static final int DEFAULT_CONNECT_TIMEOUT = 15000;
@@ -52,26 +60,47 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
     private final ManagedSelector[] _selectors;
     private long _connectTimeout = DEFAULT_CONNECT_TIMEOUT;
     private long _selectorIndex;
+    private int _reservedThreads = -1;
+    private ThreadPoolBudget.Lease _lease;
+
+    private static int defaultSelectors(Executor executor)
+    {
+        if (executor instanceof ThreadPool.SizedThreadPool)
+        {
+            int threads = ((ThreadPool.SizedThreadPool)executor).getMaxThreads();
+            int cpus = Runtime.getRuntime().availableProcessors();
+            return Math.max(1,Math.min(cpus/2,threads/16));
+        }
+        return Math.max(1,Runtime.getRuntime().availableProcessors()/2);
+    }
 
     protected SelectorManager(Executor executor, Scheduler scheduler)
     {
-        this(executor, scheduler, (Runtime.getRuntime().availableProcessors() + 1) / 2);
+        this(executor, scheduler, -1);
     }
 
+    /**
+     * @param executor The executor to use for handling selected {@link EndPoint}s
+     * @param scheduler The scheduler to use for timing events
+     * @param selectors The number of selectors to use, or -1 for a default derived
+     * from a heuristic over available CPUs and thread pool size.
+     */
     protected SelectorManager(Executor executor, Scheduler scheduler, int selectors)
     {
         if (selectors <= 0)
-            throw new IllegalArgumentException("No selectors");
+            selectors = defaultSelectors(executor);
         this.executor = executor;
         this.scheduler = scheduler;
         _selectors = new ManagedSelector[selectors];
     }
 
+    @ManagedAttribute("The Executor")
     public Executor getExecutor()
     {
         return executor;
     }
 
+    @ManagedAttribute("The Scheduler")
     public Scheduler getScheduler()
     {
         return scheduler;
@@ -82,6 +111,7 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
      *
      * @return the connect timeout (in milliseconds)
      */
+    @ManagedAttribute("The Connection timeout (ms)")
     public long getConnectTimeout()
     {
         return _connectTimeout;
@@ -98,6 +128,37 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
     }
 
     /**
+     * Get the number of preallocated producing threads
+     * @see EatWhatYouKill
+     * @see ReservedThreadExecutor
+     * @return The number of threads preallocated to producing (default -1).
+     */
+    @ManagedAttribute("The number of reserved producer threads")
+    public int getReservedThreads()
+    {
+        return _reservedThreads;
+    }
+
+    /**
+     * Set the number of reserved threads for high priority tasks.
+     * <p>Reserved threads are used to take over producing duties, so that a
+     * producer thread may immediately consume a task it has produced (EatWhatYouKill
+     * scheduling). If a reserved thread is not available, then produced tasks must
+     * be submitted to an executor to be executed by a different thread.
+     * @see EatWhatYouKill
+     * @see ReservedThreadExecutor
+     * @param threads  The number of producing threads to preallocate. If
+     * less that 0 (the default), then a heuristic based on the number of CPUs and
+     * the thread pool size is used to select the number of threads. If 0, no
+     * threads are preallocated and the EatWhatYouKill scheduler will be
+     * disabled and all produced tasks will be executed in a separate thread.
+     */
+    public void setReservedThreads(int threads)
+    {
+        _reservedThreads = threads;
+    }
+
+    /**
      * Executes the given task in a different thread.
      *
      * @param task the task to execute
@@ -110,6 +171,7 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
     /**
      * @return the number of selectors in use
      */
+    @ManagedAttribute("The number of NIO Selectors")
     public int getSelectorCount()
     {
         return _selectors.length;
@@ -207,11 +269,14 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
      * overridden by a derivation of this class to handle the accepted channel
      *
      * @param server the server channel to register
+     * @return A Closable that allows the acceptor to be cancelled
      */
-    public void acceptor(SelectableChannel server)
+    public Closeable acceptor(SelectableChannel server)
     {
         final ManagedSelector selector = chooseSelector(null);
-        selector.submit(selector.new Acceptor(server));
+        ManagedSelector.Acceptor acceptor = selector.new Acceptor(server);
+        selector.submit(acceptor);
+        return acceptor;
     }
 
     /**
@@ -231,6 +296,8 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
     @Override
     protected void doStart() throws Exception
     {
+        addBean(new ReservedThreadExecutor(getExecutor(),_reservedThreads,this),true);
+        _lease = ThreadPoolBudget.leaseFrom(getExecutor(), this, _selectors.length);
         for (int i = 0; i < _selectors.length; i++)
         {
             ManagedSelector selector = newSelector(i);
@@ -257,6 +324,8 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
         super.doStop();
         for (ManagedSelector selector : _selectors)
             removeBean(selector);
+        if (_lease != null)
+            _lease.close();
     }
 
     /**
@@ -373,4 +442,6 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
      * @throws IOException if unable to create new connection
      */
     public abstract Connection newConnection(SelectableChannel channel, EndPoint endpoint, Object attachment) throws IOException;
+
+
 }
