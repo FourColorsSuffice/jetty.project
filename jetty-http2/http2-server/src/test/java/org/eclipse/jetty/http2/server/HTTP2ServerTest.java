@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -33,7 +33,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-
+import java.util.function.UnaryOperator;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -59,7 +59,6 @@ import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.ChannelEndPoint;
 import org.eclipse.jetty.io.ManagedSelector;
-import org.eclipse.jetty.io.SelectChannelEndPoint;
 import org.eclipse.jetty.io.SocketChannelEndPoint;
 import org.eclipse.jetty.server.HttpChannel;
 import org.eclipse.jetty.server.HttpConfiguration;
@@ -67,15 +66,20 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.log.StacklessLogging;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HTTP2ServerTest extends AbstractServerTest
 {
     @Test
     public void testNoPrefaceBytes() throws Exception
     {
-        startServer(new HttpServlet(){});
+        startServer(new HttpServlet() {});
 
         // No preface bytes.
         MetaData.Request metaData = newRequest("GET", new HttpFields());
@@ -99,10 +103,11 @@ public class HTTP2ServerTest extends AbstractServerTest
                     latch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
@@ -149,15 +154,16 @@ public class HTTP2ServerTest extends AbstractServerTest
                     latch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             HeadersFrame response = frameRef.get();
-            Assert.assertNotNull(response);
+            assertNotNull(response);
             MetaData.Response responseMetaData = (MetaData.Response)response.getMetaData();
-            Assert.assertEquals(200, responseMetaData.getStatus());
+            assertEquals(200, responseMetaData.getStatus());
         }
     }
 
@@ -214,26 +220,27 @@ public class HTTP2ServerTest extends AbstractServerTest
                     latch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             HeadersFrame response = headersRef.get();
-            Assert.assertNotNull(response);
+            assertNotNull(response);
             MetaData.Response responseMetaData = (MetaData.Response)response.getMetaData();
-            Assert.assertEquals(200, responseMetaData.getStatus());
+            assertEquals(200, responseMetaData.getStatus());
 
             DataFrame responseData = dataRef.get();
-            Assert.assertNotNull(responseData);
-            Assert.assertArrayEquals(content, BufferUtil.toArray(responseData.getData()));
+            assertNotNull(responseData);
+            assertArrayEquals(content, BufferUtil.toArray(responseData.getData()));
         }
     }
 
     @Test
     public void testBadPingWrongPayload() throws Exception
     {
-        startServer(new HttpServlet(){});
+        startServer(new HttpServlet() {});
 
         ByteBufferPool.Lease lease = new ByteBufferPool.Lease(byteBufferPool);
         generator.control(lease, new PrefaceFrame());
@@ -256,21 +263,22 @@ public class HTTP2ServerTest extends AbstractServerTest
                 @Override
                 public void onGoAway(GoAwayFrame frame)
                 {
-                    Assert.assertEquals(ErrorCode.FRAME_SIZE_ERROR.code, frame.getError());
+                    assertEquals(ErrorCode.FRAME_SIZE_ERROR.code, frame.getError());
                     latch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
     @Test
     public void testBadPingWrongStreamId() throws Exception
     {
-        startServer(new HttpServlet(){});
+        startServer(new HttpServlet() {});
 
         ByteBufferPool.Lease lease = new ByteBufferPool.Lease(byteBufferPool);
         generator.control(lease, new PrefaceFrame());
@@ -293,14 +301,15 @@ public class HTTP2ServerTest extends AbstractServerTest
                 @Override
                 public void onGoAway(GoAwayFrame frame)
                 {
-                    Assert.assertEquals(ErrorCode.PROTOCOL_ERROR.code, frame.getError());
+                    assertEquals(ErrorCode.PROTOCOL_ERROR.code, frame.getError());
                     latch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
@@ -333,7 +342,7 @@ public class HTTP2ServerTest extends AbstractServerTest
             @Override
             protected ChannelEndPoint newEndPoint(SocketChannel channel, ManagedSelector selectSet, SelectionKey key) throws IOException
             {
-                return new SocketChannelEndPoint(channel,selectSet,key,getScheduler())
+                return new SocketChannelEndPoint(channel, selectSet, key, getScheduler())
                 {
                     @Override
                     public void write(Callback callback, ByteBuffer... buffers) throws IllegalStateException
@@ -358,26 +367,30 @@ public class HTTP2ServerTest extends AbstractServerTest
         {
             OutputStream output = client.getOutputStream();
             for (ByteBuffer buffer : lease.getByteBuffers())
+            {
                 output.write(BufferUtil.toArray(buffer));
+            }
 
             // The server will close the connection abruptly since it
             // cannot write and therefore cannot even send the GO_AWAY.
             Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter(), 4096, 8192);
+            parser.init(UnaryOperator.identity());
             boolean closed = parseResponse(client, parser, 2 * delay);
-            Assert.assertTrue(closed);
+            assertTrue(closed);
         }
     }
 
     @Test
     public void testNonISOHeader() throws Exception
     {
-        try (StacklessLogging stackless = new StacklessLogging(HttpChannel.class))
+        try (StacklessLogging ignored = new StacklessLogging(HttpChannel.class))
         {
             startServer(new HttpServlet()
             {
                 @Override
-                protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+                protected void service(HttpServletRequest request, HttpServletResponse response)
                 {
+                    // @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
                     // Invalid header name, the connection must be closed.
                     response.setHeader("Euro_(\u20AC)", "42");
                 }
@@ -393,13 +406,16 @@ public class HTTP2ServerTest extends AbstractServerTest
             {
                 OutputStream output = client.getOutputStream();
                 for (ByteBuffer buffer : lease.getByteBuffers())
+                {
                     output.write(BufferUtil.toArray(buffer));
+                }
                 output.flush();
 
                 Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter(), 4096, 8192);
+                parser.init(UnaryOperator.identity());
                 boolean closed = parseResponse(client, parser);
 
-                Assert.assertTrue(closed);
+                assertTrue(closed);
             }
         }
     }
@@ -516,10 +532,10 @@ public class HTTP2ServerTest extends AbstractServerTest
             continuationFrameHeader.put(4, (byte)0);
             // Add a last, empty, CONTINUATION frame.
             ByteBuffer last = ByteBuffer.wrap(new byte[]{
-                    0, 0, 0, // Length
-                    (byte)FrameType.CONTINUATION.getType(),
-                    (byte)Flags.END_HEADERS,
-                    0, 0, 0, 1 // Stream ID
+                0, 0, 0, // Length
+                (byte)FrameType.CONTINUATION.getType(),
+                (byte)Flags.END_HEADERS,
+                0, 0, 0, 1 // Stream ID
             });
             lease.append(last, false);
             return lease;
@@ -537,11 +553,11 @@ public class HTTP2ServerTest extends AbstractServerTest
                 if (priorityFrame != null)
                 {
                     PriorityFrame priority = frame.getPriority();
-                    Assert.assertNotNull(priority);
-                    Assert.assertEquals(priorityFrame.getStreamId(), priority.getStreamId());
-                    Assert.assertEquals(priorityFrame.getParentStreamId(), priority.getParentStreamId());
-                    Assert.assertEquals(priorityFrame.getWeight(), priority.getWeight());
-                    Assert.assertEquals(priorityFrame.isExclusive(), priority.isExclusive());
+                    assertNotNull(priority);
+                    assertEquals(priorityFrame.getStreamId(), priority.getStreamId());
+                    assertEquals(priorityFrame.getParentStreamId(), priority.getParentStreamId());
+                    assertEquals(priorityFrame.getWeight(), priority.getWeight());
+                    assertEquals(priorityFrame.isExclusive(), priority.isExclusive());
                 }
 
                 serverLatch.countDown();
@@ -560,10 +576,12 @@ public class HTTP2ServerTest extends AbstractServerTest
         {
             OutputStream output = client.getOutputStream();
             for (ByteBuffer buffer : lease.getByteBuffers())
+            {
                 output.write(BufferUtil.toArray(buffer));
+            }
             output.flush();
 
-            Assert.assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
+            assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
 
             final CountDownLatch clientLatch = new CountDownLatch(1);
             Parser parser = new Parser(byteBufferPool, new Parser.Listener.Adapter()
@@ -575,10 +593,11 @@ public class HTTP2ServerTest extends AbstractServerTest
                         clientLatch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
             boolean closed = parseResponse(client, parser);
 
-            Assert.assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
-            Assert.assertFalse(closed);
+            assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
+            assertFalse(closed);
         }
     }
 }

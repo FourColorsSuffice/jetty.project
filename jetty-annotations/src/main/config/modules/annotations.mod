@@ -1,3 +1,5 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Enables Annotation scanning for deployed webapplications.
 
@@ -11,3 +13,6 @@ lib/annotations/*.jar
 [xml]
 # Enable annotation scanning webapp configurations
 etc/jetty-annotations.xml
+
+[jpms]
+add-modules:org.objectweb.asm

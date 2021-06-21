@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.server.handler.gzip;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
@@ -41,7 +40,7 @@ import org.eclipse.jetty.server.HttpOutput;
  *  4) write
  * </pre>
  *
- * @see <a href="Eclipse Bug 354014">http://bugs.eclipse.org/354014</a>
+ * @see <a href="Eclipse Bug 354014">https://bugs.eclipse.org/354014</a>
  */
 @SuppressWarnings("serial")
 public class TestServletBufferTypeLengthWrite extends TestDirContentServlet
@@ -58,10 +57,10 @@ public class TestServletBufferTypeLengthWrite extends TestDirContentServlet
             response.setContentType("text/plain");
         else if (fileName.endsWith("mp3"))
             response.setContentType("audio/mpeg");
-        response.setHeader("ETag","W/etag-"+fileName);
+        response.setHeader("ETag", "W/etag-" + fileName);
 
         response.setContentLength(dataBytes.length);
-        
+
         ((HttpOutput)out).write(ByteBuffer.wrap(dataBytes).asReadOnlyBuffer());
     }
 }

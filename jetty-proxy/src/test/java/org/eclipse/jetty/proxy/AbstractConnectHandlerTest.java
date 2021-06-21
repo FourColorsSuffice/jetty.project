@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,20 +19,14 @@
 package org.eclipse.jetty.proxy;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.Socket;
 
-import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.toolchain.test.TestTracker;
-import org.junit.After;
-import org.junit.Rule;
+import org.junit.jupiter.api.AfterEach;
 
 public abstract class AbstractConnectHandlerTest
 {
-    @Rule
-    public final TestTracker tracker = new TestTracker();
     protected Server server;
     protected ServerConnector serverConnector;
     protected Server proxy;
@@ -49,7 +43,7 @@ public abstract class AbstractConnectHandlerTest
         proxy.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         disposeServer();
@@ -64,12 +58,6 @@ public abstract class AbstractConnectHandlerTest
     protected void disposeProxy() throws Exception
     {
         proxy.stop();
-    }
-
-    protected HttpTester.Response readResponse(InputStream inputStream) throws IOException
-    {
-        HttpTester.Input input = HttpTester.from(inputStream);
-        return HttpTester.parseResponse(input);
     }
 
     protected Socket newSocket() throws IOException

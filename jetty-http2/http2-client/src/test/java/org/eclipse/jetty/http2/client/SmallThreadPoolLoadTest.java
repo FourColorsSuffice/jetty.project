@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -52,11 +51,13 @@ import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
-@Ignore
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@Disabled
 public class SmallThreadPoolLoadTest extends AbstractTest
 {
     private final Logger logger = Log.getLogger(SmallThreadPoolLoadTest.class);
@@ -85,12 +86,12 @@ public class SmallThreadPoolLoadTest extends AbstractTest
         int runs = 10;
         int iterations = 512;
         boolean result = IntStream.range(0, 16).parallel()
-                .mapToObj(i -> IntStream.range(0, runs)
-                        .mapToObj(j -> run(session, iterations))
-                        .reduce(true, (acc, res) -> acc && res))
-                .reduce(true, (acc, res) -> acc && res);
+            .mapToObj(i -> IntStream.range(0, runs)
+                .mapToObj(j -> run(session, iterations))
+                .reduce(true, (acc, res) -> acc && res))
+            .reduce(true, (acc, res) -> acc && res);
 
-        Assert.assertTrue(result);
+        assertTrue(result);
     }
 
     private boolean run(Session session, int iterations)
@@ -105,8 +106,8 @@ public class SmallThreadPoolLoadTest extends AbstractTest
             Scheduler.Task task = client.getScheduler().schedule(() ->
             {
                 logger.warn("Interrupting test, it is taking too long{}Server:{}{}{}Client:{}{}",
-                        System.lineSeparator(), System.lineSeparator(), server.dump(),
-                        System.lineSeparator(), System.lineSeparator(), client.dump());
+                    System.lineSeparator(), System.lineSeparator(), server.dump(),
+                    System.lineSeparator(), System.lineSeparator(), client.dump());
                 testThread.interrupt();
             }, iterations * factor, TimeUnit.MILLISECONDS);
 
@@ -119,15 +120,15 @@ public class SmallThreadPoolLoadTest extends AbstractTest
                     ++successes;
             }
 
-            Assert.assertTrue(latch.await(iterations, TimeUnit.SECONDS));
+            assertTrue(latch.await(iterations, TimeUnit.SECONDS));
             long end = System.nanoTime();
-            Assert.assertThat(successes, Matchers.greaterThan(0L));
+            assertThat(successes, Matchers.greaterThan(0L));
             task.cancel();
             long elapsed = TimeUnit.NANOSECONDS.toMillis(end - begin);
             logger.info("{} requests in {} ms, {}/{} success/failure, {} req/s",
-                    iterations, elapsed,
-                    successes, iterations - successes,
-                    elapsed > 0 ? iterations * 1000 / elapsed : -1);
+                iterations, elapsed,
+                successes, iterations - successes,
+                elapsed > 0 ? iterations * 1000 / elapsed : -1);
             return true;
         }
         catch (Exception x)
@@ -190,8 +191,8 @@ public class SmallThreadPoolLoadTest extends AbstractTest
             latch.countDown();
         else
             logger.warn("Request {} took too long{}Server:{}{}{}Client:{}{}", requestId,
-                    System.lineSeparator(), System.lineSeparator(), server.dump(),
-                    System.lineSeparator(), System.lineSeparator(), client.dump());
+                System.lineSeparator(), System.lineSeparator(), server.dump(),
+                System.lineSeparator(), System.lineSeparator(), client.dump());
         return !reset.get();
     }
 
@@ -212,10 +213,10 @@ public class SmallThreadPoolLoadTest extends AbstractTest
                 }
                 case "POST":
                 {
-                    int content_length=request.getContentLength();
-                    ByteArrayOutputStream2 bout = new ByteArrayOutputStream2(content_length>0?content_length:16*1024);
+                    int contentLength = request.getContentLength();
+                    ByteArrayOutputStream2 bout = new ByteArrayOutputStream2(contentLength > 0 ? contentLength : 16 * 1024);
                     IO.copy(request.getInputStream(), bout);
-                    response.getOutputStream().write(bout.getBuf(),0,bout.getCount());
+                    response.getOutputStream().write(bout.getBuf(), 0, bout.getCount());
                     break;
                 }
             }

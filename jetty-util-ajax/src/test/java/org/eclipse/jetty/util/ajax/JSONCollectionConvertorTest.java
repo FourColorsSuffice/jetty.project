@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,8 +29,12 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 public class JSONCollectionConvertorTest
 {
@@ -68,15 +72,15 @@ public class JSONCollectionConvertorTest
         object1.put(field, list1);
 
         String string = json.toJSON(object1);
-        Assert.assertTrue(string.contains(list1.getClass().getName()));
+        assertThat(string, containsString(list1.getClass().getName()));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> object2 = (Map<String, Object>)json.parse(new JSON.StringSource(string));
         @SuppressWarnings("unchecked")
         List<String> list2 = (List<String>)object2.get(field);
 
-        Assert.assertSame(list1.getClass(), list2.getClass());
-        Assert.assertEquals(list1, list2);
+        assertSame(list1.getClass(), list2.getClass());
+        assertEquals(list1, list2);
     }
 
     @Test
@@ -101,12 +105,12 @@ public class JSONCollectionConvertorTest
         json.addConvertor(Set.class, new JSONCollectionConvertor());
 
         String string = json.toJSON(set1);
-        Assert.assertTrue(string.contains(set1.getClass().getName()));
+        assertThat(string, containsString(set1.getClass().getName()));
 
         @SuppressWarnings("unchecked")
         Set<String> set2 = (Set<String>)json.parse(new JSON.StringSource(string));
 
-        Assert.assertSame(set1.getClass(), set2.getClass());
-        Assert.assertEquals(set1, set2);
+        assertSame(set1.getClass(), set2.getClass());
+        assertEquals(set1, set2);
     }
 }

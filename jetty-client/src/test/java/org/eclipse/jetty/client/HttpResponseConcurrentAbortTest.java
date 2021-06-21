@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -34,9 +33,10 @@ import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.eclipse.jetty.util.ssl.SslContextFactory;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ArgumentsSource;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HttpResponseConcurrentAbortTest extends AbstractHttpClientServerTest
 {
@@ -46,82 +46,81 @@ public class HttpResponseConcurrentAbortTest extends AbstractHttpClientServerTes
     private final AtomicBoolean failureWasAsync = new AtomicBoolean();
     private final AtomicBoolean completeWasSync = new AtomicBoolean();
 
-    public HttpResponseConcurrentAbortTest(SslContextFactory sslContextFactory)
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testAbortOnBegin(Scenario scenario) throws Exception
     {
-        super(sslContextFactory);
-    }
-
-    @Test
-    public void testAbortOnBegin() throws Exception
-    {
-        start(new EmptyServerHandler());
+        start(scenario, new EmptyServerHandler());
 
         client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .onResponseBegin(new Response.BeginListener()
+            .scheme(scenario.getScheme())
+            .onResponseBegin(new Response.BeginListener()
+            {
+                @Override
+                public void onBegin(Response response)
                 {
-                    @Override
-                    public void onBegin(Response response)
-                    {
-                        abort(response);
-                    }
-                })
-                .send(new TestResponseListener());
-        Assert.assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(failureWasAsync.get());
-        Assert.assertTrue(completeWasSync.get());
+                    abort(response);
+                }
+            })
+            .send(new TestResponseListener());
+        assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(failureWasAsync.get());
+        assertTrue(completeWasSync.get());
     }
 
-    @Test
-    public void testAbortOnHeader() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testAbortOnHeader(Scenario scenario) throws Exception
     {
-        start(new EmptyServerHandler());
+        start(scenario, new EmptyServerHandler());
 
         client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .onResponseHeader(new Response.HeaderListener()
+            .scheme(scenario.getScheme())
+            .onResponseHeader(new Response.HeaderListener()
+            {
+                @Override
+                public boolean onHeader(Response response, HttpField field)
                 {
-                    @Override
-                    public boolean onHeader(Response response, HttpField field)
-                    {
-                        abort(response);
-                        return true;
-                    }
-                })
-                .send(new TestResponseListener());
-        Assert.assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(failureWasAsync.get());
-        Assert.assertTrue(completeWasSync.get());
+                    abort(response);
+                    return true;
+                }
+            })
+            .send(new TestResponseListener());
+        assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(failureWasAsync.get());
+        assertTrue(completeWasSync.get());
     }
 
-    @Test
-    public void testAbortOnHeaders() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testAbortOnHeaders(Scenario scenario) throws Exception
     {
-        start(new EmptyServerHandler());
+        start(scenario, new EmptyServerHandler());
 
         client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .onResponseHeaders(new Response.HeadersListener()
+            .scheme(scenario.getScheme())
+            .onResponseHeaders(new Response.HeadersListener()
+            {
+                @Override
+                public void onHeaders(Response response)
                 {
-                    @Override
-                    public void onHeaders(Response response)
-                    {
-                        abort(response);
-                    }
-                })
-                .send(new TestResponseListener());
-        Assert.assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(failureWasAsync.get());
-        Assert.assertTrue(completeWasSync.get());
+                    abort(response);
+                }
+            })
+            .send(new TestResponseListener());
+        assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(failureWasAsync.get());
+        assertTrue(completeWasSync.get());
     }
 
-    @Test
-    public void testAbortOnContent() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testAbortOnContent(Scenario scenario) throws Exception
     {
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
             public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
@@ -134,20 +133,20 @@ public class HttpResponseConcurrentAbortTest extends AbstractHttpClientServerTes
         });
 
         client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .onResponseContent(new Response.ContentListener()
+            .scheme(scenario.getScheme())
+            .onResponseContent(new Response.ContentListener()
+            {
+                @Override
+                public void onContent(Response response, ByteBuffer content)
                 {
-                    @Override
-                    public void onContent(Response response, ByteBuffer content)
-                    {
-                        abort(response);
-                    }
-                })
-                .send(new TestResponseListener());
-        Assert.assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(failureWasAsync.get());
-        Assert.assertTrue(completeWasSync.get());
+                    abort(response);
+                }
+            })
+            .send(new TestResponseListener());
+        assertTrue(callbackLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(failureWasAsync.get());
+        assertTrue(completeWasSync.get());
     }
 
     private void abort(final Response response)
@@ -192,7 +191,7 @@ public class HttpResponseConcurrentAbortTest extends AbstractHttpClientServerTes
         @Override
         public void onComplete(Result result)
         {
-            Assert.assertTrue(result.isFailed());
+            assertTrue(result.isFailed());
             completeLatch.countDown();
         }
     }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,7 +25,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
@@ -51,9 +50,12 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.hamcrest.Matchers;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class SslContextFactoryReloadTest
 {
@@ -68,7 +70,7 @@ public class SslContextFactoryReloadTest
     {
         server = new Server();
 
-        sslContextFactory = new SslContextFactory();
+        sslContextFactory = new SslContextFactory.Server();
         sslContextFactory.setKeyStorePath(KEYSTORE_1);
         sslContextFactory.setKeyStorePassword("storepwd");
         sslContextFactory.setKeyStoreType("JKS");
@@ -77,8 +79,8 @@ public class SslContextFactoryReloadTest
         HttpConfiguration httpsConfig = new HttpConfiguration();
         httpsConfig.addCustomizer(new SecureRequestCustomizer());
         connector = new ServerConnector(server,
-                new SslConnectionFactory(sslContextFactory, HttpVersion.HTTP_1_1.asString()),
-                new HttpConnectionFactory(httpsConfig));
+            new SslConnectionFactory(sslContextFactory, HttpVersion.HTTP_1_1.asString()),
+            new HttpConnectionFactory(httpsConfig));
         server.addConnector(connector);
 
         server.setHandler(handler);
@@ -86,7 +88,7 @@ public class SslContextFactoryReloadTest
         server.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         if (server != null)
@@ -104,10 +106,10 @@ public class SslContextFactoryReloadTest
         try (SSLSocket client1 = (SSLSocket)socketFactory.createSocket("localhost", connector.getLocalPort()))
         {
             String serverDN1 = client1.getSession().getPeerPrincipal().getName();
-            Assert.assertThat(serverDN1, Matchers.startsWith("CN=localhost1"));
+            assertThat(serverDN1, Matchers.startsWith("CN=localhost1"));
 
-            String request = "" +
-                    "GET / HTTP/1.1\r\n" +
+            String request =
+                "GET / HTTP/1.1\r\n" +
                     "Host: localhost\r\n" +
                     "\r\n";
 
@@ -116,8 +118,8 @@ public class SslContextFactoryReloadTest
             output1.flush();
 
             HttpTester.Response response1 = HttpTester.parseResponse(HttpTester.from(client1.getInputStream()));
-            Assert.assertNotNull(response1);
-            Assert.assertThat(response1.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+            assertNotNull(response1);
+            assertThat(response1.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
 
             // Reconfigure SslContextFactory.
             sslContextFactory.reload(sslContextFactory ->
@@ -130,15 +132,15 @@ public class SslContextFactoryReloadTest
             try (SSLSocket client2 = (SSLSocket)socketFactory.createSocket("localhost", connector.getLocalPort()))
             {
                 String serverDN2 = client2.getSession().getPeerPrincipal().getName();
-                Assert.assertThat(serverDN2, Matchers.startsWith("CN=localhost2"));
+                assertThat(serverDN2, Matchers.startsWith("CN=localhost2"));
 
                 OutputStream output2 = client1.getOutputStream();
                 output2.write(request.getBytes(StandardCharsets.UTF_8));
                 output2.flush();
 
                 HttpTester.Response response2 = HttpTester.parseResponse(HttpTester.from(client1.getInputStream()));
-                Assert.assertNotNull(response2);
-                Assert.assertThat(response2.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+                assertNotNull(response2);
+                assertThat(response2.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
             }
 
             // Must still be possible to make requests with the first connection.
@@ -146,8 +148,8 @@ public class SslContextFactoryReloadTest
             output1.flush();
 
             response1 = HttpTester.parseResponse(HttpTester.from(client1.getInputStream()));
-            Assert.assertNotNull(response1);
-            Assert.assertThat(response1.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+            assertNotNull(response1);
+            assertThat(response1.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
         }
     }
 
@@ -213,8 +215,8 @@ public class SslContextFactoryReloadTest
                     // use session resumption and fallback to the normal TLS handshake.
                     client.getSession().invalidate();
 
-                    String request1 = "" +
-                            "POST / HTTP/1.1\r\n" +
+                    String request1 =
+                        "POST / HTTP/1.1\r\n" +
                             "Host: localhost\r\n" +
                             "Content-Length: " + content.length + "\r\n" +
                             "\r\n";
@@ -225,11 +227,11 @@ public class SslContextFactoryReloadTest
 
                     InputStream inputStream = client.getInputStream();
                     HttpTester.Response response1 = HttpTester.parseResponse(HttpTester.from(inputStream));
-                    Assert.assertNotNull(response1);
-                    Assert.assertThat(response1.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+                    assertNotNull(response1);
+                    assertThat(response1.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
 
-                    String request2 = "" +
-                            "GET / HTTP/1.1\r\n" +
+                    String request2 =
+                        "GET / HTTP/1.1\r\n" +
                             "Host: localhost\r\n" +
                             "Connection: close\r\n" +
                             "\r\n";
@@ -237,12 +239,12 @@ public class SslContextFactoryReloadTest
                     outputStream.flush();
 
                     HttpTester.Response response2 = HttpTester.parseResponse(HttpTester.from(inputStream));
-                    Assert.assertNotNull(response2);
-                    Assert.assertThat(response2.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+                    assertNotNull(response2);
+                    assertThat(response2.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
                 }
             }
 
-            Assert.assertEquals(0, reloads.get());
+            assertEquals(0, reloads.get());
         }
         finally
         {

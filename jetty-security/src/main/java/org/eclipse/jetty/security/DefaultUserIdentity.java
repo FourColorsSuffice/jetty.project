@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,16 +19,12 @@
 package org.eclipse.jetty.security;
 
 import java.security.Principal;
-
 import javax.security.auth.Subject;
 
 import org.eclipse.jetty.server.UserIdentity;
 
-
-/* ------------------------------------------------------------ */
 /**
  * The default implementation of UserIdentity.
- *
  */
 public class DefaultUserIdentity implements UserIdentity
 {
@@ -38,44 +34,49 @@ public class DefaultUserIdentity implements UserIdentity
 
     public DefaultUserIdentity(Subject subject, Principal userPrincipal, String[] roles)
     {
-        _subject=subject;
-        _userPrincipal=userPrincipal;
-        _roles=roles;
+        _subject = subject;
+        _userPrincipal = userPrincipal;
+        _roles = roles;
     }
 
+    @Override
     public Subject getSubject()
     {
         return _subject;
     }
 
+    @Override
     public Principal getUserPrincipal()
     {
         return _userPrincipal;
     }
 
+    @Override
     public boolean isUserInRole(String role, Scope scope)
     {
         //Servlet Spec 3.1, pg 125
         if ("*".equals(role))
             return false;
-        
+
         String roleToTest = null;
-        if (scope!=null && scope.getRoleRefMap()!=null)
-            roleToTest=scope.getRoleRefMap().get(role);
+        if (scope != null && scope.getRoleRefMap() != null)
+            roleToTest = scope.getRoleRefMap().get(role);
 
         //Servlet Spec 3.1, pg 125
         if (roleToTest == null)
             roleToTest = role;
-       
-        for (String r :_roles)
+
+        for (String r : _roles)
+        {
             if (r.equals(roleToTest))
                 return true;
+        }
         return false;
     }
 
     @Override
     public String toString()
     {
-        return DefaultUserIdentity.class.getSimpleName()+"('"+_userPrincipal+"')";
+        return DefaultUserIdentity.class.getSimpleName() + "('" + _userPrincipal + "')";
     }
 }

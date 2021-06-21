@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,11 +17,6 @@
 //
 
 package org.eclipse.jetty.start;
-
-import static org.hamcrest.Matchers.greaterThan;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -41,7 +36,12 @@ import org.eclipse.jetty.start.Props.Prop;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.toolchain.test.PathAssert;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ConfigurationAssert
 {
@@ -58,7 +58,7 @@ public class ConfigurationAssert
     {
         assertConfiguration(baseHome, args, null, MavenTestingUtils.getTestResourceFile(filename));
     }
-    
+
     /**
      * Given a provided StartArgs, assert that the configuration it has determined is valid based on values in a assert text file.
      *
@@ -73,7 +73,7 @@ public class ConfigurationAssert
     {
         assertConfiguration(baseHome, args, output, MavenTestingUtils.getTestResourceFile(filename));
     }
-    
+
     /**
      * Given a provided StartArgs, assert that the configuration it has determined is valid based on values in a assert text file.
      *
@@ -85,13 +85,13 @@ public class ConfigurationAssert
      */
     public static void assertConfiguration(BaseHome baseHome, StartArgs args, String output, File file) throws FileNotFoundException, IOException
     {
-        if(output != null)
+        if (output != null)
         {
             System.err.println(output);
         }
         Path testResourcesDir = MavenTestingUtils.getTestResourcesDir().toPath().toRealPath();
         TextFile textFile = new TextFile(file.toPath());
-        
+
         // Validate XMLs (order is important)
         List<String> expectedXmls = new ArrayList<>();
         for (String line : textFile)
@@ -107,7 +107,7 @@ public class ConfigurationAssert
             actualXmls.add(shorten(baseHome, xml, testResourcesDir));
         }
         assertOrdered("XML Resolution Order", expectedXmls, actualXmls);
-        
+
         // Validate LIBs (order is not important)
         List<String> expectedLibs = new ArrayList<>();
         for (String line : textFile)
@@ -123,7 +123,7 @@ public class ConfigurationAssert
             actualLibs.add(shorten(baseHome, path.toPath(), testResourcesDir));
         }
         assertContainsUnordered("Libs", expectedLibs, actualLibs);
-        
+
         // Validate PROPERTIES (order is not important)
         Set<String> expectedProperties = new HashSet<>();
         for (String line : textFile)
@@ -137,12 +137,13 @@ public class ConfigurationAssert
         for (Prop prop : args.getProperties())
         {
             String name = prop.key;
-            if ("jetty.home".equals(name) || 
+            if ("jetty.home".equals(name) ||
                 "jetty.base".equals(name) ||
-                "jetty.home.uri".equals(name) || 
+                "jetty.home.uri".equals(name) ||
                 "jetty.base.uri".equals(name) ||
-                "user.dir".equals(name) || 
-                prop.origin.equals(Props.ORIGIN_SYSPROP) ||
+                "user.dir".equals(name) ||
+                prop.source.equals(Props.ORIGIN_SYSPROP) ||
+                name.startsWith("runtime.feature.") ||
                 name.startsWith("java."))
             {
                 // strip these out from assertion, to make assertions easier.
@@ -151,18 +152,18 @@ public class ConfigurationAssert
             actualProperties.add(prop.key + "=" + args.getProperties().expand(prop.value));
         }
         assertContainsUnordered("Properties", expectedProperties, actualProperties);
-        
+
         // Validate PROPERTIES (order is not important)
         for (String line : textFile)
         {
             if (line.startsWith("SYS|"))
             {
-                String[] expected = getValue(line).split("=",2);
+                String[] expected = getValue(line).split("=", 2);
                 String actual = System.getProperty(expected[0]);
-                assertThat("System property "+expected[0],actual,Matchers.equalTo(expected[1]));
+                assertThat("System property " + expected[0], actual, Matchers.equalTo(expected[1]));
             }
         }
-        
+
         // Validate Downloads
         List<String> expectedDownloads = new ArrayList<>();
         for (String line : textFile)
@@ -181,7 +182,7 @@ public class ConfigurationAssert
             }
         }
         assertContainsUnordered("Downloads", expectedDownloads, actualDownloads);
-        
+
         // File / Path Existence Checks
         streamOf(textFile, "EXISTS").forEach(f ->
         {
@@ -195,16 +196,16 @@ public class ConfigurationAssert
                 PathAssert.assertFileExists("Required File", path);
             }
         });
-        
+
         // Output Validation
         streamOf(textFile, "OUTPUT").forEach(regex ->
         {
             Pattern pat = Pattern.compile(regex);
             Matcher mat = pat.matcher(output);
-            assertTrue("Output [\n" + output + "]\nContains Regex Match: " + pat.pattern(), mat.find());
+            assertTrue(mat.find(), "Output [\n" + output + "]\nContains Regex Match: " + pat.pattern());
         });
     }
-    
+
     private static String shorten(BaseHome baseHome, Path path, Path testResourcesDir)
     {
         String value = baseHome.toShortForm(path);
@@ -212,7 +213,7 @@ public class ConfigurationAssert
         {
             return value;
         }
-        
+
         if (path.startsWith(testResourcesDir))
         {
             int len = testResourcesDir.toString().length();
@@ -220,12 +221,12 @@ public class ConfigurationAssert
         }
         return value;
     }
-    
+
     public static void assertContainsUnordered(String msg, Collection<String> expectedSet, Collection<String> actualSet)
     {
         try
         {
-            Assert.assertEquals(msg, expectedSet.size(), actualSet.size());
+            assertEquals(expectedSet.size(), actualSet.size(), msg);
             if (!expectedSet.isEmpty())
                 assertThat(msg, actualSet, Matchers.containsInAnyOrder(expectedSet.toArray()));
         }
@@ -235,14 +236,14 @@ public class ConfigurationAssert
             System.err.println("Actual  : " + actualSet.stream().sorted().collect(Collectors.toList()));
             throw e;
         }
-        
     }
-    
+
+    @SuppressWarnings("Duplicates")
     public static void assertOrdered(String msg, List<String> expectedList, List<String> actualList)
     {
         try
         {
-            Assert.assertEquals(msg, expectedList.size(), actualList.size());
+            assertEquals(expectedList.size(), actualList.size(), msg);
             if (!expectedList.isEmpty())
                 assertThat(msg, actualList, Matchers.contains(expectedList.toArray()));
         }
@@ -253,13 +254,13 @@ public class ConfigurationAssert
             throw e;
         }
     }
-    
+
     private static Stream<String> streamOf(TextFile textFile, String key)
     {
         return textFile.stream()
-                .filter(s -> s.startsWith(key + "|")).map(f -> getValue(f));
+            .filter(s -> s.startsWith(key + "|")).map(f -> getValue(f));
     }
-    
+
     private static String getValue(String arg)
     {
         int idx = arg.indexOf('|');

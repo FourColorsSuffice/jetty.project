@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[session-clustering-infinispan]]
 === Session Clustering with Infinispan
@@ -45,10 +47,10 @@ To do that, you can use `--skip-file-validation=infinispan` argument to start.ja
 
 You will also find the following properties, either in your base's `start.d/infinispan.ini` file or appended to your `start.ini`, depending on how you enabled the module:
 
-....
+----
 ## Unique identifier for this node in the cluster
 jetty.infinispanSession.workerName=node1
-....
+----
 
 jetty.infinispanSession.workerName::
   The name that uniquely identifies this node in the cluster.
@@ -63,7 +65,7 @@ The Infinispan module will have installed file called `$\{jetty.home}/etc/jetty-
 This file configures an instance of the `InfinispanSessionIdManager` that will be shared across all webapps deployed on that server.
 It looks like this:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 include::{SRCDIR}/jetty-infinispan/src/main/config/etc/jetty-infinispan.xml[]
 ----
@@ -89,12 +91,14 @@ The basic difference is how you get a reference to the Jetty `org.eclipse.jetty.
 
 From a context xml file, you reference the Server instance as a Ref:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
   <!-- Expose the jetty infinispan classes for session serialization -->
-  <Call name="prependServerClass">
-    <Arg>-org.eclipse.jetty.session.infinispan.</Arg>
-  </Call>
+  <Get name="serverClasspathPattern">
+    <Call name="add">
+      <Arg>-org.eclipse.jetty.session.infinispan.</Arg>
+    </Call>
+  </Get>
 
 
   <!-- Get a reference to the InfinispanSessionIdManager -->
@@ -128,12 +132,14 @@ From a context xml file, you reference the Server instance as a Ref:
 
 From a `WEB-INF/jetty-web.xml` file, you can reference the Server instance directly:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
-  <!-- Expose the jetty infinispan classes for session serialization -->
-  <Call name="prependServerClass">
+<!-- Expose the jetty infinispan classes for session serialization -->
+<Get name="serverClasspathPattern">
+  <Call name="add">
     <Arg>-org.eclipse.jetty.session.infinispan.</Arg>
   </Call>
+</Get>
 
 <!-- Reference the server directly -->
 <Get name="server">
@@ -141,25 +147,25 @@ From a `WEB-INF/jetty-web.xml` file, you can reference the Server instance direc
 </Get>
 
 <!-- Get a reference to the Cache via the InfinispanSessionIdManager -->
- <Ref id="idMgr">
-    <Get id="cache" name="cache"/>
-  </Ref>
+<Ref id="idMgr">
+  <Get id="cache" name="cache"/>
+</Ref>
 
 <!-- Apply the SessionIdManager and Cache to the InfinispanSessionManager -->
 <Set name="sessionHandler">
   <New class="org.eclipse.jetty.server.session.SessionHandler">
-     <Arg>
-        <New id="mgr" class="org.eclipse.jetty.session.infinispan.InfinispanSessionManager">
-          <Set name="sessionIdManager">
-            <Ref id="idMgr"/>
-          </Set>
-          <Set name="cache">
-            <Ref id="cache">
-            </Ref>
-          </Set>
-          <Set name="scavengeInterval">600</Set>
-        </New>
-      </Arg>
+    <Arg>
+      <New id="mgr" class="org.eclipse.jetty.session.infinispan.InfinispanSessionManager">
+        <Set name="sessionIdManager">
+          <Ref id="idMgr"/>
+        </Set>
+        <Set name="cache">
+          <Ref id="cache">
+          </Ref>
+        </Set>
+        <Set name="scavengeInterval">600</Set>
+      </New>
+    </Arg>
   </New>
 </Set>
 ----
@@ -176,11 +182,11 @@ staleIntervalSec::
 ===== Using HotRod
 
 If you're using the hotrod client - where serialization will be required - you will need to ensure that the hotrod marshalling software works with Jetty classloading.
-To do this, firstly ensure that you have included the lines containing the `prependServerClass` to your context xml file as shown above.
+To do this, firstly ensure that you have included the lines containing the `getServerClasspathPattern().add(...)` to your context xml file as shown above.
 
 Then, create the file `${jetty.base}/resources/hotrod-client.properties`.
 Add the following line to this file:
 
-....
+----
 infinispan.client.hotrod.marshaller=org.eclipse.jetty.session.infinispan.WebAppMarshaller
-....
+----

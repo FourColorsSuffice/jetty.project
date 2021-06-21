@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,6 +20,7 @@ package org.eclipse.jetty.server;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 import org.eclipse.jetty.io.AbstractConnection;
@@ -36,12 +37,12 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
  * <ul>
  * <li>Protocol identification</li>
  * <li>Configuration of new Connections:
- *     <ul>
- *     <li>Setting inputbuffer size</li>
- *     <li>Calling {@link Connection#addListener(Connection.Listener)} for all
- *     Connection.Listener instances found as beans on the {@link Connector}
- *     and this {@link ConnectionFactory}</li>
- *     </ul>
+ * <ul>
+ * <li>Setting inputbuffer size</li>
+ * <li>Calling {@link Connection#addListener(Connection.Listener)} for all
+ * Connection.Listener instances found as beans on the {@link Connector}
+ * and this {@link ConnectionFactory}</li>
+ * </ul>
  * </ul>
  */
 @ManagedObject
@@ -53,14 +54,14 @@ public abstract class AbstractConnectionFactory extends ContainerLifeCycle imple
 
     protected AbstractConnectionFactory(String protocol)
     {
-        _protocol=protocol;
-        _protocols=Collections.unmodifiableList(Arrays.asList(new String[]{protocol}));
+        _protocol = protocol;
+        _protocols = Collections.unmodifiableList(Arrays.asList(protocol));
     }
 
     protected AbstractConnectionFactory(String... protocols)
     {
-        _protocol=protocols[0];
-        _protocols=Collections.unmodifiableList(Arrays.asList(protocols));
+        _protocol = protocols[0];
+        _protocols = Collections.unmodifiableList(Arrays.asList(protocols));
     }
 
     @Override
@@ -84,7 +85,27 @@ public abstract class AbstractConnectionFactory extends ContainerLifeCycle imple
 
     public void setInputBufferSize(int size)
     {
-        _inputbufferSize=size;
+        _inputbufferSize = size;
+    }
+
+    protected String findNextProtocol(Connector connector)
+    {
+        return findNextProtocol(connector, getProtocol());
+    }
+
+    protected static String findNextProtocol(Connector connector, String currentProtocol)
+    {
+        String nextProtocol = null;
+        for (Iterator<String> it = connector.getProtocols().iterator(); it.hasNext(); )
+        {
+            String protocol = it.next();
+            if (currentProtocol.equalsIgnoreCase(protocol))
+            {
+                nextProtocol = it.hasNext() ? it.next() : null;
+                break;
+            }
+        }
+        return nextProtocol;
     }
 
     protected AbstractConnection configure(AbstractConnection connection, Connector connector, EndPoint endPoint)
@@ -96,11 +117,15 @@ public abstract class AbstractConnectionFactory extends ContainerLifeCycle imple
         {
             ContainerLifeCycle aggregate = (ContainerLifeCycle)connector;
             for (Connection.Listener listener : aggregate.getBeans(Connection.Listener.class))
+            {
                 connection.addListener(listener);
+            }
         }
         // Add Connection.Listeners from this factory
         for (Connection.Listener listener : getBeans(Connection.Listener.class))
+        {
             connection.addListener(listener);
+        }
 
         return connection;
     }
@@ -108,14 +133,14 @@ public abstract class AbstractConnectionFactory extends ContainerLifeCycle imple
     @Override
     public String toString()
     {
-        return String.format("%s@%x%s",this.getClass().getSimpleName(),hashCode(),getProtocols());
+        return String.format("%s@%x%s", this.getClass().getSimpleName(), hashCode(), getProtocols());
     }
 
     public static ConnectionFactory[] getFactories(SslContextFactory sslContextFactory, ConnectionFactory... factories)
     {
-        factories=ArrayUtil.removeNulls(factories);
+        factories = ArrayUtil.removeNulls(factories);
 
-        if (sslContextFactory==null)
+        if (sslContextFactory == null)
             return factories;
 
         for (ConnectionFactory factory : factories)
@@ -123,11 +148,10 @@ public abstract class AbstractConnectionFactory extends ContainerLifeCycle imple
             if (factory instanceof HttpConfiguration.ConnectionFactory)
             {
                 HttpConfiguration config = ((HttpConfiguration.ConnectionFactory)factory).getHttpConfiguration();
-                if (config.getCustomizer(SecureRequestCustomizer.class)==null)
+                if (config.getCustomizer(SecureRequestCustomizer.class) == null)
                     config.addCustomizer(new SecureRequestCustomizer());
             }
         }
-        return ArrayUtil.prependToArray(new SslConnectionFactory(sslContextFactory,factories[0].getProtocol()),factories,ConnectionFactory.class);
-
+        return ArrayUtil.prependToArray(new SslConnectionFactory(sslContextFactory, factories[0].getProtocol()), factories, ConnectionFactory.class);
     }
 }

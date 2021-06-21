@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -61,17 +61,23 @@ public class HeadersBodyParser extends BodyParser
     @Override
     protected void emptyBody(ByteBuffer buffer)
     {
-        if (hasFlag(Flags.END_HEADERS))
+        if (hasFlag(Flags.PRIORITY))
+        {
+            connectionFailure(buffer, ErrorCode.PROTOCOL_ERROR.code, "invalid_headers_priority_frame");
+        }
+        else if (hasFlag(Flags.END_HEADERS))
         {
             MetaData metaData = headerBlockParser.parse(BufferUtil.EMPTY_BUFFER, 0);
-            onHeaders(0, 0, false, metaData);
+            HeadersFrame frame = new HeadersFrame(getStreamId(), metaData, null, isEndStream());
+            if (!rateControlOnEvent(frame))
+                connectionFailure(buffer, ErrorCode.ENHANCE_YOUR_CALM_ERROR.code, "invalid_headers_frame_rate");
+            else
+                onHeaders(frame);
         }
         else
         {
             headerBlockFragments.setStreamId(getStreamId());
             headerBlockFragments.setEndStream(isEndStream());
-            if (hasFlag(Flags.PRIORITY))
-                connectionFailure(buffer, ErrorCode.PROTOCOL_ERROR.code, "invalid_headers_priority_frame");
         }
     }
 
@@ -92,17 +98,11 @@ public class HeadersBodyParser extends BodyParser
                     length = getBodyLength();
 
                     if (isPadding())
-                    {
                         state = State.PADDING_LENGTH;
-                    }
                     else if (hasFlag(Flags.PRIORITY))
-                    {
                         state = State.EXCLUSIVE;
-                    }
                     else
-                    {
                         state = State.HEADERS;
-                    }
                     break;
                 }
                 case PADDING_LENGTH:
@@ -162,6 +162,9 @@ public class HeadersBodyParser extends BodyParser
                 }
                 case WEIGHT:
                 {
+                    // SPEC: stream cannot depend on itself.
+                    if (getStreamId() == parentStreamId)
+                        return connectionFailure(buffer, ErrorCode.PROTOCOL_ERROR.code, "invalid_priority_frame");
                     weight = (buffer.get() & 0xFF) + 1;
                     --length;
                     state = State.HEADERS;
@@ -173,13 +176,24 @@ public class HeadersBodyParser extends BodyParser
                     if (hasFlag(Flags.END_HEADERS))
                     {
                         MetaData metaData = headerBlockParser.parse(buffer, length);
+                        if (metaData == HeaderBlockParser.SESSION_FAILURE)
+                            return false;
                         if (metaData != null)
                         {
                             if (LOG.isDebugEnabled())
                                 LOG.debug("Parsed {} frame hpack from {}", FrameType.HEADERS, buffer);
                             state = State.PADDING;
                             loop = paddingLength == 0;
-                            onHeaders(parentStreamId, weight, exclusive, metaData);
+                            if (metaData != HeaderBlockParser.STREAM_FAILURE)
+                            {
+                                onHeaders(parentStreamId, weight, exclusive, metaData);
+                            }
+                            else
+                            {
+                                HeadersFrame frame = new HeadersFrame(getStreamId(), metaData, null, isEndStream());
+                                if (!rateControlOnEvent(frame))
+                                    connectionFailure(buffer, ErrorCode.ENHANCE_YOUR_CALM_ERROR.code, "invalid_headers_frame_rate");
+                            }
                         }
                     }
                     else
@@ -230,6 +244,11 @@ public class HeadersBodyParser extends BodyParser
         if (hasFlag(Flags.PRIORITY))
             priorityFrame = new PriorityFrame(getStreamId(), parentStreamId, weight, exclusive);
         HeadersFrame frame = new HeadersFrame(getStreamId(), metaData, priorityFrame, isEndStream());
+        onHeaders(frame);
+    }
+
+    private void onHeaders(HeadersFrame frame)
+    {
         notifyHeaders(frame);
     }
 

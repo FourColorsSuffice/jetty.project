@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,29 +16,23 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URLDecoder;
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-
 import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.derby.tools.ij;
 import org.eclipse.jetty.security.ConstraintMapping;
 import org.eclipse.jetty.security.ConstraintSecurityHandler;
 import org.eclipse.jetty.security.LoginService;
@@ -51,67 +45,77 @@ import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.toolchain.test.FS;
-import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.util.IO;
-import org.eclipse.jetty.util.Loader;
 import org.eclipse.jetty.util.security.Constraint;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.MariaDBContainer;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
 
 /**
  * DatabaseLoginServiceTestServer
  */
 public class DatabaseLoginServiceTestServer
 {
-    protected static String __dbURL = "jdbc:derby:loginservice;create=true";
+    private static final Logger LOG = LoggerFactory.getLogger(DatabaseLoginServiceTestServer.class);
+    private static final Logger MARIADB_LOG = LoggerFactory.getLogger("org.eclipse.jetty.security.MariaDbLogs");
+    
+    static MariaDBContainer MARIA_DB;
+
+    protected static final String MARIA_DB_NAME = "lstest";
+    protected static final String MARIA_DB_USER = "beer";
+    protected static final String MARIA_DB_PASSWORD = "pacific_ale";
+    public static String MARIA_DB_DRIVER_CLASS;
+    public static String MARIA_DB_URL;
+    public static String MARIA_DB_FULL_URL;
+    
     protected Server _server;
     protected static String _protocol;
     protected static URI _baseUri;
     protected LoginService _loginService;
     protected String _resourceBase;
     protected TestHandler _handler;
-    private static File commonDerbySystemHome;
     protected static String _requestContent;
-    
-    protected static File _dbRoot;
 
+    protected static File _dbRoot;
 
     static
     {
-        _dbRoot = new File(MavenTestingUtils.getTargetTestingDir("loginservice-test"), "derby");
-        FS.ensureDirExists(_dbRoot);
-        System.setProperty("derby.system.home", _dbRoot.getAbsolutePath());
-    }
-
-    public static File getDbRoot ()
-    {
-        return _dbRoot;
-    }
-
-    public static int runscript (File scriptFile) throws Exception
-    {  
-        //System.err.println("Running script:"+scriptFile.getAbsolutePath());
-        try (FileInputStream fileStream = new FileInputStream(scriptFile))
+        try
         {
-            Loader.loadClass("org.apache.derby.jdbc.EmbeddedDriver").newInstance();
-            Connection connection = DriverManager.getConnection(__dbURL, "", "");
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            return ij.runScript(connection, fileStream, "UTF-8", out, "UTF-8");
+            MARIA_DB =
+                new MariaDBContainer("mariadb:" + System.getProperty("mariadb.docker.version", "10.3.6"))
+                .withUsername(MARIA_DB_USER)
+                .withPassword(MARIA_DB_PASSWORD)
+                .withDatabaseName(MARIA_DB_NAME);
+            MARIA_DB = (MariaDBContainer)MARIA_DB.withInitScript("createdb.sql");
+            MARIA_DB = (MariaDBContainer)MARIA_DB.withLogConsumer(new Slf4jLogConsumer(MARIADB_LOG));
+            MARIA_DB.start();
+            String containerIpAddress =  MARIA_DB.getContainerIpAddress();
+            int mariadbPort = MARIA_DB.getMappedPort(3306);
+            MARIA_DB_URL = MARIA_DB.getJdbcUrl();
+            MARIA_DB_FULL_URL = MARIA_DB_URL + "?user=" + MARIA_DB_USER + "&password=" + MARIA_DB_PASSWORD;
+            MARIA_DB_DRIVER_CLASS = MARIA_DB.getDriverClassName();
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
-  
-    public static class TestHandler extends AbstractHandler 
+
+    public static class TestHandler extends AbstractHandler
     {
         private final String _resourcePath;
         private String _requestContent;
-        
 
-        public TestHandler(String repositoryPath) 
+        public TestHandler(String repositoryPath)
         {
             _resourcePath = repositoryPath;
         }
 
+        @Override
         public void handle(String target, org.eclipse.jetty.server.Request baseRequest,
-                HttpServletRequest request, HttpServletResponse response)
+                           HttpServletRequest request, HttpServletResponse response)
             throws IOException, ServletException
         {
             if (baseRequest.isHandled())
@@ -156,58 +160,56 @@ public class DatabaseLoginServiceTestServer
                     _requestContent = out.toString();
             }
         }
-        
+
         public String getRequestContent()
         {
             return _requestContent;
         }
     }
-    
-    
-    public DatabaseLoginServiceTestServer ()
+
+    public DatabaseLoginServiceTestServer()
     {
         _server = new Server(0);
     }
-    
-    public void setLoginService (LoginService loginService)
+
+    public void setLoginService(LoginService loginService)
     {
         _loginService = loginService;
     }
-    
-    public void setResourceBase (String resourceBase)
+
+    public void setResourceBase(String resourceBase)
     {
         _resourceBase = resourceBase;
     }
- 
-    
-    public void start () throws Exception
+
+    public void start() throws Exception
     {
         configureServer();
         _server.start();
         //_server.dumpStdErr();
         _baseUri = _server.getURI();
     }
-    
+
     public void stop() throws Exception
     {
         _server.stop();
     }
-    
+
     public URI getBaseUri()
     {
         return _baseUri;
     }
-   
+
     public TestHandler getTestHandler()
     {
         return _handler;
     }
- 
+
     public Server getServer()
     {
         return _server;
     }
-    
+
     protected void configureServer() throws Exception
     {
         _protocol = "http";
@@ -218,12 +220,12 @@ public class DatabaseLoginServiceTestServer
 
         Constraint constraint = new Constraint();
         constraint.setName("auth");
-        constraint.setAuthenticate( true );
+        constraint.setAuthenticate(true);
         constraint.setRoles(new String[]{"user", "admin"});
 
         ConstraintMapping mapping = new ConstraintMapping();
-        mapping.setPathSpec( "/*" );
-        mapping.setConstraint( constraint );
+        mapping.setPathSpec("/*");
+        mapping.setConstraint(constraint);
 
         Set<String> knownRoles = new HashSet<>();
         knownRoles.add("user");
@@ -236,9 +238,9 @@ public class DatabaseLoginServiceTestServer
         ServletContextHandler root = new ServletContextHandler();
         root.setContextPath("/");
         root.setResourceBase(_resourceBase);
-        ServletHolder servletHolder = new ServletHolder( new DefaultServlet() );
-        servletHolder.setInitParameter( "gzip", "true" );
-        root.addServlet( servletHolder, "/*" );
+        ServletHolder servletHolder = new ServletHolder(new DefaultServlet());
+        servletHolder.setInitParameter("gzip", "true");
+        root.addServlet(servletHolder, "/*");
 
         _handler = new TestHandler(_resourceBase);
 
@@ -246,5 +248,4 @@ public class DatabaseLoginServiceTestServer
         handlers.setHandlers(new Handler[]{_handler, root});
         security.setHandler(handlers);
     }
-
 }

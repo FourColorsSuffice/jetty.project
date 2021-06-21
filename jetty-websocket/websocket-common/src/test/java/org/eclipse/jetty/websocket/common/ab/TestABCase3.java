@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,75 +18,47 @@
 
 package org.eclipse.jetty.websocket.common.ab;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
+import java.util.stream.Stream;
 
-import org.eclipse.jetty.toolchain.test.TestTracker;
 import org.eclipse.jetty.websocket.api.ProtocolException;
 import org.eclipse.jetty.websocket.common.CloseInfo;
 import org.eclipse.jetty.websocket.common.WebSocketFrame;
 import org.eclipse.jetty.websocket.common.frames.PingFrame;
 import org.eclipse.jetty.websocket.common.frames.PongFrame;
 import org.eclipse.jetty.websocket.common.test.UnitGenerator;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Test various invalid frame situations
  */
-@RunWith(value = Parameterized.class)
 public class TestABCase3
 {
-    @Parameters
-    public static Collection<WebSocketFrame[]> data()
+    public static Stream<Arguments> badFrames()
     {
-        List<WebSocketFrame[]> data = new ArrayList<>();
-        // @formatter:off
-        data.add(new WebSocketFrame[]
-                { new PingFrame().setFin(false) });
-        data.add(new WebSocketFrame[]
-                { new PingFrame().setRsv1(true) });
-        data.add(new WebSocketFrame[]
-                { new PingFrame().setRsv2(true) });
-        data.add(new WebSocketFrame[]
-                { new PingFrame().setRsv3(true) });
-        data.add(new WebSocketFrame[]
-                { new PongFrame().setFin(false) });
-        data.add(new WebSocketFrame[]
-                { new PingFrame().setRsv1(true) });
-        data.add(new WebSocketFrame[]
-                { new PongFrame().setRsv2(true) });
-        data.add(new WebSocketFrame[]
-                { new PongFrame().setRsv3(true) });
-        data.add(new WebSocketFrame[]
-                { new CloseInfo().asFrame().setFin(false) });
-        data.add(new WebSocketFrame[]
-                { new CloseInfo().asFrame().setRsv1(true) });
-        data.add(new WebSocketFrame[]
-                { new CloseInfo().asFrame().setRsv2(true) });
-        data.add(new WebSocketFrame[]
-                { new CloseInfo().asFrame().setRsv3(true) });
-        // @formatter:on
-        return data;
+        return Stream.of(
+            new PingFrame().setFin(false),
+            new PingFrame().setRsv1(true),
+            new PingFrame().setRsv2(true),
+            new PingFrame().setRsv3(true),
+            new PongFrame().setFin(false),
+            new PingFrame().setRsv1(true),
+            new PongFrame().setRsv2(true),
+            new PongFrame().setRsv3(true),
+            new CloseInfo().asFrame().setFin(false),
+            new CloseInfo().asFrame().setRsv1(true),
+            new CloseInfo().asFrame().setRsv2(true),
+            new CloseInfo().asFrame().setRsv3(true))
+            .map(Arguments::of);
     }
 
-    @Rule
-    public TestTracker tt = new TestTracker();
-
-    private WebSocketFrame invalidFrame;
-
-    public TestABCase3(WebSocketFrame invalidFrame)
+    @ParameterizedTest
+    @MethodSource("badFrames")
+    public void testGenerateInvalidControlFrame(WebSocketFrame invalidFrame)
     {
-        this.invalidFrame = invalidFrame;
-    }
-
-    @Test(expected = ProtocolException.class)
-    public void testGenerateInvalidControlFrame()
-    {
-        UnitGenerator.generate(invalidFrame);
+        assertThrows(ProtocolException.class, () -> UnitGenerator.generate(invalidFrame));
     }
 }

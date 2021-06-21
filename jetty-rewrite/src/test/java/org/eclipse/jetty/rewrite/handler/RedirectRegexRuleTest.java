@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,24 +18,24 @@
 
 package org.eclipse.jetty.rewrite.handler;
 
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
-
 import java.io.IOException;
 
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
 public class RedirectRegexRuleTest extends AbstractRuleTestCase
 {
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         start(false);
     }
-    
+
     private void assertRedirectResponse(int expectedStatusCode, String expectedLocation) throws IOException
     {
         assertThat("Response status code", _response.getStatus(), is(expectedStatusCode));
@@ -51,9 +51,9 @@ public class RedirectRegexRuleTest extends AbstractRuleTestCase
 
         // Resource is dir
         rule.matchAndApply("/my/dir/file/", _request, _response);
-        assertRedirectResponse(HttpStatus.FOUND_302,"http://www.mortbay.org/");
+        assertRedirectResponse(HttpStatus.FOUND_302, "http://www.mortbay.org/");
     }
-    
+
     @Test
     public void testLocationWithPathReplacement() throws IOException
     {
@@ -63,7 +63,7 @@ public class RedirectRegexRuleTest extends AbstractRuleTestCase
 
         // Resource is dir
         rule.matchAndApply("/documentation/top.html", _request, _response);
-        assertRedirectResponse(HttpStatus.FOUND_302,"http://0.0.0.0/docs/top.html");
+        assertRedirectResponse(HttpStatus.FOUND_302, "http://0.0.0.0/docs/top.html");
     }
 
     @Test
@@ -75,7 +75,7 @@ public class RedirectRegexRuleTest extends AbstractRuleTestCase
 
         // Resource is an image
         rule.matchAndApply("/my/dir/file/image.png", _request, _response);
-        assertRedirectResponse(HttpStatus.FOUND_302,"http://www.mortbay.org/image.png");
+        assertRedirectResponse(HttpStatus.FOUND_302, "http://www.mortbay.org/image.png");
     }
 
     @Test
@@ -87,9 +87,9 @@ public class RedirectRegexRuleTest extends AbstractRuleTestCase
 
         // Resource is api with parameters
         rule.matchAndApply("/my/dir/file/api/rest/foo?id=100&sort=date", _request, _response);
-        assertRedirectResponse(HttpStatus.FOUND_302,"http://www.mortbay.org/api/rest/foo?id=100&sort=date");
+        assertRedirectResponse(HttpStatus.FOUND_302, "http://www.mortbay.org/api/rest/foo?id=100&sort=date");
     }
-    
+
     @Test
     public void testMovedPermanently() throws IOException
     {
@@ -100,6 +100,6 @@ public class RedirectRegexRuleTest extends AbstractRuleTestCase
 
         // Resource is api with parameters
         rule.matchAndApply("/api/rest/foo?id=100&sort=date", _request, _response);
-        assertRedirectResponse(HttpStatus.MOVED_PERMANENTLY_301,"http://api.company.com/rest/foo?id=100&sort=date");
+        assertRedirectResponse(HttpStatus.MOVED_PERMANENTLY_301, "http://api.company.com/rest/foo?id=100&sort=date");
     }
 }

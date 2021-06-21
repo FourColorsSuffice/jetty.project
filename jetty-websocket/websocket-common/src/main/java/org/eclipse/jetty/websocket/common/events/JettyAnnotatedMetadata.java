@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,24 +23,37 @@ import org.eclipse.jetty.websocket.common.events.annotated.OptionalSessionCallab
 
 public class JettyAnnotatedMetadata
 {
-    /** &#064;OnWebSocketConnect () */
+    /**
+     * {@code @OnWebSocketConnect ()}
+     */
     public CallableMethod onConnect;
-    /** &#064;OnWebSocketMessage (byte[], or ByteBuffer, or InputStream) */
+    /**
+     * {@code @OnWebSocketMessage (byte[], or ByteBuffer, or InputStream)}
+     */
     public OptionalSessionCallableMethod onBinary;
-    /** &#064;OnWebSocketMessage (String, or Reader) */
+    /**
+     * {@code @OnWebSocketMessage (String, or Reader)}
+     */
     public OptionalSessionCallableMethod onText;
-    /** &#064;OnWebSocketFrame (Frame) */
+    /**
+     * {@code @OnWebSocketFrame (Frame)}
+     */
     public OptionalSessionCallableMethod onFrame;
-    /** &#064;OnWebSocketError (Throwable) */
+    /**
+     * {@code @OnWebSocketError (Throwable)}
+     */
     public OptionalSessionCallableMethod onError;
-    /** &#064;OnWebSocketClose (Frame) */
+    /**
+     * {@code @OnWebSocketClose (Frame)}
+     */
     public OptionalSessionCallableMethod onClose;
 
     @Override
     public String toString()
     {
         StringBuilder s = new StringBuilder();
-        s.append("JettyPojoMetadata[");
+        s.append(this.getClass().getSimpleName());
+        s.append("[");
         s.append("onConnect=").append(onConnect);
         s.append(",onBinary=").append(onBinary);
         s.append(",onText=").append(onText);

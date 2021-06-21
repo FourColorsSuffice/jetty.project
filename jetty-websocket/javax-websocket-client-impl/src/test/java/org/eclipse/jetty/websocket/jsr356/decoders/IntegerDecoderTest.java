@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,12 +18,14 @@
 
 package org.eclipse.jetty.websocket.jsr356.decoders;
 
-import static org.hamcrest.Matchers.is;
-
 import javax.websocket.DecodeException;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class IntegerDecoderTest
 {
@@ -32,6 +34,24 @@ public class IntegerDecoderTest
     {
         IntegerDecoder decoder = new IntegerDecoder();
         Integer val = decoder.decode("123");
-        Assert.assertThat("Decoded value",val,is(123));
+        assertThat("Decoded value", val, is(123));
+    }
+
+    @Test
+    public void testWillDecodeWithNull()
+    {
+        assertFalse(new IntegerDecoder().willDecode(null));
+    }
+
+    @Test
+    public void testWillDecodeWithNonEmptyString()
+    {
+        assertFalse(new IntegerDecoder().willDecode("a"));
+    }
+
+    @Test
+    public void testDecodeThrowsDecodeException()
+    {
+        assertThrows(DecodeException.class, () -> IntegerDecoder.INSTANCE.decode(""));
     }
 }

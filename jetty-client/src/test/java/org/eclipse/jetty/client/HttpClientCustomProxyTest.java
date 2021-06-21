@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,7 +23,6 @@ import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -45,9 +44,11 @@ import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class HttpClientCustomProxyTest
 {
@@ -72,7 +73,7 @@ public class HttpClientCustomProxyTest
         client.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         if (client != null)
@@ -105,10 +106,10 @@ public class HttpClientCustomProxyTest
         client.getProxyConfiguration().getProxies().add(new CAFEBABEProxy(new Origin.Address("localhost", proxyPort), false));
 
         ContentResponse response = client.newRequest(serverHost, serverPort)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(status, response.getStatus());
+        assertEquals(status, response.getStatus());
     }
 
     private class CAFEBABEProxy extends ProxyConfiguration.Proxy
@@ -182,8 +183,8 @@ public class HttpClientCustomProxyTest
             {
                 ByteBuffer buffer = BufferUtil.allocate(4);
                 int filled = getEndPoint().fill(buffer);
-                Assert.assertEquals(4, filled);
-                Assert.assertArrayEquals(CAFE_BABE, buffer.array());
+                assertEquals(4, filled);
+                assertArrayEquals(CAFE_BABE, buffer.array());
 
                 // We are good, upgrade the connection
                 getEndPoint().upgrade(connectionFactory.newConnection(getEndPoint(), context));
@@ -239,8 +240,8 @@ public class HttpClientCustomProxyTest
             {
                 ByteBuffer buffer = BufferUtil.allocate(4);
                 int filled = getEndPoint().fill(buffer);
-                Assert.assertEquals(4, filled);
-                Assert.assertArrayEquals(CAFE_BABE, buffer.array());
+                assertEquals(4, filled);
+                assertArrayEquals(CAFE_BABE, buffer.array());
                 getEndPoint().write(this, buffer);
             }
             catch (Throwable x)

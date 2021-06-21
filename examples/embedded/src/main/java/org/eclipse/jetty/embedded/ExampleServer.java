@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -28,13 +28,13 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 
 public class ExampleServer
 {
-    public static void main( String[] args ) throws Exception
+    public static Server createServer(int port)
     {
         Server server = new Server();
 
         ServerConnector connector = new ServerConnector(server);
-        connector.setPort(8080);
-        server.setConnectors(new Connector[] { connector });
+        connector.setPort(port);
+        server.setConnectors(new Connector[]{connector});
 
         ServletContextHandler context = new ServletContextHandler();
         context.setContextPath("/");
@@ -42,9 +42,16 @@ public class ExampleServer
         context.addServlet(AsyncEchoServlet.class, "/echo/*");
 
         HandlerCollection handlers = new HandlerCollection();
-        handlers.setHandlers(new Handler[] { context, new DefaultHandler() });
+        handlers.setHandlers(new Handler[]{context, new DefaultHandler()});
         server.setHandler(handlers);
 
+        return server;
+    }
+
+    public static void main(String[] args) throws Exception
+    {
+        int port = ExampleUtil.getPort(args, "jetty.http.port", 8080);
+        Server server = createServer(port);
         server.start();
         server.join();
     }

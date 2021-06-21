@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,10 +22,11 @@ import java.util.List;
 
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
+import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
-public class HttpExchange
+public class HttpExchange implements CyclicTimeouts.Expirable
 {
     private static final Logger LOG = Log.getLogger(HttpExchange.class);
 
@@ -84,6 +85,12 @@ public class HttpExchange
         {
             return responseFailure;
         }
+    }
+
+    @Override
+    public long getExpireNanoTime()
+    {
+        return request.getTimeoutAt();
     }
 
     /**
@@ -290,11 +297,11 @@ public class HttpExchange
     {
         synchronized (this)
         {
-            return String.format("%s@%x req=%s/%s@%h res=%s/%s@%h",
-                    HttpExchange.class.getSimpleName(),
-                    hashCode(),
-                    requestState, requestFailure, requestFailure,
-                    responseState, responseFailure, responseFailure);
+            return String.format("%s@%x{req=%s[%s/%s] res=%s[%s/%s]}",
+                HttpExchange.class.getSimpleName(),
+                hashCode(),
+                request, requestState, requestFailure,
+                response, responseState, responseFailure);
         }
     }
 

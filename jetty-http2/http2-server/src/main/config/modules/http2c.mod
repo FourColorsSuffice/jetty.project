@@ -1,3 +1,5 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Enables the HTTP2C protocol on the HTTP Connector
 The connector will accept both HTTP/1 and HTTP/2 connections.
@@ -22,3 +24,9 @@ etc/jetty-http2c.xml
 
 ## Initial stream receive window (client to server)
 # jetty.http2c.initialStreamRecvWindow=65535
+
+## The max number of keys in all SETTINGS frames
+# jetty.http2.maxSettingsKeys=64
+
+## Max number of bad frames and pings per second
+# jetty.http2.rateControl.maxEventsPerSecond=20

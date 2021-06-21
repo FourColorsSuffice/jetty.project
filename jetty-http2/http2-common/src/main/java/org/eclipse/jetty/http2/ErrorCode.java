@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,6 +19,7 @@
 package org.eclipse.jetty.http2;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -39,7 +40,7 @@ public enum ErrorCode
      */
     INTERNAL_ERROR(2),
     /**
-     * Indicates a HTTP/2 flow control violation.
+     * Indicates an HTTP/2 flow control violation.
      */
     FLOW_CONTROL_ERROR(3),
     /**
@@ -67,7 +68,7 @@ public enum ErrorCode
      */
     COMPRESSION_ERROR(9),
     /**
-     * Indicates that the connection established by a HTTP CONNECT was abnormally closed.
+     * Indicates that the connection established by an HTTP CONNECT was abnormally closed.
      */
     HTTP_CONNECT_ERROR(10),
     /**
@@ -85,7 +86,7 @@ public enum ErrorCode
 
     public final int code;
 
-    private ErrorCode(int code)
+    ErrorCode(int code)
     {
         this.code = code;
         Codes.codes.put(code, this);
@@ -94,6 +95,19 @@ public enum ErrorCode
     public static ErrorCode from(int error)
     {
         return Codes.codes.get(error);
+    }
+
+    public static String toString(int error, String dft)
+    {
+        ErrorCode errorCode = from(error);
+        String result;
+        if (errorCode != null)
+            result = errorCode.name().toLowerCase(Locale.ENGLISH);
+        else if (dft == null)
+            result = String.valueOf(error);
+        else
+            result = dft;
+        return result;
     }
 
     private static class Codes

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,17 +20,18 @@ package org.eclipse.jetty.io;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.ByteBuffer;
-import java.nio.channels.ByteChannel;
 import java.nio.channels.CancelledKeyException;
-import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
 
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.Invocable;
-import org.eclipse.jetty.util.thread.Locker;
 import org.eclipse.jetty.util.thread.Scheduler;
 
 /**
@@ -41,36 +42,28 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
 {
     private static final Logger LOG = Log.getLogger(ChannelEndPoint.class);
 
-    private final Locker _locker = new Locker();
-    private final ByteChannel _channel;
-    private final GatheringByteChannel _gather;
-    protected final ManagedSelector _selector;
-    protected final SelectionKey _key;
+    private final SocketChannel _channel;
+    private final ManagedSelector _selector;
+    private SelectionKey _key;
     private boolean _updatePending;
+    // The current value for interestOps.
+    private int _currentInterestOps;
+    // The desired value for interestOps.
+    private int _desiredInterestOps;
 
-    /**
-     * The current value for {@link SelectionKey#interestOps()}.
-     */
-    protected int _currentInterestOps;
-
-    /**
-     * The desired value for {@link SelectionKey#interestOps()}.
-     */
-    protected int _desiredInterestOps;
-
-    private abstract class RunnableTask  implements Runnable, Invocable
+    private abstract class RunnableTask implements Runnable, Invocable
     {
         final String _operation;
 
         protected RunnableTask(String op)
         {
-            _operation=op;
+            _operation = op;
         }
 
         @Override
         public String toString()
         {
-            return String.format("CEP:%s:%s:%s",ChannelEndPoint.this,_operation,getInvocationType());
+            return String.format("CEP:%s:%s:%s", ChannelEndPoint.this, _operation, getInvocationType());
         }
     }
 
@@ -95,20 +88,7 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         }
     }
 
-    private final Runnable _runUpdateKey = new RunnableTask("runUpdateKey")
-    {
-        @Override
-        public InvocationType getInvocationType()
-        {
-            return InvocationType.NON_BLOCKING;
-        }
-
-        @Override
-        public void run()
-        {
-            updateKey();
-        }
-    };
+    private final ManagedSelector.SelectorUpdate _updateKeyAction = this::updateKeyAction;
 
     private final Runnable _runFillable = new RunnableCloseable("runFillable")
     {
@@ -117,7 +97,7 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         {
             return getFillInterest().getCallbackInvocationType();
         }
-        
+
         @Override
         public void run()
         {
@@ -132,7 +112,7 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         {
             return getWriteFlusher().getCallbackInvocationType();
         }
-        
+
         @Override
         public void run()
         {
@@ -142,9 +122,8 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         @Override
         public String toString()
         {
-            return String.format("CEP:%s:%s:%s->%s",ChannelEndPoint.this,_operation,getInvocationType(),getWriteFlusher());
+            return String.format("CEP:%s:%s:%s->%s", ChannelEndPoint.this, _operation, getInvocationType(), getWriteFlusher());
         }
-        
     };
 
     private final Runnable _runCompleteWriteFillable = new RunnableCloseable("runCompleteWriteFillable")
@@ -154,18 +133,18 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         {
             InvocationType fillT = getFillInterest().getCallbackInvocationType();
             InvocationType flushT = getWriteFlusher().getCallbackInvocationType();
-            if (fillT==flushT)
+            if (fillT == flushT)
                 return fillT;
-            
-            if (fillT==InvocationType.EITHER && flushT==InvocationType.NON_BLOCKING)
+
+            if (fillT == InvocationType.EITHER && flushT == InvocationType.NON_BLOCKING)
                 return InvocationType.EITHER;
-            
-            if (fillT==InvocationType.NON_BLOCKING && flushT==InvocationType.EITHER)
+
+            if (fillT == InvocationType.NON_BLOCKING && flushT == InvocationType.EITHER)
                 return InvocationType.EITHER;
-            
+
             return InvocationType.BLOCKING;
         }
-        
+
         @Override
         public void run()
         {
@@ -174,13 +153,24 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         }
     };
 
-    public ChannelEndPoint(ByteChannel channel, ManagedSelector selector, SelectionKey key, Scheduler scheduler)
+    public ChannelEndPoint(SocketChannel channel, ManagedSelector selector, SelectionKey key, Scheduler scheduler)
     {
         super(scheduler);
-        _channel=channel;
-        _selector=selector;
-        _key=key;
-        _gather=(channel instanceof GatheringByteChannel)?(GatheringByteChannel)channel:null;
+        _channel = channel;
+        _selector = selector;
+        _key = key;
+    }
+
+    @Override
+    public InetSocketAddress getLocalAddress()
+    {
+        return (InetSocketAddress)_channel.socket().getLocalSocketAddress();
+    }
+
+    @Override
+    public InetSocketAddress getRemoteAddress()
+    {
+        return (InetSocketAddress)_channel.socket().getRemoteSocketAddress();
     }
 
     @Override
@@ -193,6 +183,21 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
     public boolean isOpen()
     {
         return _channel.isOpen();
+    }
+
+    @Override
+    protected void doShutdownOutput()
+    {
+        try
+        {
+            Socket socket = _channel.socket();
+            if (!socket.isOutputShutdown())
+                socket.shutdownOutput();
+        }
+        catch (IOException e)
+        {
+            LOG.debug(e);
+        }
     }
 
     @Override
@@ -223,7 +228,7 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         }
         finally
         {
-            if (_selector!=null)
+            if (_selector != null)
                 _selector.destroyEndPoint(this);
         }
     }
@@ -234,56 +239,38 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         if (isInputShutdown())
             return -1;
 
-        int pos=BufferUtil.flipToFill(buffer);
+        int pos = BufferUtil.flipToFill(buffer);
+        int filled;
         try
         {
-            int filled = _channel.read(buffer);
-            if (LOG.isDebugEnabled()) // Avoid boxing of variable 'filled'
-                LOG.debug("filled {} {}", filled, this);
-
-            if (filled>0)
+            filled = _channel.read(buffer);
+            if (filled > 0)
                 notIdle();
-            else if (filled==-1)
+            else if (filled == -1)
                 shutdownInput();
-
-            return filled;
         }
-        catch(IOException e)
+        catch (IOException e)
         {
             LOG.debug(e);
             shutdownInput();
-            return -1;
+            filled = -1;
         }
         finally
         {
-            BufferUtil.flipToFlush(buffer,pos);
+            BufferUtil.flipToFlush(buffer, pos);
         }
+        if (LOG.isDebugEnabled())
+            LOG.debug("filled {} {}", filled, BufferUtil.toDetailString(buffer));
+        return filled;
     }
 
     @Override
     public boolean flush(ByteBuffer... buffers) throws IOException
     {
-        long flushed=0;
+        long flushed;
         try
         {
-            if (buffers.length==1)
-                flushed=_channel.write(buffers[0]);
-            else if (_gather!=null && buffers.length>1)
-                flushed=_gather.write(buffers,0,buffers.length);
-            else
-            {
-                for (ByteBuffer b : buffers)
-                {
-                    if (b.hasRemaining())
-                    {
-                        int l=_channel.write(b);
-                        if (l>0)
-                            flushed+=l;
-                        if (b.hasRemaining())
-                            break;
-                    }
-                }
-            }
+            flushed = _channel.write(buffers);
             if (LOG.isDebugEnabled())
                 LOG.debug("flushed {} {}", flushed, this);
         }
@@ -292,17 +279,19 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
             throw new EofException(e);
         }
 
-        if (flushed>0)
+        if (flushed > 0)
             notIdle();
 
         for (ByteBuffer b : buffers)
+        {
             if (!BufferUtil.isEmpty(b))
                 return false;
+        }
 
         return true;
     }
 
-    public ByteChannel getChannel()
+    public SocketChannel getChannel()
     {
         return _channel;
     }
@@ -312,7 +301,6 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
     {
         return _channel;
     }
-
 
     @Override
     protected void needsFillInterest()
@@ -329,14 +317,13 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
     @Override
     public Runnable onSelected()
     {
-        /**
-         * This method may run concurrently with {@link #changeInterests(int)}.
-         */
+        // This method runs from the selector thread,
+        // possibly concurrently with changeInterests(int).
 
         int readyOps = _key.readyOps();
         int oldInterestOps;
         int newInterestOps;
-        try (Locker.Lock lock = _locker.lock())
+        synchronized (this)
         {
             _updatePending = true;
             // Remove the readyOps, that here can only be OP_READ or OP_WRITE (or both).
@@ -352,31 +339,35 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
             LOG.debug("onSelected {}->{} r={} w={} for {}", oldInterestOps, newInterestOps, fillable, flushable, this);
 
         // return task to complete the job
-        Runnable task= fillable 
-                ? (flushable 
-                        ? _runCompleteWriteFillable 
-                        : _runFillable)
-                : (flushable 
-                        ? _runCompleteWrite 
-                        : null);
+        Runnable task = fillable
+            ? (flushable
+            ? _runCompleteWriteFillable
+            : _runFillable)
+            : (flushable
+            ? _runCompleteWrite
+            : null);
 
         if (LOG.isDebugEnabled())
-            LOG.debug("task {}",task);
+            LOG.debug("task {}", task);
         return task;
+    }
+
+    private void updateKeyAction(Selector selector)
+    {
+        updateKey();
     }
 
     @Override
     public void updateKey()
     {
-        /**
-         * This method may run concurrently with {@link #changeInterests(int)}.
-         */
+        // This method runs from the selector thread,
+        // possibly concurrently with changeInterests(int).
 
         try
         {
             int oldInterestOps;
             int newInterestOps;
-            try (Locker.Lock lock = _locker.lock())
+            synchronized (this)
             {
                 _updatePending = false;
                 oldInterestOps = _currentInterestOps;
@@ -393,27 +384,32 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         }
         catch (CancelledKeyException x)
         {
-            LOG.debug("Ignoring key update for concurrently closed channel {}", this);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Ignoring key update for cancelled key {}", this, x);
             close();
         }
         catch (Throwable x)
         {
-            LOG.warn("Ignoring key update for " + this, x);
+            LOG.warn("Ignoring key update for {}", this, x);
             close();
         }
     }
 
+    @Override
+    public void replaceKey(SelectionKey newKey)
+    {
+        _key = newKey;
+    }
+
     private void changeInterests(int operation)
     {
-        /**
-         * This method may run concurrently with
-         * {@link #updateKey()} and {@link #onSelected()}.
-         */
+        // This method runs from any thread, possibly
+        // concurrently with updateKey() and onSelected().
 
         int oldInterestOps;
         int newInterestOps;
         boolean pending;
-        try (Locker.Lock lock = _locker.lock())
+        synchronized (this)
         {
             pending = _updatePending;
             oldInterestOps = _desiredInterestOps;
@@ -425,30 +421,19 @@ public abstract class ChannelEndPoint extends AbstractEndPoint implements Manage
         if (LOG.isDebugEnabled())
             LOG.debug("changeInterests p={} {}->{} for {}", pending, oldInterestOps, newInterestOps, this);
 
-        if (!pending && _selector!=null)
-            _selector.submit(_runUpdateKey);
+        if (!pending && _selector != null)
+            _selector.submit(_updateKeyAction);
     }
-
 
     @Override
     public String toEndPointString()
     {
         // We do a best effort to print the right toString() and that's it.
-        try
-        {
-            boolean valid = _key != null && _key.isValid();
-            int keyInterests = valid ? _key.interestOps() : -1;
-            int keyReadiness = valid ? _key.readyOps() : -1;
-            return String.format("%s{io=%d/%d,kio=%d,kro=%d}",
-                    super.toEndPointString(),
-                    _currentInterestOps,
-                    _desiredInterestOps,
-                    keyInterests,
-                    keyReadiness);
-        }
-        catch (Throwable x)
-        {
-            return String.format("%s{io=%s,kio=-2,kro=-2}", super.toString(), _desiredInterestOps);
-        }
+        return String.format("%s{io=%d/%d,kio=%d,kro=%d}",
+            super.toEndPointString(),
+            _currentInterestOps,
+            _desiredInterestOps,
+            ManagedSelector.safeInterestOps(_key),
+            ManagedSelector.safeReadyOps(_key));
     }
 }

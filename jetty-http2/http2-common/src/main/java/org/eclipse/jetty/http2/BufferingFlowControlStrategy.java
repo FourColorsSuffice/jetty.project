@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,11 @@
 
 package org.eclipse.jetty.http2;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
 import org.eclipse.jetty.util.Atomics;
 import org.eclipse.jetty.util.Callback;
@@ -103,7 +103,6 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
 
         float ratio = bufferRatio;
 
-        WindowUpdateFrame windowFrame = null;
         int level = sessionLevel.addAndGet(length);
         int maxLevel = (int)(maxSessionRecvWindow.get() * ratio);
         if (level > maxLevel)
@@ -113,7 +112,7 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
                 session.updateRecvWindow(level);
                 if (LOG.isDebugEnabled())
                     LOG.debug("Data consumed, {} bytes, updated session recv window by {}/{} for {}", length, level, maxLevel, session);
-                windowFrame = new WindowUpdateFrame(0, level);
+                sendWindowUpdate(null, session, new WindowUpdateFrame(0, level));
             }
             else
             {
@@ -127,13 +126,12 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
                 LOG.debug("Data consumed, {} bytes, session recv window level {}/{} for {}", length, level, maxLevel, session);
         }
 
-        Frame[] windowFrames = Frame.EMPTY_ARRAY;
         if (stream != null)
         {
-            if (stream.isClosed())
+            if (stream.isRemotelyClosed())
             {
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Data consumed, {} bytes, ignoring update stream recv window for closed {}", length, stream);
+                    LOG.debug("Data consumed, {} bytes, ignoring update stream recv window for remotely closed {}", length, stream);
             }
             else
             {
@@ -148,11 +146,7 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
                         stream.updateRecvWindow(level);
                         if (LOG.isDebugEnabled())
                             LOG.debug("Data consumed, {} bytes, updated stream recv window by {}/{} for {}", length, level, maxLevel, stream);
-                        WindowUpdateFrame frame = new WindowUpdateFrame(stream.getId(), level);
-                        if (windowFrame == null)
-                            windowFrame = frame;
-                        else
-                            windowFrames = new Frame[]{frame};
+                        sendWindowUpdate(stream, session, new WindowUpdateFrame(stream.getId(), level));
                     }
                     else
                     {
@@ -162,9 +156,11 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
                 }
             }
         }
+    }
 
-        if (windowFrame != null)
-            session.frames(stream, Callback.NOOP, windowFrame, windowFrames);
+    protected void sendWindowUpdate(IStream stream, ISession session, WindowUpdateFrame frame)
+    {
+        session.frames(stream, Collections.singletonList(frame), Callback.NOOP);
     }
 
     @Override
@@ -179,7 +175,7 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
         // and here we keep track of its max value.
 
         // Updating the max session recv window is done here
-        // so that if a peer decides to send an unilateral
+        // so that if a peer decides to send a unilateral
         // window update to enlarge the session window,
         // without the corresponding data consumption, here
         // we can track it.
@@ -210,11 +206,11 @@ public class BufferingFlowControlStrategy extends AbstractFlowControlStrategy
     public String toString()
     {
         return String.format("%s@%x[ratio=%.2f,sessionLevel=%s,sessionStallTime=%dms,streamsStallTime=%dms]",
-                getClass().getSimpleName(),
-                hashCode(),
-                bufferRatio,
-                sessionLevel,
-                getSessionStallTime(),
-                getStreamsStallTime());
+            getClass().getSimpleName(),
+            hashCode(),
+            bufferRatio,
+            sessionLevel,
+            getSessionStallTime(),
+            getStreamsStallTime());
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,12 +20,8 @@ package org.eclipse.jetty.server.handler;
 
 import java.io.IOException;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
-
 import javax.servlet.AsyncEvent;
 import javax.servlet.AsyncListener;
 import javax.servlet.ServletException;
@@ -62,6 +58,7 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
 
     private final LongAdder _asyncDispatches = new LongAdder();
     private final LongAdder _expires = new LongAdder();
+    private final LongAdder _errors = new LongAdder();
 
     private final LongAdder _responses1xx = new LongAdder();
     private final LongAdder _responses2xx = new LongAdder();
@@ -70,58 +67,65 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
     private final LongAdder _responses5xx = new LongAdder();
     private final LongAdder _responsesTotalBytes = new LongAdder();
 
-    private final AtomicReference<FutureCallback> _shutdown=new AtomicReference<>();
-    
-    private final AtomicBoolean _wrapWarning = new AtomicBoolean();
-    
+    private boolean _gracefulShutdownWaitsForRequests = true;
+
+    private final Graceful.Shutdown _shutdown = new Graceful.Shutdown()
+    {
+        @Override
+        protected FutureCallback newShutdownCallback()
+        {
+            return new FutureCallback(_requestStats.getCurrent() == 0);
+        }
+    };
+
     private final AsyncListener _onCompletion = new AsyncListener()
     {
         @Override
-        public void onTimeout(AsyncEvent event) throws IOException
-        {
-            _expires.increment();
-        }
-        
-        @Override
-        public void onStartAsync(AsyncEvent event) throws IOException
+        public void onStartAsync(AsyncEvent event)
         {
             event.getAsyncContext().addListener(this);
         }
-        
+
         @Override
-        public void onError(AsyncEvent event) throws IOException
+        public void onTimeout(AsyncEvent event)
         {
+            _expires.increment();
         }
 
         @Override
-        public void onComplete(AsyncEvent event) throws IOException
+        public void onError(AsyncEvent event)
+        {
+            _errors.increment();
+        }
+
+        @Override
+        public void onComplete(AsyncEvent event)
         {
             HttpChannelState state = ((AsyncContextEvent)event).getHttpChannelState();
 
             Request request = state.getBaseRequest();
-            final long elapsed = System.currentTimeMillis()-request.getTimeStamp();
+            final long elapsed = System.currentTimeMillis() - request.getTimeStamp();
 
-            long d=_requestStats.decrement();
-            _requestTimeStats.set(elapsed);
+            long numRequests = _requestStats.decrement();
+            _requestTimeStats.record(elapsed);
 
             updateResponse(request);
 
             _asyncWaitStats.decrement();
-            
-            // If we have no more dispatches, should we signal shutdown?
-            if (d==0)
+
+            if (numRequests == 0 && _gracefulShutdownWaitsForRequests)
             {
                 FutureCallback shutdown = _shutdown.get();
-                if (shutdown!=null)
+                if (shutdown != null)
                     shutdown.succeeded();
-            }   
+            }
         }
     };
 
     /**
      * Resets the current request statistics.
      */
-    @ManagedOperation(value="resets statistics", impact="ACTION")
+    @ManagedOperation(value = "resets statistics", impact = "ACTION")
     public void statsReset()
     {
         _statsStartedAt.set(System.currentTimeMillis());
@@ -145,6 +149,14 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
     @Override
     public void handle(String path, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
     {
+        Handler handler = getHandler();
+        if (handler == null || !isStarted() || isShutdown())
+        {
+            if (!baseRequest.getResponse().isCommitted())
+                response.sendError(HttpStatus.SERVICE_UNAVAILABLE_503);
+            return;
+        }
+
         _dispatchedStats.increment();
 
         final long start;
@@ -164,52 +176,39 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
 
         try
         {
-            Handler handler = getHandler();
-            if (handler!=null && _shutdown.get()==null && isStarted())
-                handler.handle(path, baseRequest, request, response);
-            else if (baseRequest.isHandled())
-            {
-                if (_wrapWarning.compareAndSet(false,true))
-                    LOG.warn("Bad statistics configuration. Latencies will be incorrect in {}",this);
-            }
-            else
-            {
-                baseRequest.setHandled(true);
-                response.sendError(HttpStatus.SERVICE_UNAVAILABLE_503);
-            }
+            handler.handle(path, baseRequest, request, response);
         }
         finally
         {
             final long now = System.currentTimeMillis();
-            final long dispatched=now-start;
+            final long dispatched = now - start;
 
-            _dispatchedStats.decrement();
-            _dispatchedTimeStats.set(dispatched);
+            long numRequests = -1;
+            long numDispatches = _dispatchedStats.decrement();
+            _dispatchedTimeStats.record(dispatched);
 
-            if (state.isSuspended())
+            if (state.isInitial())
             {
-                if (state.isInitial())
+                if (state.isAsyncStarted())
                 {
                     state.addListener(_onCompletion);
                     _asyncWaitStats.increment();
                 }
-            }
-            else if (state.isInitial())
-            {
-                long d=_requestStats.decrement();
-                _requestTimeStats.set(dispatched);
-                updateResponse(baseRequest);
-                
-                // If we have no more dispatches, should we signal shutdown?
-                FutureCallback shutdown = _shutdown.get();
-                if (shutdown!=null)
+                else
                 {
-                    response.flushBuffer();
-                    if (d==0)
-                        shutdown.succeeded();
-                }   
+                    numRequests = _requestStats.decrement();
+                    _requestTimeStats.record(dispatched);
+                    updateResponse(baseRequest);
+                }
             }
-            // else onCompletion will handle it.
+
+            FutureCallback shutdown = _shutdown.get();
+            if (shutdown != null)
+            {
+                response.flushBuffer();
+                if (_gracefulShutdownWaitsForRequests ? (numRequests == 0) : (numDispatches == 0))
+                    shutdown.succeeded();
+            }
         }
     }
 
@@ -248,19 +247,41 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
     @Override
     protected void doStart() throws Exception
     {
-        _shutdown.set(null);
+        if (getHandler() == null)
+            throw new IllegalStateException("StatisticsHandler has no Wrapped Handler");
+        _shutdown.cancel();
         super.doStart();
         statsReset();
     }
-    
 
     @Override
     protected void doStop() throws Exception
     {
+        _shutdown.cancel();
         super.doStop();
-        FutureCallback shutdown = _shutdown.get();
-        if (shutdown!=null && !shutdown.isDone())
-            shutdown.failed(new TimeoutException());
+    }
+
+    /**
+     * Set whether the graceful shutdown should wait for all requests to complete including
+     * async requests which are not currently dispatched, or whether it should only wait for all the
+     * actively dispatched requests to complete.
+     * @param gracefulShutdownWaitsForRequests true to wait for async requests on graceful shutdown.
+     */
+    public void setGracefulShutdownWaitsForRequests(boolean gracefulShutdownWaitsForRequests)
+    {
+        _gracefulShutdownWaitsForRequests = gracefulShutdownWaitsForRequests;
+    }
+
+    /**
+     * @return whether the graceful shutdown will wait for all requests to complete including
+     * async requests which are not currently dispatched, or whether it will only wait for all the
+     * actively dispatched requests to complete.
+     * @see #getAsyncDispatches()
+     */
+    @ManagedAttribute("if graceful shutdown will wait for all requests")
+    public boolean getGracefulShutdownWaitsForRequests()
+    {
+        return _gracefulShutdownWaitsForRequests;
     }
 
     /**
@@ -468,6 +489,16 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
     }
 
     /**
+     * @return the number of async errors that occurred.
+     * @see #getAsyncDispatches()
+     */
+    @ManagedAttribute("number of async errors that occurred")
+    public int getErrors()
+    {
+        return _errors.intValue();
+    }
+
+    /**
      * @return the number of responses with a 1xx status returned by this context
      * since {@link #statsReset()} was last called.
      */
@@ -551,7 +582,6 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
         sb.append("Max request time: ").append(getRequestTimeMax()).append("<br />\n");
         sb.append("Request time standard deviation: ").append(getRequestTimeStdDev()).append("<br />\n");
 
-
         sb.append("<h2>Dispatches:</h2>\n");
         sb.append("Total dispatched: ").append(getDispatched()).append("<br />\n");
         sb.append("Active dispatched: ").append(getDispatchedActive()).append("<br />\n");
@@ -560,7 +590,6 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
         sb.append("Mean dispatched time: ").append(getDispatchedTimeMean()).append("<br />\n");
         sb.append("Max dispatched time: ").append(getDispatchedTimeMax()).append("<br />\n");
         sb.append("Dispatched time standard deviation: ").append(getDispatchedTimeStdDev()).append("<br />\n");
-
 
         sb.append("Total requests suspended: ").append(getAsyncRequests()).append("<br />\n");
         sb.append("Total requests expired: ").append(getExpires()).append("<br />\n");
@@ -575,17 +604,23 @@ public class StatisticsHandler extends HandlerWrapper implements Graceful
         sb.append("Bytes sent total: ").append(getResponsesBytesTotal()).append("<br />\n");
 
         return sb.toString();
-
     }
 
     @Override
     public Future<Void> shutdown()
     {
-        FutureCallback shutdown=new FutureCallback(false);
-        _shutdown.compareAndSet(null,shutdown);
-        shutdown=_shutdown.get();
-        if (_dispatchedStats.getCurrent()==0)
-            shutdown.succeeded();
-        return shutdown;
+        return _shutdown.shutdown();
+    }
+
+    @Override
+    public boolean isShutdown()
+    {
+        return _shutdown.isShutdown();
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("%s@%x{%s,r=%d,d=%d}", getClass().getSimpleName(), hashCode(), getState(), _requestStats.getCurrent(), _dispatchedStats.getCurrent());
     }
 }

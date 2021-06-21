@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,15 +18,12 @@
 
 package org.eclipse.jetty.servlet;
 
-import static org.hamcrest.Matchers.is;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -35,10 +32,12 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.IO;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
 public class RequestHeadersTest
 {
@@ -50,7 +49,7 @@ public class RequestHeadersTest
         {
             resp.setContentType("text/plain");
             PrintWriter out = resp.getWriter();
-            out.printf("X-Camel-Type = %s",req.getHeader("X-Camel-Type"));
+            out.printf("X-Camel-Type = %s", req.getHeader("X-Camel-Type"));
         }
     }
 
@@ -58,7 +57,7 @@ public class RequestHeadersTest
     private static ServerConnector connector;
     private static URI serverUri;
 
-    @BeforeClass
+    @BeforeAll
     public static void startServer() throws Exception
     {
         // Configure Server
@@ -71,7 +70,7 @@ public class RequestHeadersTest
         server.setHandler(context);
 
         // Serve capture servlet
-        context.addServlet(new ServletHolder(new RequestHeaderServlet()),"/*");
+        context.addServlet(new ServletHolder(new RequestHeaderServlet()), "/*");
 
         // Start Server
         server.start();
@@ -82,10 +81,10 @@ public class RequestHeadersTest
             host = "localhost";
         }
         int port = connector.getLocalPort();
-        serverUri = new URI(String.format("http://%s:%d/",host,port));
+        serverUri = new URI(String.format("http://%s:%d/", host, port));
     }
 
-    @AfterClass
+    @AfterAll
     public static void stopServer()
     {
         try
@@ -106,12 +105,12 @@ public class RequestHeadersTest
         {
             http = (HttpURLConnection)serverUri.toURL().openConnection();
             // Set header in all lowercase
-            http.setRequestProperty("x-camel-type","bactrian");
-            
+            http.setRequestProperty("x-camel-type", "bactrian");
+
             try (InputStream in = http.getInputStream())
             {
                 String resp = IO.toString(in, StandardCharsets.UTF_8);
-                Assert.assertThat("Response", resp, is("X-Camel-Type = bactrian"));
+                assertThat("Response", resp, is("X-Camel-Type = bactrian"));
             }
         }
         finally

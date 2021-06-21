@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -37,9 +37,9 @@ public class ServerParser extends Parser
     private State state = State.PREFACE;
     private boolean notifyPreface = true;
 
-    public ServerParser(ByteBufferPool byteBufferPool, Listener listener, int maxDynamicTableSize, int maxHeaderSize)
+    public ServerParser(ByteBufferPool byteBufferPool, Listener listener, int maxDynamicTableSize, int maxHeaderSize, RateControl rateControl)
     {
-        super(byteBufferPool, listener, maxDynamicTableSize, maxHeaderSize);
+        super(byteBufferPool, listener, maxDynamicTableSize, maxHeaderSize, rateControl);
         this.listener = listener;
         this.prefaceParser = new PrefaceParser(listener);
     }
@@ -149,13 +149,33 @@ public class ServerParser extends Parser
 
     public interface Listener extends Parser.Listener
     {
-        public void onPreface();
+        void onPreface();
 
-        public static class Adapter extends Parser.Listener.Adapter implements Listener
+        class Adapter extends Parser.Listener.Adapter implements Listener
         {
             @Override
             public void onPreface()
             {
+            }
+        }
+
+        class Wrapper extends Parser.Listener.Wrapper implements Listener
+        {
+            public Wrapper(ServerParser.Listener listener)
+            {
+                super(listener);
+            }
+
+            @Override
+            public ServerParser.Listener getParserListener()
+            {
+                return (Listener)super.getParserListener();
+            }
+
+            @Override
+            public void onPreface()
+            {
+                getParserListener().onPreface();
             }
         }
     }

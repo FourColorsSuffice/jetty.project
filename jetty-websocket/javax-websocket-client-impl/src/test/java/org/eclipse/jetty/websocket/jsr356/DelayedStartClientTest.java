@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,52 +18,89 @@
 
 package org.eclipse.jetty.websocket.jsr356;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.hasItem;
-import static org.hamcrest.CoreMatchers.not;
-import static org.hamcrest.CoreMatchers.notNullValue;
-import static org.junit.Assert.assertThat;
-
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadInfo;
-import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
-
+import java.util.Set;
+import java.util.concurrent.Executor;
 import javax.websocket.ContainerProvider;
 import javax.websocket.WebSocketContainer;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.eclipse.jetty.util.component.ContainerLifeCycle;
+import org.eclipse.jetty.util.component.LifeCycle;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
 
 public class DelayedStartClientTest
 {
-    @Before
-    public void stopClientContainer() throws Exception
+    WebSocketContainer container;
+
+    @AfterEach
+    public void stopContainer() throws Exception
     {
-        JettyClientContainerProvider.stop();
+        ((LifeCycle)container).stop();
     }
-    
+
     @Test
     public void testNoExtraHttpClientThreads()
     {
-        WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+        container = ContainerProvider.getWebSocketContainer();
         assertThat("Container", container, notNullValue());
-    
-        List<String> threadNames = getThreadNames();
+
+        List<String> threadNames = getThreadNames((ContainerLifeCycle)container);
         assertThat("Threads", threadNames, not(hasItem(containsString("WebSocketContainer@"))));
         assertThat("Threads", threadNames, not(hasItem(containsString("HttpClient@"))));
     }
-    
-    private List<String> getThreadNames()
+
+    public static List<String> getThreadNames(ContainerLifeCycle... containers)
     {
-        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        ThreadInfo[] threads = threadMXBean.dumpAllThreads(false, false);
-        List<String> ret = new ArrayList<>();
-        for (ThreadInfo info : threads)
+        List<String> threadNames = new ArrayList<>();
+        Set<Object> seen = new HashSet<>();
+        for (ContainerLifeCycle container : containers)
         {
-            ret.add(info.getThreadName());
+            if (container == null)
+            {
+                continue;
+            }
+
+            findConfiguredThreadNames(seen, threadNames, container);
         }
-        return ret;
+        seen.clear();
+        // System.out.println("Threads: " + threadNames.stream().collect(Collectors.joining(", ", "[", "]")));
+        return threadNames;
+    }
+
+    private static void findConfiguredThreadNames(Set<Object> seen, List<String> threadNames, ContainerLifeCycle container)
+    {
+        if (seen.contains(container))
+        {
+            // skip
+            return;
+        }
+
+        seen.add(container);
+
+        Collection<Executor> executors = container.getBeans(Executor.class);
+        for (Executor executor : executors)
+        {
+            if (executor instanceof QueuedThreadPool)
+            {
+                QueuedThreadPool qtp = (QueuedThreadPool)executor;
+                threadNames.add(qtp.getName());
+            }
+        }
+
+        for (ContainerLifeCycle child : container.getBeans(ContainerLifeCycle.class))
+        {
+            findConfiguredThreadNames(seen, threadNames, child);
+        }
     }
 }

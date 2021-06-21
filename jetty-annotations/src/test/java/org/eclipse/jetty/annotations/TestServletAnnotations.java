@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,14 +29,16 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.servlet.ServletMapping;
 import org.eclipse.jetty.webapp.DiscoveredAnnotation;
 import org.eclipse.jetty.webapp.WebAppContext;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * TestServletAnnotations
@@ -75,7 +77,6 @@ public class TestServletAnnotations
 
         parser.parse(Collections.singleton(handler), classes);
 
-
         assertEquals(1, results.size());
         assertTrue(results.get(0) instanceof WebServletAnnotation);
 
@@ -101,9 +102,8 @@ public class TestServletAnnotations
         assertEquals(2, paths.length);
     }
 
-
     @Test
-    public void testWebServletAnnotationOverrideDefault () throws Exception
+    public void testWebServletAnnotationOverrideDefault() throws Exception
     {
         //if the existing servlet mapping TO A DIFFERENT SERVLET IS from a default descriptor we
         //DO allow the annotation to replace the mapping.
@@ -130,16 +130,14 @@ public class TestServletAnnotations
         assertEquals(1, resultMappings.length);
         assertEquals(2, resultMappings[0].getPathSpecs().length);
         resultMappings[0].getServletName().equals("DServlet");
-        for (String s:resultMappings[0].getPathSpecs())
+        for (String s : resultMappings[0].getPathSpecs())
         {
-            assertTrue (s.equals("/") || s.equals("/bah/*"));
+            assertThat(s, anyOf(is("/"), is("/bah/*")));
         }
     }
 
-
-
     @Test
-    public void testWebServletAnnotationReplaceDefault () throws Exception
+    public void testWebServletAnnotationReplaceDefault() throws Exception
     {
         //if the existing servlet mapping TO A DIFFERENT SERVLET IS from a default descriptor we
         //DO allow the annotation to replace the mapping.
@@ -168,31 +166,29 @@ public class TestServletAnnotations
         ServletMapping[] resultMappings = wac.getServletHandler().getServletMappings();
         assertNotNull(resultMappings);
         assertEquals(2, resultMappings.length);
-        for (ServletMapping r:resultMappings)
+        for (ServletMapping r : resultMappings)
         {
-           if (r.getServletName().equals("default"))
-           {
-               assertEquals(1,r.getPathSpecs().length);
-               assertEquals("/other", r.getPathSpecs()[0]);
-           }
-           else if (r.getServletName().equals("DServlet"))
-           {
-               assertEquals(2,r.getPathSpecs().length);
-               for (String p:r.getPathSpecs())
-               {
-                   if (!p.equals("/") && !p.equals("/bah/*"))
-                       fail("Unexpected path");
-               }
-           }
-           else
-               fail("Unexpected servlet mapping");
+            if (r.getServletName().equals("default"))
+            {
+                assertEquals(1, r.getPathSpecs().length);
+                assertEquals("/other", r.getPathSpecs()[0]);
+            }
+            else if (r.getServletName().equals("DServlet"))
+            {
+                assertEquals(2, r.getPathSpecs().length);
+                for (String p : r.getPathSpecs())
+                {
+                    if (!p.equals("/") && !p.equals("/bah/*"))
+                        fail("Unexpected path");
+                }
+            }
+            else
+                fail("Unexpected servlet mapping: " + r);
         }
-
     }
 
-
     @Test
-    public void testWebServletAnnotationNotOverride () throws Exception
+    public void testWebServletAnnotationNotOverride() throws Exception
     {
         //if the existing servlet mapping TO A DIFFERENT SERVLET IS NOT from a default descriptor we
         //DO NOT allow the annotation to replace the mapping
@@ -211,7 +207,7 @@ public class TestServletAnnotations
 
         ServletMapping[] resultMappings = wac.getServletHandler().getServletMappings();
         assertEquals(2, resultMappings.length);
-        for (ServletMapping r:resultMappings)
+        for (ServletMapping r : resultMappings)
         {
             if (r.getServletName().equals("DServlet"))
             {
@@ -222,12 +218,12 @@ public class TestServletAnnotations
                 assertEquals(1, r.getPathSpecs().length);
             }
             else
-                fail("Unexpected servlet name");
+                fail("Unexpected servlet name: " + r);
         }
     }
 
     @Test
-    public void testWebServletAnnotationIgnore () throws Exception
+    public void testWebServletAnnotationIgnore() throws Exception
     {
         //an existing servlet OF THE SAME NAME has even 1 non-default mapping we can't use
         //any of the url mappings in the annotation
@@ -254,17 +250,16 @@ public class TestServletAnnotations
         ServletMapping[] resultMappings = wac.getServletHandler().getServletMappings();
         assertEquals(2, resultMappings.length);
 
-        for (ServletMapping r:resultMappings)
+        for (ServletMapping r : resultMappings)
         {
             assertEquals(1, r.getPathSpecs().length);
             if (!r.getPathSpecs()[0].equals("/default") && !r.getPathSpecs()[0].equals("/other"))
-                fail("Unexpected path in mapping");
+                fail("Unexpected path in mapping: " + r);
         }
-
     }
 
     @Test
-    public void testWebServletAnnotationNoMappings () throws Exception
+    public void testWebServletAnnotationNoMappings() throws Exception
     {
         //an existing servlet OF THE SAME NAME has no mappings, therefore all mappings in the annotation
         //should be accepted
@@ -273,25 +268,21 @@ public class TestServletAnnotations
         servlet.setName("foo");
         wac.getServletHandler().addServlet(servlet);
 
-
         WebServletAnnotation annotation = new WebServletAnnotation(wac, "org.eclipse.jetty.annotations.ServletD", null);
         annotation.apply();
 
         ServletMapping[] resultMappings = wac.getServletHandler().getServletMappings();
         assertEquals(1, resultMappings.length);
         assertEquals(2, resultMappings[0].getPathSpecs().length);
-        for (String s:resultMappings[0].getPathSpecs())
+        for (String s : resultMappings[0].getPathSpecs())
         {
-            if (!s.equals("/") && !s.equals("/bah/*"))
-                fail("Unexpected path mapping");
+            assertThat(s, anyOf(is("/"), is("/bah/*")));
         }
     }
 
-
-
     @Test
-    public void testDeclareRoles ()
-    throws Exception
+    public void testDeclareRoles()
+        throws Exception
     {
         WebAppContext wac = new WebAppContext();
         ConstraintSecurityHandler sh = new ConstraintSecurityHandler();
@@ -299,8 +290,6 @@ public class TestServletAnnotations
         sh.setRoles(new HashSet<String>(Arrays.asList(new String[]{"humpty", "dumpty"})));
         DeclareRolesAnnotationHandler handler = new DeclareRolesAnnotationHandler(wac);
         handler.doHandle(ServletC.class);
-        assertTrue(sh.getRoles().contains("alice"));
-        assertTrue(sh.getRoles().contains("humpty"));
-        assertTrue(sh.getRoles().contains("dumpty"));
+        assertThat(sh.getRoles(), containsInAnyOrder("humpty", "alice", "dumpty"));
     }
 }

@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[http-client-intro]]
 === Introduction
@@ -52,7 +54,7 @@ it provides you with the responses to the requests you make.
 
 In order to use `HttpClient`, you must instantiate it, configure it, and then start it:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 // Instantiate HttpClient
 HttpClient httpClient = new HttpClient();
@@ -73,13 +75,13 @@ There are several reasons for having multiple `HttpClient` instances including, 
 
 When you create a `HttpClient` instance using the parameterless constructor, you will only be able to perform plain HTTP requests and you will not be able to perform HTTPS requests.
 
-In order to perform HTTPS requests, you should create first a link:{JDURL}/org/eclipse/jetty/util/ssl/SslContextFactory.html[`SslContextFactory`], configure it, and pass it to the `HttpClient` constructor.
+In order to perform HTTPS requests, you should create first a link:{JDURL}/org/eclipse/jetty/util/ssl/SslContextFactory.Client.html[`SslContextFactory.Client`], configure it, and pass it to the `HttpClient` constructor.
 When created with a `SslContextFactory`, the `HttpClient` will be able to perform both HTTP and HTTPS requests to any domain.
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 // Instantiate and configure the SslContextFactory
-SslContextFactory sslContextFactory = new SslContextFactory();
+SslContextFactory.Client sslContextFactory = new SslContextFactory.Client();
 
 // Instantiate HttpClient with the SslContextFactory
 HttpClient httpClient = new HttpClient(sslContextFactory);
@@ -95,7 +97,7 @@ httpClient.start();
 
 It is recommended that when your application stops, you also stop the `HttpClient` instance (or instances) that you are using.
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 httpClient.stop();
 ----

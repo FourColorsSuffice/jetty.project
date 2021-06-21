@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.ExecutionStrategy;
 import org.eclipse.jetty.util.thread.Invocable;
-import org.eclipse.jetty.util.thread.Invocable.InvocableExecutor;
 import org.eclipse.jetty.util.thread.Invocable.InvocationType;
 import org.eclipse.jetty.util.thread.Locker;
 import org.eclipse.jetty.util.thread.Locker.Lock;
@@ -49,24 +48,18 @@ public class ExecuteProduceConsume implements ExecutionStrategy, Runnable
     private final Locker _locker = new Locker();
     private final Runnable _runProduce = new RunProduce();
     private final Producer _producer;
-    private final InvocableExecutor _executor;
+    private final Executor _executor;
     private boolean _idle = true;
     private boolean _execute;
     private boolean _producing;
     private boolean _pending;
 
-
     public ExecuteProduceConsume(Producer producer, Executor executor)
     {
-        this(producer,executor,InvocationType.BLOCKING);
-    }
-    
-    public ExecuteProduceConsume(Producer producer, Executor executor, InvocationType preferred )
-    {
         this._producer = producer;
-        _executor = new InvocableExecutor(executor,preferred);
+        _executor = executor;
     }
-    
+
     @Override
     public void produce()
     {
@@ -180,7 +173,7 @@ public class ExecuteProduceConsume implements ExecutionStrategy, Runnable
                 if (!_pending)
                 {
                     // dispatch one
-                    dispatch = _pending = Invocable.getInvocationType(task)!=InvocationType.NON_BLOCKING;
+                    dispatch = _pending = Invocable.getInvocationType(task) != InvocationType.NON_BLOCKING;
                 }
 
                 _execute = false;
@@ -192,15 +185,14 @@ public class ExecuteProduceConsume implements ExecutionStrategy, Runnable
                 // Spawn a new thread to continue production by running the produce loop.
                 if (LOG.isDebugEnabled())
                     LOG.debug("{} dispatch", this);
-                if (!_executor.tryExecute(this))
-                    task = null;
+                _executor.execute(this);
             }
 
             // Run the task.
             if (LOG.isDebugEnabled())
                 LOG.debug("{} run {}", this, task);
             if (task != null)
-                _executor.invoke(task);
+                task.run();
             if (LOG.isDebugEnabled())
                 LOG.debug("{} ran {}", this, task);
 
@@ -226,6 +218,7 @@ public class ExecuteProduceConsume implements ExecutionStrategy, Runnable
         }
     }
 
+    @Override
     public String toString()
     {
         StringBuilder builder = new StringBuilder();

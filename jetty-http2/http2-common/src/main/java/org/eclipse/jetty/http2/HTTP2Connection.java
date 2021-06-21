@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,21 +25,28 @@ import java.util.Queue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.AbstractConnection;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.RetainableByteBuffer;
+import org.eclipse.jetty.io.WriteFlusher;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.ExecutionStrategy;
+import org.eclipse.jetty.util.thread.TryExecutor;
 import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
 
-public class HTTP2Connection extends AbstractConnection
+public class HTTP2Connection extends AbstractConnection implements WriteFlusher.Listener
 {
     protected static final Logger LOG = Log.getLogger(HTTP2Connection.class);
+
+    // TODO remove this once we are sure EWYK is OK for http2
+    private static final boolean PEC_MODE = Boolean.getBoolean("org.eclipse.jetty.http2.PEC_MODE");
 
     private final Queue<Runnable> tasks = new ArrayDeque<>();
     private final HTTP2Producer producer = new HTTP2Producer();
@@ -57,9 +64,25 @@ public class HTTP2Connection extends AbstractConnection
         this.parser = parser;
         this.session = session;
         this.bufferSize = bufferSize;
-        this.strategy = new EatWhatYouKill(producer, executor, 0);
-        
+        if (PEC_MODE)
+            executor = new TryExecutor.NoTryExecutor(executor);
+        this.strategy = new EatWhatYouKill(producer, executor);
         LifeCycle.start(strategy);
+        parser.init(ParserListener::new);
+    }
+
+    @Override
+    public long getMessagesIn()
+    {
+        HTTP2Session session = (HTTP2Session)getSession();
+        return session.getStreamsOpened();
+    }
+
+    @Override
+    public long getMessagesOut()
+    {
+        HTTP2Session session = (HTTP2Session)getSession();
+        return session.getStreamsClosed();
     }
 
     @Override
@@ -86,7 +109,7 @@ public class HTTP2Connection extends AbstractConnection
 
     protected void setInputBuffer(ByteBuffer buffer)
     {
-        producer.buffer = buffer;
+        producer.setInputBuffer(buffer);
     }
 
     @Override
@@ -95,7 +118,6 @@ public class HTTP2Connection extends AbstractConnection
         if (LOG.isDebugEnabled())
             LOG.debug("HTTP2 Open {} ", this);
         super.onOpen();
-        strategy.produce();
     }
 
     @Override
@@ -113,7 +135,7 @@ public class HTTP2Connection extends AbstractConnection
     {
         if (LOG.isDebugEnabled())
             LOG.debug("HTTP2 onFillable {} ", this);
-        strategy.produce();
+        produce();
     }
 
     private int fill(EndPoint endPoint, ByteBuffer buffer)
@@ -126,7 +148,8 @@ public class HTTP2Connection extends AbstractConnection
         }
         catch (IOException x)
         {
-            LOG.debug("Could not read from " + endPoint, x);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Could not read from " + endPoint, x);
             return -1;
         }
     }
@@ -147,6 +170,23 @@ public class HTTP2Connection extends AbstractConnection
     protected void offerTask(Runnable task, boolean dispatch)
     {
         offerTask(task);
+        if (dispatch)
+            dispatch();
+        else
+            produce();
+    }
+
+    protected void produce()
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("HTTP2 produce {} ", this);
+        strategy.produce();
+    }
+
+    protected void dispatch()
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("HTTP2 dispatch {} ", this);
         strategy.dispatch();
     }
 
@@ -174,75 +214,142 @@ public class HTTP2Connection extends AbstractConnection
         }
     }
 
+    @Override
+    public void onFlushed(long bytes) throws IOException
+    {
+        session.onFlushed(bytes);
+    }
+
     protected class HTTP2Producer implements ExecutionStrategy.Producer
     {
         private final Callback fillableCallback = new FillableCallback();
-        private ByteBuffer buffer;
+        private NetworkBuffer networkBuffer;
+        private boolean shutdown;
+        private boolean failed;
+
+        private void setInputBuffer(ByteBuffer byteBuffer)
+        {
+            acquireNetworkBuffer();
+            // TODO handle buffer overflow?
+            networkBuffer.put(byteBuffer);
+        }
 
         @Override
-        public synchronized Runnable produce()
+        public Runnable produce()
         {
             Runnable task = pollTask();
             if (LOG.isDebugEnabled())
-                LOG.debug("Dequeued task {}", task);
+                LOG.debug("Dequeued task {}", String.valueOf(task));
             if (task != null)
                 return task;
 
-            if (isFillInterested())
+            if (isFillInterested() || shutdown || failed)
                 return null;
 
-            if (buffer == null)
-                buffer = byteBufferPool.acquire(bufferSize, false); // TODO: make directness customizable
-            boolean looping = BufferUtil.hasContent(buffer);
-            while (true)
+            boolean interested = false;
+            acquireNetworkBuffer();
+            try
             {
-                if (looping)
-                {
-                    while (buffer.hasRemaining())
-                        parser.parse(buffer);
+                boolean parse = networkBuffer.hasRemaining();
 
-                    task = pollTask();
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Dequeued new task {}", task);
-                    if (task != null)
+                while (true)
+                {
+                    if (parse)
                     {
-                        release();
-                        return task;
+                        while (networkBuffer.hasRemaining())
+                        {
+                            parser.parse(networkBuffer.getBuffer());
+                            if (failed)
+                                return null;
+                        }
+
+                        task = pollTask();
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Dequeued new task {}", task);
+                        if (task != null)
+                            return task;
+
+                        // If more references than 1 (ie not just us), don't refill into buffer and risk compaction.
+                        if (networkBuffer.getReferences() > 1)
+                            reacquireNetworkBuffer();
+                    }
+
+                    // Here we know that this.networkBuffer is not retained by
+                    // application code: either it has been released, or it's a new one.
+                    int filled = fill(getEndPoint(), networkBuffer.getBuffer());
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Filled {} bytes in {}", filled, networkBuffer);
+
+                    if (filled > 0)
+                    {
+                        bytesIn.addAndGet(filled);
+                        parse = true;
+                    }
+                    else if (filled == 0)
+                    {
+                        interested = true;
+                        return null;
+                    }
+                    else
+                    {
+                        shutdown = true;
+                        session.onShutdown();
+                        return null;
                     }
                 }
-
-                int filled = fill(getEndPoint(), buffer);
-                if (LOG.isDebugEnabled())
-                    LOG.debug("Filled {} bytes", filled);
-
-                if (filled == 0)
-                {
-                    release();
+            }
+            finally
+            {
+                releaseNetworkBuffer();
+                if (interested)
                     getEndPoint().fillInterested(fillableCallback);
-                    return null;
-                }
-                else if (filled < 0)
-                {
-                    release();
-                    session.onShutdown();
-                    return null;
-                }
-                else
-                {
-                    bytesIn.addAndGet(filled);
-                }
-
-                looping = true;
             }
         }
 
-        private void release()
+        private void acquireNetworkBuffer()
         {
-            if (buffer != null && !buffer.hasRemaining())
+            if (networkBuffer == null)
             {
-                byteBufferPool.release(buffer);
-                buffer = null;
+                networkBuffer = new NetworkBuffer();
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Acquired {}", networkBuffer);
             }
+        }
+
+        private void reacquireNetworkBuffer()
+        {
+            NetworkBuffer currentBuffer = networkBuffer;
+            if (currentBuffer == null)
+                throw new IllegalStateException();
+
+            if (currentBuffer.hasRemaining())
+                throw new IllegalStateException();
+
+            currentBuffer.release();
+            networkBuffer = new NetworkBuffer();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Reacquired {}<-{}", currentBuffer, networkBuffer);
+        }
+
+        private void releaseNetworkBuffer()
+        {
+            NetworkBuffer currentBuffer = networkBuffer;
+            if (currentBuffer == null)
+                throw new IllegalStateException();
+
+            if (currentBuffer.hasRemaining() && !shutdown && !failed)
+                throw new IllegalStateException();
+
+            currentBuffer.release();
+            networkBuffer = null;
+            if (LOG.isDebugEnabled())
+                LOG.debug("Released {}", currentBuffer);
+        }
+
+        @Override
+        public String toString()
+        {
+            return String.format("%s@%x", getClass().getSimpleName(), hashCode());
         }
     }
 
@@ -264,6 +371,70 @@ public class HTTP2Connection extends AbstractConnection
         public InvocationType getInvocationType()
         {
             return InvocationType.EITHER;
+        }
+    }
+
+    private class ParserListener extends Parser.Listener.Wrapper
+    {
+        private ParserListener(Parser.Listener listener)
+        {
+            super(listener);
+        }
+
+        @Override
+        public void onData(DataFrame frame)
+        {
+            NetworkBuffer networkBuffer = producer.networkBuffer;
+            networkBuffer.retain();
+            Callback callback = networkBuffer;
+            session.onData(frame, callback);
+        }
+
+        @Override
+        public void onConnectionFailure(int error, String reason)
+        {
+            producer.failed = true;
+            super.onConnectionFailure(error, reason);
+        }
+    }
+
+    private class NetworkBuffer extends RetainableByteBuffer implements Callback
+    {
+        private NetworkBuffer()
+        {
+            super(byteBufferPool, bufferSize, false);
+        }
+
+        private void put(ByteBuffer source)
+        {
+            BufferUtil.append(getBuffer(), source);
+        }
+
+        @Override
+        public void succeeded()
+        {
+            completed(null);
+        }
+
+        @Override
+        public void failed(Throwable failure)
+        {
+            completed(failure);
+        }
+
+        private void completed(Throwable failure)
+        {
+            if (release() == 0)
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Released retained " + this, failure);
+            }
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
         }
     }
 }

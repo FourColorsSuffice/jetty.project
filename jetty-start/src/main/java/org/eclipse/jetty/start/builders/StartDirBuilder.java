@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.start.builders;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,7 +47,7 @@ public class StartDirBuilder implements BaseBuilder.Config
         this.baseHome = baseBuilder.getBaseHome();
         this.startDir = baseHome.getBasePath("start.d");
         if (FS.ensureDirectoryExists(startDir))
-            StartLog.log("MKDIR",baseHome.toShortForm(startDir));
+            StartLog.log("MKDIR", baseHome.toShortForm(startDir));
     }
 
     @Override
@@ -59,7 +58,7 @@ public class StartDirBuilder implements BaseBuilder.Config
             if (module.hasIniTemplate())
             {
                 // warn
-                StartLog.warn("%-15s not adding [ini-template] from dynamic module",module.getName());
+                StartLog.warn("%-15s not adding [ini-template] from dynamic module", module.getName());
             }
             return null;
         }
@@ -68,9 +67,9 @@ public class StartDirBuilder implements BaseBuilder.Config
         {
             // Create start.d/{name}.ini
             Path ini = startDir.resolve(module.getName() + ".ini");
-            try (BufferedWriter writer = Files.newBufferedWriter(ini,StandardCharsets.UTF_8,StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING))
+            try (BufferedWriter writer = Files.newBufferedWriter(ini, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))
             {
-                module.writeIniSection(writer,props);
+                module.writeIniSection(writer, props);
             }
             return baseHome.toShortForm(ini);
         }

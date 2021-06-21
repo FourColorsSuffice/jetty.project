@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,6 @@
 
 package org.eclipse.jetty.start;
 
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.notNullValue;
-import static org.hamcrest.Matchers.startsWith;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -34,8 +29,13 @@ import org.eclipse.jetty.start.config.JettyBaseConfigSource;
 import org.eclipse.jetty.start.config.JettyHomeConfigSource;
 import org.eclipse.jetty.toolchain.test.IO;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.startsWith;
 
 public class BaseHomeTest
 {
@@ -49,20 +49,20 @@ public class BaseHomeTest
 
         if (actual.size() != expected.size())
         {
-            System.out.printf("Actual Path(s): %,d hits%n",actual.size());
+            System.out.printf("Actual Path(s): %,d hits%n", actual.size());
             for (String path : actual)
             {
-                System.out.printf(" %s%n",path);
+                System.out.printf(" %s%n", path);
             }
-            System.out.printf("Expected Path(s): %,d entries%n",expected.size());
+            System.out.printf("Expected Path(s): %,d entries%n", expected.size());
             for (String path : expected)
             {
-                System.out.printf(" %s%n",path);
+                System.out.printf(" %s%n", path);
             }
         }
-        Assert.assertThat(message + ": " + Utils.join(actual,", "),actual,containsInAnyOrder(expected.toArray()));
+        assertThat(message + ": " + Utils.join(actual, ", "), actual, containsInAnyOrder(expected.toArray()));
     }
-    
+
     public static void assertPathList(BaseHome hb, String message, List<String> expected, List<Path> paths)
     {
         List<String> actual = new ArrayList<>();
@@ -73,18 +73,18 @@ public class BaseHomeTest
 
         if (actual.size() != expected.size())
         {
-            System.out.printf("Actual Path(s): %,d hits%n",actual.size());
+            System.out.printf("Actual Path(s): %,d hits%n", actual.size());
             for (String path : actual)
             {
-                System.out.printf(" %s%n",path);
+                System.out.printf(" %s%n", path);
             }
-            System.out.printf("Expected Path(s): %,d entries%n",expected.size());
+            System.out.printf("Expected Path(s): %,d entries%n", expected.size());
             for (String path : expected)
             {
-                System.out.printf(" %s%n",path);
+                System.out.printf(" %s%n", path);
             }
         }
-        Assert.assertThat(message + ": " + Utils.join(actual,", "),actual,containsInAnyOrder(expected.toArray()));
+        assertThat(message + ": " + Utils.join(actual, ", "), actual, containsInAnyOrder(expected.toArray()));
     }
 
     public static void assertFileList(BaseHome hb, String message, List<String> expected, List<File> files)
@@ -94,14 +94,14 @@ public class BaseHomeTest
         {
             actual.add(hb.toShortForm(file));
         }
-        Assert.assertThat(message + ": " + Utils.join(actual,", "),actual,containsInAnyOrder(expected.toArray()));
+        assertThat(message + ": " + Utils.join(actual, ", "), actual, containsInAnyOrder(expected.toArray()));
     }
 
     @Test
-    public void testGetPath_OnlyHome() throws IOException
+    public void testGetPathOnlyHome() throws IOException
     {
         File homeDir = MavenTestingUtils.getTestResourceDir("hb.1/home");
-        
+
         ConfigSources config = new ConfigSources();
         config.add(new JettyHomeConfigSource(homeDir.toPath()));
 
@@ -109,14 +109,14 @@ public class BaseHomeTest
         Path startIni = hb.getPath("start.ini");
 
         String ref = hb.toShortForm(startIni);
-        Assert.assertThat("Reference",ref,startsWith("${jetty.home}"));
+        assertThat("Reference", ref, startsWith("${jetty.home}"));
 
         String contents = IO.readToString(startIni.toFile());
-        Assert.assertThat("Contents",contents,containsString("Home Ini"));
+        assertThat("Contents", contents, containsString("Home Ini"));
     }
 
     @Test
-    public void testGetPaths_OnlyHome() throws IOException
+    public void testGetPathsOnlyHome() throws IOException
     {
         File homeDir = MavenTestingUtils.getTestResourceDir("hb.1/home");
 
@@ -132,13 +132,13 @@ public class BaseHomeTest
         expected.add("${jetty.home}/start.d/jsp.ini");
         expected.add("${jetty.home}/start.d/logging.ini");
         expected.add("${jetty.home}/start.d/ssl.ini");
-        FSTest.toOsSeparators(expected);
+        FSTest.toFsSeparators(expected);
 
-        assertPathList(hb,"Paths found",expected,paths);
+        assertPathList(hb, "Paths found", expected, paths);
     }
 
     @Test
-    public void testGetPaths_OnlyHome_InisOnly() throws IOException
+    public void testGetPathsOnlyHomeInisOnly() throws IOException
     {
         File homeDir = MavenTestingUtils.getTestResourceDir("hb.1/home");
 
@@ -154,13 +154,13 @@ public class BaseHomeTest
         expected.add("${jetty.home}/start.d/jsp.ini");
         expected.add("${jetty.home}/start.d/logging.ini");
         expected.add("${jetty.home}/start.d/ssl.ini");
-        FSTest.toOsSeparators(expected);
+        FSTest.toFsSeparators(expected);
 
-        assertPathList(hb,"Paths found",expected,paths);
+        assertPathList(hb, "Paths found", expected, paths);
     }
 
     @Test
-    public void testGetPaths_Both() throws IOException
+    public void testGetPathsBoth() throws IOException
     {
         File homeDir = MavenTestingUtils.getTestResourceDir("hb.1/home");
         File baseDir = MavenTestingUtils.getTestResourceDir("hb.1/base");
@@ -179,21 +179,21 @@ public class BaseHomeTest
         expected.add("${jetty.base}/start.d/logging.ini");
         expected.add("${jetty.home}/start.d/ssl.ini");
         expected.add("${jetty.base}/start.d/myapp.ini");
-        FSTest.toOsSeparators(expected);
+        FSTest.toFsSeparators(expected);
 
-        assertPathList(hb,"Paths found",expected,paths);
+        assertPathList(hb, "Paths found", expected, paths);
     }
 
     @Test
     public void testDefault() throws IOException
     {
         BaseHome bh = new BaseHome();
-        Assert.assertThat("Home",bh.getHome(),notNullValue());
-        Assert.assertThat("Base",bh.getBase(),notNullValue());
+        assertThat("Home", bh.getHome(), notNullValue());
+        assertThat("Base", bh.getBase(), notNullValue());
     }
 
     @Test
-    public void testGetPath_Both() throws IOException
+    public void testGetPathBoth() throws IOException
     {
         File homeDir = MavenTestingUtils.getTestResourceDir("hb.1/home");
         File baseDir = MavenTestingUtils.getTestResourceDir("hb.1/base");
@@ -206,9 +206,9 @@ public class BaseHomeTest
         Path startIni = hb.getPath("start.ini");
 
         String ref = hb.toShortForm(startIni);
-        Assert.assertThat("Reference",ref,startsWith("${jetty.base}"));
+        assertThat("Reference", ref, startsWith("${jetty.base}"));
 
         String contents = IO.readToString(startIni.toFile());
-        Assert.assertThat("Contents",contents,containsString("Base Ini"));
+        assertThat("Contents", contents, containsString("Base Ini"));
     }
 }

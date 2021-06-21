@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,17 +18,15 @@
 
 package org.eclipse.jetty.websocket.jsr356;
 
-import static org.hamcrest.Matchers.containsString;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.Consumer;
 import javax.websocket.ClientEndpointConfig;
 import javax.websocket.ContainerProvider;
 import javax.websocket.EncodeException;
@@ -39,76 +37,29 @@ import javax.websocket.MessageHandler;
 import javax.websocket.Session;
 import javax.websocket.WebSocketContainer;
 
-import org.eclipse.jetty.toolchain.test.EventQueue;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.eclipse.jetty.toolchain.test.TestTracker;
+import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
+import org.eclipse.jetty.websocket.api.extensions.Frame;
+import org.eclipse.jetty.websocket.common.OpCode;
+import org.eclipse.jetty.websocket.common.WebSocketFrame;
+import org.eclipse.jetty.websocket.common.test.BlockheadConnection;
 import org.eclipse.jetty.websocket.common.test.BlockheadServer;
-import org.eclipse.jetty.websocket.common.test.IBlockheadServerConnection;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.eclipse.jetty.websocket.common.test.Timeouts;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static java.time.Duration.ofSeconds;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 public class EncoderTest
 {
-    private static class EchoServer implements Runnable
-    {
-        private Thread thread;
-        private BlockheadServer server;
-        private IBlockheadServerConnection sconnection;
-        private CountDownLatch connectLatch = new CountDownLatch(1);
-
-        public EchoServer(BlockheadServer server)
-        {
-            this.server = server;
-        }
-
-        @Override
-        public void run()
-        {
-            try
-            {
-                sconnection = server.accept();
-                sconnection.setSoTimeout(60000);
-                sconnection.upgrade();
-                sconnection.startEcho();
-            }
-            catch (Exception e)
-            {
-                LOG.warn(e);
-            }
-            finally
-            {
-                connectLatch.countDown();
-            }
-        }
-
-        public void start()
-        {
-            this.thread = new Thread(this,"EchoServer");
-            this.thread.start();
-        }
-
-        public void stop()
-        {
-            if (this.sconnection != null)
-            {
-                this.sconnection.stopEcho();
-                try
-                {
-                    this.sconnection.close();
-                }
-                catch (IOException ignore)
-                {
-                    /* ignore */
-                }
-            }
-        }
-    }
-
     public static class Quotes
     {
         private String author;
@@ -165,12 +116,12 @@ public class EncoderTest
     public static class QuotesSocket extends Endpoint implements MessageHandler.Whole<String>
     {
         private Session session;
-        private EventQueue<String> messageQueue = new EventQueue<>();
+        private LinkedBlockingQueue<String> messageQueue = new LinkedBlockingQueue<>();
 
         @Override
         public void onMessage(String message)
         {
-            messageQueue.add(message);
+            messageQueue.offer(message);
         }
 
         @Override
@@ -183,25 +134,35 @@ public class EncoderTest
         public void write(Quotes quotes) throws IOException, EncodeException
         {
             if (LOG.isDebugEnabled())
-                LOG.debug("Writing Quotes: {}",quotes);
+                LOG.debug("Writing Quotes: {}", quotes);
             this.session.getBasicRemote().sendObject(quotes);
         }
     }
 
     private static final Logger LOG = Log.getLogger(EncoderTest.class);
 
-    @Rule
-    public TestTracker tt = new TestTracker();
-    private BlockheadServer server;
-
+    private static BlockheadServer server;
     private WebSocketContainer client;
+
+    @BeforeAll
+    public static void startServer() throws Exception
+    {
+        server = new BlockheadServer();
+        server.start();
+    }
+
+    @AfterAll
+    public static void stopServer() throws Exception
+    {
+        server.stop();
+    }
 
     private void assertReceivedQuotes(String result, Quotes quotes)
     {
-        Assert.assertThat("Quote Author",result,containsString("Author: " + quotes.getAuthor()));
+        assertThat("Quote Author", result, containsString("Author: " + quotes.getAuthor()));
         for (String quote : quotes.quotes)
         {
-            Assert.assertThat("Quote",result,containsString("Quote: " + quote));
+            assertThat("Quote", result, containsString("Quote: " + quote));
         }
     }
 
@@ -211,7 +172,8 @@ public class EncoderTest
 
         // read file
         File qfile = MavenTestingUtils.getTestResourceFile(filename);
-        try (FileReader reader = new FileReader(qfile); BufferedReader buf = new BufferedReader(reader))
+        try (FileReader reader = new FileReader(qfile);
+             BufferedReader buf = new BufferedReader(reader))
         {
             String line;
             while ((line = buf.readLine()) != null)
@@ -231,87 +193,104 @@ public class EncoderTest
         return quotes;
     }
 
-    @Before
+    @BeforeEach
     public void initClient()
     {
         client = ContainerProvider.getWebSocketContainer();
+        client.setDefaultMaxSessionIdleTimeout(10000);
     }
 
-    @Before
-    public void startServer() throws Exception
+    @AfterEach
+    public void stopClient() throws Exception
     {
-        server = new BlockheadServer();
-        server.start();
-    }
-
-    @After
-    public void stopServer() throws Exception
-    {
-        server.stop();
+        ((LifeCycle)client).stop();
     }
 
     @Test
     public void testSingleQuotes() throws Exception
     {
-        EchoServer eserver = new EchoServer(server);
-        try
+        // Hook into server connection creation
+        CompletableFuture<BlockheadConnection> serverConnFut = new CompletableFuture<>();
+        server.addConnectFuture(serverConnFut);
+
+        QuotesSocket quoter = new QuotesSocket();
+
+        ClientEndpointConfig.Builder builder = ClientEndpointConfig.Builder.create();
+        List<Class<? extends Encoder>> encoders = new ArrayList<>();
+        encoders.add(QuotesEncoder.class);
+        builder.encoders(encoders);
+        ClientEndpointConfig cec = builder.build();
+        client.connectToServer(quoter, cec, server.getWsUri());
+
+        try (BlockheadConnection serverConn = serverConnFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT))
         {
-            eserver.start();
+            assertTimeoutPreemptively(ofSeconds(10), () ->
+            {
+                // Setup echo of frames on server side
+                serverConn.setIncomingFrameConsumer(new DataFrameEcho(serverConn));
 
-            QuotesSocket quoter = new QuotesSocket();
+                Quotes ben = getQuotes("quotes-ben.txt");
+                quoter.write(ben);
 
-            ClientEndpointConfig.Builder builder = ClientEndpointConfig.Builder.create();
-            List<Class<? extends Encoder>> encoders = new ArrayList<>();
-            encoders.add(QuotesEncoder.class);
-            builder.encoders(encoders);
-            ClientEndpointConfig cec = builder.build();
-            client.connectToServer(quoter,cec,server.getWsUri());
-
-            Quotes ben = getQuotes("quotes-ben.txt");
-            quoter.write(ben);
-
-            quoter.messageQueue.awaitEventCount(1,1000,TimeUnit.MILLISECONDS);
-
-            String result = quoter.messageQueue.poll();
-            assertReceivedQuotes(result,ben);
-        }
-        finally
-        {
-            eserver.stop();
+                String result = quoter.messageQueue.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+                assertReceivedQuotes(result, ben);
+            });
         }
     }
 
     @Test
     public void testTwoQuotes() throws Exception
     {
-        EchoServer eserver = new EchoServer(server);
-        try
+        // Hook into server connection creation
+        CompletableFuture<BlockheadConnection> serverConnFut = new CompletableFuture<>();
+        server.addConnectFuture(serverConnFut);
+
+        QuotesSocket quoter = new QuotesSocket();
+        ClientEndpointConfig.Builder builder = ClientEndpointConfig.Builder.create();
+        List<Class<? extends Encoder>> encoders = new ArrayList<>();
+        encoders.add(QuotesEncoder.class);
+        builder.encoders(encoders);
+        ClientEndpointConfig cec = builder.build();
+        client.connectToServer(quoter, cec, server.getWsUri());
+
+        try (BlockheadConnection serverConn = serverConnFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT))
         {
-            eserver.start();
+            assertTimeoutPreemptively(ofSeconds(10), () ->
+            {
+                // Setup echo of frames on server side
+                serverConn.setIncomingFrameConsumer(new DataFrameEcho(serverConn));
 
-            QuotesSocket quoter = new QuotesSocket();
-            ClientEndpointConfig.Builder builder = ClientEndpointConfig.Builder.create();
-            List<Class<? extends Encoder>> encoders = new ArrayList<>();
-            encoders.add(QuotesEncoder.class);
-            builder.encoders(encoders);
-            ClientEndpointConfig cec = builder.build();
-            client.connectToServer(quoter,cec,server.getWsUri());
+                Quotes ben = getQuotes("quotes-ben.txt");
+                Quotes twain = getQuotes("quotes-twain.txt");
+                quoter.write(ben);
+                quoter.write(twain);
 
-            Quotes ben = getQuotes("quotes-ben.txt");
-            Quotes twain = getQuotes("quotes-twain.txt");
-            quoter.write(ben);
-            quoter.write(twain);
-
-            quoter.messageQueue.awaitEventCount(2,1000,TimeUnit.MILLISECONDS);
-
-            String result = quoter.messageQueue.poll();
-            assertReceivedQuotes(result,ben);
-            result = quoter.messageQueue.poll();
-            assertReceivedQuotes(result,twain);
+                String result = quoter.messageQueue.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+                assertReceivedQuotes(result, ben);
+                result = quoter.messageQueue.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+                assertReceivedQuotes(result, twain);
+            });
         }
-        finally
+    }
+
+    private static class DataFrameEcho implements Consumer<Frame>
+    {
+        private final BlockheadConnection connection;
+
+        public DataFrameEcho(BlockheadConnection connection)
         {
-            eserver.stop();
+            this.connection = connection;
+        }
+
+        @Override
+        public void accept(Frame frame)
+        {
+            if (OpCode.isDataFrame(frame.getOpCode()))
+            {
+                WebSocketFrame copy = WebSocketFrame.copy(frame);
+                copy.setMask(null); // remove client masking
+                connection.write(copy);
+            }
         }
     }
 }

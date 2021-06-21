@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,6 @@ package org.eclipse.jetty.server;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -30,19 +29,15 @@ import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.eclipse.jetty.toolchain.test.TestTracker;
-import org.eclipse.jetty.util.log.Log;
-import org.eclipse.jetty.util.log.Logger;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class HttpVersionCustomizerTest
 {
-    @Rule
-    public TestTracker tracker = new TestTracker();
-
     @Test
     public void testCustomizeHttpVersion() throws Exception
     {
@@ -58,7 +53,7 @@ public class HttpVersionCustomizerTest
             {
                 baseRequest.setHandled(true);
                 response.setStatus(500);
-                Assert.assertEquals(HttpVersion.HTTP_1_1.asString(), request.getProtocol());
+                assertEquals(HttpVersion.HTTP_1_1.asString(), request.getProtocol());
                 response.setStatus(200);
                 response.getWriter().println("OK");
             }
@@ -74,8 +69,8 @@ public class HttpVersionCustomizerTest
                 socket.write(request.generate());
 
                 HttpTester.Response response = HttpTester.parseResponse(HttpTester.from(socket));
-                Assert.assertNotNull(response);
-                Assert.assertThat(response.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+                assertNotNull(response);
+                assertThat(response.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
             }
         }
         finally

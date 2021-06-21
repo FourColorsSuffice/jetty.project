@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,6 +18,7 @@
 
 package org.eclipse.jetty.util;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -50,7 +51,13 @@ public class DecoratedObjectFactory implements Iterable<Decorator>
     public void addDecorator(Decorator decorator)
     {
         LOG.debug("Adding Decorator: {}", decorator);
-        this.decorators.add(decorator);
+        decorators.add(decorator);
+    }
+
+    public boolean removeDecorator(Decorator decorator)
+    {
+        LOG.debug("Remove Decorator: {}", decorator);
+        return decorators.remove(decorator);
     }
 
     public void clear()
@@ -58,13 +65,14 @@ public class DecoratedObjectFactory implements Iterable<Decorator>
         this.decorators.clear();
     }
 
-    public <T> T createInstance(Class<T> clazz) throws InstantiationException, IllegalAccessException
+    public <T> T createInstance(Class<T> clazz) throws InstantiationException, IllegalAccessException,
+        NoSuchMethodException, InvocationTargetException
     {
         if (LOG.isDebugEnabled())
         {
             LOG.debug("Creating Instance: " + clazz);
         }
-        T o = clazz.newInstance();
+        T o = clazz.getDeclaredConstructor().newInstance();
         return decorate(o);
     }
 
@@ -106,13 +114,13 @@ public class DecoratedObjectFactory implements Iterable<Decorator>
             this.decorators.addAll(decorators);
         }
     }
-    
+
     @Override
     public String toString()
     {
         StringBuilder str = new StringBuilder();
         str.append(this.getClass().getName()).append("[decorators=");
-        str.append(Integer.toString(decorators.size()));
+        str.append(decorators.size());
         str.append("]");
         return str.toString();
     }

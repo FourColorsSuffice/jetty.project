@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -35,21 +35,22 @@ public class UnitParser extends Parser
 
     public UnitParser(WebSocketPolicy policy)
     {
-        super(policy,new LeakTrackingByteBufferPool(new MappedByteBufferPool.Tagged()));
+        super(policy, new LeakTrackingByteBufferPool(new MappedByteBufferPool.Tagged()));
     }
 
     private void parsePartial(ByteBuffer buf, int numBytes)
     {
-        int len = Math.min(numBytes,buf.remaining());
-        byte arr[] = new byte[len];
-        buf.get(arr,0,len);
+        int len = Math.min(numBytes, buf.remaining());
+        byte[] arr = new byte[len];
+        buf.get(arr, 0, len);
         this.parse(ByteBuffer.wrap(arr));
     }
 
     /**
      * Parse a buffer, but do so in a quiet fashion, squelching stacktraces if encountered.
      * <p>
-     * Use if you know the parse will cause an exception and just don't wnat to make the test console all noisy.
+     * Use if you know the parse will cause an exception and just don't want to make the test console all noisy.
+     *
      * @param buf the buffer to parse
      */
     public void parseQuietly(ByteBuffer buf)
@@ -58,17 +59,13 @@ public class UnitParser extends Parser
         {
             parse(buf);
         }
-        catch (Exception ignore)
-        {
-            /* ignore */
-        }
     }
 
     public void parseSlowly(ByteBuffer buf, int segmentSize)
     {
         while (buf.remaining() > 0)
         {
-            parsePartial(buf,segmentSize);
+            parsePartial(buf, segmentSize);
         }
     }
 }

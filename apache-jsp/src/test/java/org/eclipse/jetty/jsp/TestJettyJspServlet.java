@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,35 +18,42 @@
 
 package org.eclipse.jetty.jsp;
 
-import static org.junit.Assert.*;
-
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.jsp.JspFactory;
 
-import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.servlet.ServletTester;
-import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 import org.apache.jasper.runtime.JspFactoryImpl;
 import org.apache.tomcat.InstanceManager;
 import org.apache.tomcat.SimpleInstanceManager;
-import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.http.HttpTester;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.servlet.ServletTester;
+import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+
+@ExtendWith(WorkDirExtension.class)
 public class TestJettyJspServlet
 {
-    File _dir;
-    ServletTester _tester;
-    
+    public WorkDir workdir;
+
+    private File _dir;
+    private ServletTester _tester;
+
     public static class DfltServlet extends HttpServlet
     {
 
@@ -54,8 +61,8 @@ public class TestJettyJspServlet
         {
             super();
         }
-        
-        /** 
+
+        /**
          * @see javax.servlet.http.HttpServlet#doGet(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
          */
         @Override
@@ -64,29 +71,28 @@ public class TestJettyJspServlet
             resp.setContentType("html/text");
             resp.getOutputStream().println("This.Is.The.Default.");
         }
-        
     }
-    
-    @Before
-    public void setUp () throws Exception
+
+    @BeforeEach
+    public void setUp() throws Exception
     {
         JspFactory.setDefaultFactory(new JspFactoryImpl());
         _dir = MavenTestingUtils.getTestResourceDir("base");
         _tester = new ServletTester("/context");
         _tester.getContext().setClassLoader(new URLClassLoader(new URL[0], Thread.currentThread().getContextClassLoader()));
         ServletHolder jspHolder = _tester.getContext().addServlet(JettyJspServlet.class, "/*");
-        jspHolder.setInitParameter("scratchdir", MavenTestingUtils.getTargetTestingDir().getAbsolutePath());
+        jspHolder.setInitParameter("scratchdir", workdir.getPath().toString());
         _tester.getContext().setResourceBase(_dir.getAbsolutePath());
         _tester.getContext().setAttribute(InstanceManager.class.getName(), new SimpleInstanceManager());
         ServletHolder dfltHolder = new ServletHolder();
         dfltHolder.setName("default");
-        dfltHolder.setHeldClass( DfltServlet.class);
+        dfltHolder.setHeldClass(DfltServlet.class);
         _tester.getContext().addServlet(dfltHolder, "/");
 
         _tester.start();
     }
-    
-    @After
+
+    @AfterEach
     public void tearDown() throws Exception
     {
         if (_tester != null)
@@ -97,27 +103,28 @@ public class TestJettyJspServlet
     public void testWithJsp() throws Exception
     {
         //test that an ordinary jsp is served by jsp servlet
-        String request = "" +
-                "GET /context/foo.jsp HTTP/1.1\r\n" +
+        String request =
+            "GET /context/foo.jsp HTTP/1.1\r\n" +
                 "Host: localhost\r\n" +
                 "Connection: close\r\n" +
                 "\r\n";
-        String response = _tester.getResponses(request);
-        assertTrue(!response.contains("This.Is.The.Default."));
+
+        String rawResponse = _tester.getResponses(request);
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+        assertThat(response.toString(), response.getContent(), not(containsString("This.Is.The.Default.")));
     }
-    
-    
+
     @Test
     public void testWithDirectory() throws Exception
     {
         //test that a dir is served by the default servlet
-        String request = "" +
-                "GET /context/dir HTTP/1.1\r\n" +
+        String request =
+            "GET /context/dir HTTP/1.1\r\n" +
                 "Host: localhost\r\n" +
                 "Connection: close\r\n" +
                 "\r\n";
-        String response = _tester.getResponses(request);
-        assertTrue(response.contains("This.Is.The.Default."));
+        String rawResponse = _tester.getResponses(request);
+        HttpTester.Response response = HttpTester.parseResponse(rawResponse);
+        assertThat(response.toString(), response.getContent(), containsString("This.Is.The.Default."));
     }
-
 }

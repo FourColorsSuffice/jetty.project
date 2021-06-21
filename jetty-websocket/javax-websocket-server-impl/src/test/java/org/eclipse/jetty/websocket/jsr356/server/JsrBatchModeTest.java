@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,7 +22,6 @@ import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-
 import javax.websocket.ClientEndpointConfig;
 import javax.websocket.ContainerProvider;
 import javax.websocket.Endpoint;
@@ -38,10 +37,12 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.websocket.jsr356.server.deploy.WebSocketServerContainerInitializer;
 import org.eclipse.jetty.websocket.jsr356.server.samples.echo.BasicEchoEndpoint;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class JsrBatchModeTest
 {
@@ -49,7 +50,7 @@ public class JsrBatchModeTest
     private ServerConnector connector;
     private WebSocketContainer client;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         server = new Server();
@@ -66,7 +67,7 @@ public class JsrBatchModeTest
         client = ContainerProvider.getWebSocketContainer();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         server.stop();
@@ -99,13 +100,13 @@ public class JsrBatchModeTest
             future.get(1, TimeUnit.MICROSECONDS);
 
             // Did not flush explicitly, so the message should not be back yet.
-            Assert.assertFalse(latch.await(1, TimeUnit.SECONDS));
+            assertFalse(latch.await(1, TimeUnit.SECONDS));
 
             // Explicitly flush.
             remote.flushBatch();
 
             // Wait for the echo.
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
@@ -136,7 +137,7 @@ public class JsrBatchModeTest
             future.get(1, TimeUnit.SECONDS);
 
             // Wait for the echo.
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
@@ -166,11 +167,11 @@ public class JsrBatchModeTest
             future.get(1, TimeUnit.SECONDS);
 
             // Wait for the echo.
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
-    private static abstract class EndpointAdapter extends Endpoint implements MessageHandler.Whole<String>
+    private abstract static class EndpointAdapter extends Endpoint implements MessageHandler.Whole<String>
     {
         @Override
         public void onOpen(Session session, EndpointConfig config)

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,29 +24,22 @@ import org.eclipse.jetty.deploy.graph.Node;
 import org.eclipse.jetty.osgi.boot.internal.serverfactory.ServerInstanceWrapper;
 import org.eclipse.jetty.osgi.boot.utils.EventSender;
 
-
-
-
 /**
  * OSGiUndeployer
  *
  * Extension of the Jetty Undeployer which emits OSGi EventAdmin events
  * whenever a webapp is undeployed from Jetty.
- * 
  */
 public class OSGiUndeployer extends StandardUndeployer
 {
     private ServerInstanceWrapper _server;
 
-    
-    /* ------------------------------------------------------------ */
-    public OSGiUndeployer (ServerInstanceWrapper server)
+    public OSGiUndeployer(ServerInstanceWrapper server)
     {
         _server = server;
     }
-    
-    
-    /* ------------------------------------------------------------ */
+
+    @Override
     public void processBinding(Node node, App app) throws Exception
     {
         EventSender.getInstance().send(EventSender.UNDEPLOYING_EVENT, ((AbstractOSGiApp)app).getBundle(), app.getContextPath());
@@ -54,9 +47,9 @@ public class OSGiUndeployer extends StandardUndeployer
         Thread.currentThread().setContextClassLoader(_server.getParentClassLoaderForWebapps());
         try
         {
-            super.processBinding(node,app);
+            super.processBinding(node, app);
         }
-        finally 
+        finally
         {
             Thread.currentThread().setContextClassLoader(old);
         }

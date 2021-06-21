@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -47,7 +47,9 @@ public class ByteBufferContentProvider extends AbstractTypedContentProvider
         this.buffers = buffers;
         int length = 0;
         for (ByteBuffer buffer : buffers)
+        {
             length += buffer.remaining();
+        }
         this.length = length;
     }
 
@@ -55,6 +57,12 @@ public class ByteBufferContentProvider extends AbstractTypedContentProvider
     public long getLength()
     {
         return length;
+    }
+
+    @Override
+    public boolean isReproducible()
+    {
+        return true;
     }
 
     @Override
@@ -84,12 +92,6 @@ public class ByteBufferContentProvider extends AbstractTypedContentProvider
                 {
                     throw new NoSuchElementException();
                 }
-            }
-
-            @Override
-            public void remove()
-            {
-                throw new UnsupportedOperationException();
             }
         };
     }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -34,6 +34,8 @@ import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.io.ClientConnectionFactory;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.ssl.SslClientConnectionFactory;
+import org.eclipse.jetty.util.Attachable;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -53,6 +55,11 @@ public class HttpProxy extends ProxyConfiguration.Proxy
         super(address, secure);
     }
 
+    public HttpProxy(Origin.Address address, SslContextFactory.Client sslContextFactory)
+    {
+        super(address, sslContextFactory);
+    }
+
     @Override
     public ClientConnectionFactory newClientConnectionFactory(ClientConnectionFactory connectionFactory)
     {
@@ -66,7 +73,7 @@ public class HttpProxy extends ProxyConfiguration.Proxy
         return URI.create(new Origin(scheme, getAddress()).asString());
     }
 
-    private class HttpProxyClientConnectionFactory implements ClientConnectionFactory
+    private static class HttpProxyClientConnectionFactory implements ClientConnectionFactory
     {
         private final ClientConnectionFactory connectionFactory;
 
@@ -105,7 +112,7 @@ public class HttpProxy extends ProxyConfiguration.Proxy
                 else
                 {
                     throw new IOException("Cannot tunnel request, missing " +
-                            SslContextFactory.class.getName() + " in " + HttpClient.class.getName());
+                        SslContextFactory.class.getName() + " in " + HttpClient.class.getName());
                 }
             }
             else
@@ -121,7 +128,7 @@ public class HttpProxy extends ProxyConfiguration.Proxy
      * tunnel after the TCP connection is succeeded, and needs to notify
      * the nested promise when the tunnel is established (or failed).</p>
      */
-    private class CreateTunnelPromise implements Promise<Connection>
+    private static class CreateTunnelPromise implements Promise<Connection>
     {
         private final ClientConnectionFactory connectionFactory;
         private final EndPoint endPoint;
@@ -156,11 +163,11 @@ public class HttpProxy extends ProxyConfiguration.Proxy
             HttpClient httpClient = destination.getHttpClient();
             long connectTimeout = httpClient.getConnectTimeout();
             Request connect = httpClient.newRequest(proxyAddress.getHost(), proxyAddress.getPort())
-                    .method(HttpMethod.CONNECT)
-                    .path(target)
-                    .header(HttpHeader.HOST, target)
-                    .idleTimeout(2 * connectTimeout, TimeUnit.MILLISECONDS)
-                    .timeout(connectTimeout, TimeUnit.MILLISECONDS);
+                .method(HttpMethod.CONNECT)
+                .path(target)
+                .header(HttpHeader.HOST, target)
+                .idleTimeout(2 * connectTimeout, TimeUnit.MILLISECONDS)
+                .timeout(connectTimeout, TimeUnit.MILLISECONDS);
             ProxyConfiguration.Proxy proxy = destination.getProxy();
             if (proxy != null && proxy.isSecure())
                 connect.scheme(HttpScheme.HTTPS.asString());
@@ -184,7 +191,7 @@ public class HttpProxy extends ProxyConfiguration.Proxy
                     else
                     {
                         HttpResponseException failure = new HttpResponseException("Unexpected " + response +
-                                " for " + result.getRequest(), response);
+                            " for " + result.getRequest(), response);
                         tunnelFailed(endPoint, failure);
                     }
                 }
@@ -202,9 +209,10 @@ public class HttpProxy extends ProxyConfiguration.Proxy
                 // Replace the promise back with the original
                 context.put(HttpClientTransport.HTTP_CONNECTION_PROMISE_CONTEXT_KEY, promise);
                 HttpDestination destination = (HttpDestination)context.get(HttpClientTransport.HTTP_DESTINATION_CONTEXT_KEY);
-                HttpClient client = destination.getHttpClient();
-                ClientConnectionFactory sslConnectionFactory = client.newSslClientConnectionFactory(connectionFactory);
+                ClientConnectionFactory sslConnectionFactory = destination.newSslClientConnectionFactory(null, connectionFactory);
                 HttpConnectionOverHTTP oldConnection = (HttpConnectionOverHTTP)endPoint.getConnection();
+                context.put(SslClientConnectionFactory.SSL_PEER_HOST_CONTEXT_KEY, destination.getHost());
+                context.put(SslClientConnectionFactory.SSL_PEER_PORT_CONTEXT_KEY, destination.getPort());
                 org.eclipse.jetty.io.Connection newConnection = sslConnectionFactory.newConnection(endPoint, context);
                 // Creating the connection will link the new Connection the EndPoint,
                 // but we need the old Connection linked for the upgrade to do its job.
@@ -226,11 +234,12 @@ public class HttpProxy extends ProxyConfiguration.Proxy
         }
     }
 
-    private class ProxyConnection implements Connection
+    private static class ProxyConnection implements Connection, Attachable
     {
         private final Destination destination;
         private final Connection connection;
         private final Promise<Connection> promise;
+        private Object attachment;
 
         private ProxyConnection(Destination destination, Connection connection, Promise<Connection> promise)
         {
@@ -263,9 +272,21 @@ public class HttpProxy extends ProxyConfiguration.Proxy
         {
             return connection.isClosed();
         }
+
+        @Override
+        public void setAttachment(Object obj)
+        {
+            this.attachment = obj;
+        }
+
+        @Override
+        public Object getAttachment()
+        {
+            return attachment;
+        }
     }
 
-    private class TunnelPromise implements Promise<Connection>
+    private static class TunnelPromise implements Promise<Connection>
     {
         private final Request request;
         private final Response.CompleteListener listener;

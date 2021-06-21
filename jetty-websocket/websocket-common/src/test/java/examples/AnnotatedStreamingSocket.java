@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -38,13 +38,13 @@ public class AnnotatedStreamingSocket
     @OnWebSocketClose
     public void onClose(int statusCode, String reason)
     {
-        capture.add("onClose(%d, %s)",statusCode,capture.q(reason));
+        capture.offer("onClose(%d, %s)", statusCode, capture.q(reason));
     }
 
     @OnWebSocketConnect
     public void onConnect(Session sess)
     {
-        capture.add("onConnect(%s)",sess);
+        capture.offer("onConnect(%s)", sess);
     }
 
     @OnWebSocketFrame
@@ -54,7 +54,7 @@ public class AnnotatedStreamingSocket
 
     // Binary
     @OnWebSocketMessage
-    public void onMessage(byte buf[], int offset, int length)
+    public void onMessage(byte[] buf, int offset, int length)
     {
     }
 
@@ -75,5 +75,4 @@ public class AnnotatedStreamingSocket
     public void onMessage(String message)
     {
     }
-
 }

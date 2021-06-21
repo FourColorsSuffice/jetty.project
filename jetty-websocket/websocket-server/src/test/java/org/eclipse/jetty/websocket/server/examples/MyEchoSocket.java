@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,6 @@ package org.eclipse.jetty.websocket.server.examples;
 import java.io.IOException;
 
 import org.eclipse.jetty.io.RuntimeIOException;
-import org.eclipse.jetty.websocket.api.BatchMode;
 import org.eclipse.jetty.websocket.api.RemoteEndpoint;
 import org.eclipse.jetty.websocket.api.WebSocketAdapter;
 
@@ -43,8 +42,6 @@ public class MyEchoSocket extends WebSocketAdapter
             // echo the data back
             RemoteEndpoint remote = getRemote();
             remote.sendString(message);
-            if (remote.getBatchMode() == BatchMode.ON)
-                remote.flush();
         }
         catch (IOException e)
         {

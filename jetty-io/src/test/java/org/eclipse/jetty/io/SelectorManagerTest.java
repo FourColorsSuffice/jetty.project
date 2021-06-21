@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,36 +29,38 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.eclipse.jetty.toolchain.test.annotation.Slow;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.TimerScheduler;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SelectorManagerTest
 {
     private QueuedThreadPool executor = new QueuedThreadPool();
     private TimerScheduler scheduler = new TimerScheduler();
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         executor.start();
         scheduler.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         scheduler.stop();
         executor.stop();
     }
 
-    @Slow
     @Test
+    @DisabledIfSystemProperty(named = "env", matches = "ci") // TODO: SLOW, needs review
     public void testConnectTimeoutBeforeSuccessfulConnect() throws Exception
     {
         ServerSocketChannel server = ServerSocketChannel.open();
@@ -73,10 +75,10 @@ public class SelectorManagerTest
             protected EndPoint newEndPoint(SelectableChannel channel, ManagedSelector selector, SelectionKey key) throws IOException
             {
                 SocketChannelEndPoint endp = new SocketChannelEndPoint(channel, selector, key, getScheduler());
-                endp.setIdleTimeout(connectTimeout/2);
+                endp.setIdleTimeout(connectTimeout / 2);
                 return endp;
             }
-            
+
             @Override
             protected boolean doFinishConnect(SelectableChannel channel) throws IOException
             {
@@ -131,8 +133,8 @@ public class SelectorManagerTest
                     latch1.countDown();
                 }
             });
-            Assert.assertTrue(latch1.await(connectTimeout * 3, TimeUnit.MILLISECONDS));
-            Assert.assertFalse(client1.isOpen());
+            assertTrue(latch1.await(connectTimeout * 3, TimeUnit.MILLISECONDS));
+            assertFalse(client1.isOpen());
 
             // Wait for the first connect to finish, as the selector thread is waiting in finishConnect().
             Thread.sleep(timeout);
@@ -152,8 +154,8 @@ public class SelectorManagerTest
                         latch2.countDown();
                     }
                 });
-                Assert.assertTrue(latch2.await(connectTimeout * 5, TimeUnit.MILLISECONDS));
-                Assert.assertTrue(client2.isOpen());
+                assertTrue(latch2.await(connectTimeout * 5, TimeUnit.MILLISECONDS));
+                assertTrue(client2.isOpen());
             }
         }
         finally

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,23 +20,23 @@ package org.eclipse.jetty.jmx;
 
 import java.lang.management.ManagementFactory;
 import java.util.Set;
-
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class MBeanContainerLifeCycleTest
 {
     private ContainerLifeCycle container;
     private MBeanServer mbeanServer;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         container = new ContainerLifeCycle();
@@ -46,7 +46,7 @@ public class MBeanContainerLifeCycleTest
         container.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         container.stop();
@@ -61,12 +61,12 @@ public class MBeanContainerLifeCycleTest
 
         String pkg = bean.getClass().getPackage().getName();
         Set<ObjectName> objectNames = mbeanServer.queryNames(ObjectName.getInstance(pkg + ":*"), null);
-        Assert.assertEquals(1, objectNames.size());
+        assertEquals(1, objectNames.size());
 
         // Removing the bean should unregister the MBean.
         container.removeBean(bean);
         objectNames = mbeanServer.queryNames(ObjectName.getInstance(pkg + ":*"), null);
-        Assert.assertEquals(0, objectNames.size());
+        assertEquals(0, objectNames.size());
     }
 
     @Test
@@ -77,12 +77,13 @@ public class MBeanContainerLifeCycleTest
 
         String pkg = bean.getClass().getPackage().getName();
         Set<ObjectName> objectNames = mbeanServer.queryNames(ObjectName.getInstance(pkg + ":*"), null);
-        Assert.assertEquals(1, objectNames.size());
+        // QueuedThreadPool and ThreadPoolBudget.
+        assertEquals(2, objectNames.size());
 
         container.stop();
 
         objectNames = mbeanServer.queryNames(ObjectName.getInstance(pkg + ":*"), null);
-        Assert.assertEquals(1, objectNames.size());
+        assertEquals(2, objectNames.size());
 
         // Remove the MBeans to start clean on the next test.
         objectNames.forEach(objectName ->
@@ -105,12 +106,13 @@ public class MBeanContainerLifeCycleTest
 
         String pkg = bean.getClass().getPackage().getName();
         Set<ObjectName> objectNames = mbeanServer.queryNames(ObjectName.getInstance(pkg + ":*"), null);
-        Assert.assertEquals(1, objectNames.size());
+        // QueuedThreadPool and ThreadPoolBudget.
+        assertEquals(2, objectNames.size());
 
         container.stop();
         container.destroy();
 
         objectNames = mbeanServer.queryNames(ObjectName.getInstance(pkg + ":*"), null);
-        Assert.assertEquals(0, objectNames.size());
+        assertEquals(0, objectNames.size());
     }
 }

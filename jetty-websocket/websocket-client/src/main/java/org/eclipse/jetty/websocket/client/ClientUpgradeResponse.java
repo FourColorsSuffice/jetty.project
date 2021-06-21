@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -36,7 +36,7 @@ public class ClientUpgradeResponse extends UpgradeResponseAdapter
     {
         super();
     }
-    
+
     public ClientUpgradeResponse(HttpResponse response)
     {
         super();
@@ -46,7 +46,7 @@ public class ClientUpgradeResponse extends UpgradeResponseAdapter
         HttpFields fields = response.getHeaders();
         for (HttpField field : fields)
         {
-            addHeader(field.getName(),field.getValue());
+            addHeader(field.getName(), field.getValue());
         }
 
         HttpField extensionsField = fields.getField(HttpHeader.SEC_WEBSOCKET_EXTENSIONS);
@@ -54,7 +54,14 @@ public class ClientUpgradeResponse extends UpgradeResponseAdapter
             this.extensions = ExtensionConfig.parseList(extensionsField.getValues());
         setAcceptedSubProtocol(fields.get(HttpHeader.SEC_WEBSOCKET_SUBPROTOCOL));
     }
-    
+
+    @Override
+    public boolean isSuccess()
+    {
+        // If we reached this point, where we have a UpgradeResponse object, then the upgrade is a success.
+        return true;
+    }
+
     @Override
     public List<ExtensionConfig> getExtensions()
     {

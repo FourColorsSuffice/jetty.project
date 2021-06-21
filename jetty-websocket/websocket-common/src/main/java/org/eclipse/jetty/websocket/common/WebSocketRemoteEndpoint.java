@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,6 +21,7 @@ package org.eclipse.jetty.websocket.common;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.WritePendingException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -71,17 +72,19 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
 
     private static final Logger LOG = Log.getLogger(WebSocketRemoteEndpoint.class);
 
-    private final static int ASYNC_MASK = 0x0000FFFF;
-    private final static int BLOCK_MASK = 0x00010000;
-    private final static int STREAM_MASK = 0x00020000;
-    private final static int PARTIAL_TEXT_MASK = 0x00040000;
-    private final static int PARTIAL_BINARY_MASK = 0x00080000;
+    private static final int ASYNC_MASK = 0x0000FFFF;
+    private static final int BLOCK_MASK = 0x00010000;
+    private static final int STREAM_MASK = 0x00020000;
+    private static final int PARTIAL_TEXT_MASK = 0x00040000;
+    private static final int PARTIAL_BINARY_MASK = 0x00080000;
 
     private final LogicalConnection connection;
     private final OutgoingFrames outgoing;
     private final AtomicInteger msgState = new AtomicInteger();
     private final BlockingWriteCallback blocker = new BlockingWriteCallback();
+    private final AtomicInteger numOutgoingFrames = new AtomicInteger();
     private volatile BatchMode batchMode;
+    private int maxNumOutgoingFrames = -1;
 
     public WebSocketRemoteEndpoint(LogicalConnection connection, OutgoingFrames outgoing)
     {
@@ -101,7 +104,7 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
 
     private void blockingWrite(WebSocketFrame frame) throws IOException
     {
-        try(WriteBlocker b=blocker.acquireWriteBlocker())
+        try (WriteBlocker b = blocker.acquireWriteBlocker())
         {
             uncheckedSendFrame(frame, b);
             b.block();
@@ -211,7 +214,6 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
                     if (msgState.compareAndSet(PARTIAL_TEXT_MASK, 0))
                         return;
                     throw new IllegalStateException(String.format("Not Partial Text in state %x", state));
-
             }
         }
     }
@@ -221,9 +223,10 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
      *
      * @return the InetSocketAddress for the established connection. (or null, if the connection is no longer established)
      */
+    @Override
     public InetSocketAddress getInetSocketAddress()
     {
-        if(connection == null)
+        if (connection == null)
             return null;
         return connection.getRemoteAddress();
     }
@@ -250,7 +253,6 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
         lockMsg(MsgType.BLOCKING);
         try
         {
-            connection.getIOState().assertOutputOpen();
             if (LOG.isDebugEnabled())
             {
                 LOG.debug("sendBytes with {}", BufferUtil.toDetailString(data));
@@ -301,18 +303,23 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
 
     public void uncheckedSendFrame(WebSocketFrame frame, WriteCallback callback)
     {
-        try
+        BatchMode batchMode = BatchMode.OFF;
+        if (frame.isDataFrame())
+            batchMode = getBatchMode();
+
+        if (maxNumOutgoingFrames > 0 && frame.isDataFrame())
         {
-            BatchMode batchMode = BatchMode.OFF;
-            if (frame.isDataFrame())
-                batchMode = getBatchMode();
-            connection.getIOState().assertOutputOpen();
-            outgoing.outgoingFrame(frame, callback, batchMode);
+            // Increase the number of outgoing frames, will be decremented when callback is completed.
+            int outgoingFrames = numOutgoingFrames.incrementAndGet();
+            callback = from(callback, numOutgoingFrames::decrementAndGet);
+            if (outgoingFrames > maxNumOutgoingFrames)
+            {
+                callback.writeFailed(new WritePendingException());
+                return;
+            }
         }
-        catch (IOException e)
-        {
-            callback.writeFailed(e);
-        }
+
+        outgoing.outgoingFrame(frame, callback, batchMode);
     }
 
     @Override
@@ -449,6 +456,18 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
     }
 
     @Override
+    public int getMaxOutgoingFrames()
+    {
+        return maxNumOutgoingFrames;
+    }
+
+    @Override
+    public void setMaxOutgoingFrames(int maxOutgoingFrames)
+    {
+        this.maxNumOutgoingFrames = maxOutgoingFrames;
+    }
+
+    @Override
     public void flush() throws IOException
     {
         lockMsg(MsgType.ASYNC);
@@ -467,5 +486,37 @@ public class WebSocketRemoteEndpoint implements RemoteEndpoint
     public String toString()
     {
         return String.format("%s@%x[batching=%b]", getClass().getSimpleName(), hashCode(), getBatchMode());
+    }
+
+    private static WriteCallback from(WriteCallback callback, Runnable completed)
+    {
+        return new WriteCallback()
+        {
+            @Override
+            public void writeFailed(Throwable x)
+            {
+                try
+                {
+                    callback.writeFailed(x);
+                }
+                finally
+                {
+                    completed.run();
+                }
+            }
+
+            @Override
+            public void writeSuccess()
+            {
+                try
+                {
+                    callback.writeSuccess();
+                }
+                finally
+                {
+                    completed.run();
+                }
+            }
+        };
     }
 }

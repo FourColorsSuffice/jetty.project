@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,14 +22,14 @@ import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.test.support.TestableJettyServer;
 import org.eclipse.jetty.test.support.rawhttp.HttpSocket;
 import org.eclipse.jetty.test.support.rawhttp.HttpSocketImpl;
-import org.junit.BeforeClass;
+import org.junit.jupiter.api.BeforeAll;
 
 /**
  * Perform the RFC2616 tests against a server running with the Jetty NIO Connector and listening on standard HTTP.
  */
 public class RFC2616NIOHttpTest extends RFC2616BaseTest
 {
-    @BeforeClass
+    @BeforeAll
     public static void setupServer() throws Exception
     {
         TestableJettyServer server = new TestableJettyServer();

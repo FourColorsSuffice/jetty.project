@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,15 +22,13 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.api.AuthenticationStore;
@@ -50,12 +48,11 @@ import org.eclipse.jetty.util.TypeUtil;
  */
 public class DigestAuthentication extends AbstractAuthentication
 {
-    private static final Pattern PARAM_PATTERN = Pattern.compile("([^=]+)=(.*)");
-
+    private final Random random;
     private final String user;
     private final String password;
 
-    /**
+    /** Construct a DigestAuthentication with a {@link SecureRandom} nonce.
      * @param uri the URI to match for the authentication
      * @param realm the realm to match for the authentication
      * @param user the user that wants to authenticate
@@ -63,7 +60,21 @@ public class DigestAuthentication extends AbstractAuthentication
      */
     public DigestAuthentication(URI uri, String realm, String user, String password)
     {
+        this(uri, realm, user, password, new SecureRandom());
+    }
+
+    /**
+     * @param uri the URI to match for the authentication
+     * @param realm the realm to match for the authentication
+     * @param user the user that wants to authenticate
+     * @param password the password of the user
+     * @param random the Random generator to use for nonces.
+     */
+    public DigestAuthentication(URI uri, String realm, String user, String password, Random random)
+    {
         super(uri, realm);
+        Objects.requireNonNull(random);
+        this.random = random;
         this.user = user;
         this.password = password;
     }
@@ -75,9 +86,19 @@ public class DigestAuthentication extends AbstractAuthentication
     }
 
     @Override
+    public boolean matches(String type, URI uri, String realm)
+    {
+        // digest authenication requires a realm
+        if (realm == null)
+            return false;
+
+        return super.matches(type, uri, realm);
+    }
+
+    @Override
     public Result authenticate(Request request, ContentResponse response, HeaderInfo headerInfo, Attributes context)
     {
-        Map<String, String> params = parseParameters(headerInfo.getParameters());
+        Map<String, String> params = headerInfo.getParameters();
         String nonce = params.get("nonce");
         if (nonce == null || nonce.length() == 0)
             return null;
@@ -92,7 +113,7 @@ public class DigestAuthentication extends AbstractAuthentication
         String clientQOP = null;
         if (serverQOP != null)
         {
-            List<String> serverQOPValues = StringUtil.csvSplit(null,serverQOP,0,serverQOP.length());
+            List<String> serverQOPValues = StringUtil.csvSplit(null, serverQOP, 0, serverQOP.length());
             if (serverQOPValues.contains("auth"))
                 clientQOP = "auth";
             else if (serverQOPValues.contains("auth-int"))
@@ -103,58 +124,6 @@ public class DigestAuthentication extends AbstractAuthentication
         if (ANY_REALM.equals(realm))
             realm = headerInfo.getRealm();
         return new DigestResult(headerInfo.getHeader(), response.getContent(), realm, user, password, algorithm, nonce, clientQOP, opaque);
-    }
-
-    private Map<String, String> parseParameters(String wwwAuthenticate)
-    {
-        Map<String, String> result = new HashMap<>();
-        List<String> parts = splitParams(wwwAuthenticate);
-        for (String part : parts)
-        {
-            Matcher matcher = PARAM_PATTERN.matcher(part);
-            if (matcher.matches())
-            {
-                String name = matcher.group(1).trim().toLowerCase(Locale.ENGLISH);
-                String value = matcher.group(2).trim();
-                if (value.startsWith("\"") && value.endsWith("\""))
-                    value = value.substring(1, value.length() - 1);
-                result.put(name, value);
-            }
-        }
-        return result;
-    }
-
-    private List<String> splitParams(String paramString)
-    {
-        List<String> result = new ArrayList<>();
-        int start = 0;
-        for (int i = 0; i < paramString.length(); ++i)
-        {
-            int quotes = 0;
-            char ch = paramString.charAt(i);
-            switch (ch)
-            {
-                case '\\':
-                    ++i;
-                    break;
-                case '"':
-                    ++quotes;
-                    break;
-                case ',':
-                    if (quotes % 2 == 0)
-                    {
-                        String element = paramString.substring(start, i).trim();
-                        if (element.length() > 0)
-                            result.add(element);
-                        start = i + 1;
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-        result.add(paramString.substring(start, paramString.length()).trim());
-        return result;
     }
 
     private MessageDigest getMessageDigest(String algorithm)
@@ -208,31 +177,33 @@ public class DigestAuthentication extends AbstractAuthentication
             if (digester == null)
                 return;
 
-            String A1 = user + ":" + realm + ":" + password;
-            String hashA1 = toHexString(digester.digest(A1.getBytes(StandardCharsets.ISO_8859_1)));
+            String a1 = user + ":" + realm + ":" + password;
+            String hashA1 = toHexString(digester.digest(a1.getBytes(StandardCharsets.ISO_8859_1)));
 
-            URI uri = request.getURI();
-            String A2 = request.getMethod() + ":" + uri;
+            String query = request.getQuery();
+            String path = request.getPath();
+            String uri = (query == null) ? path : path + "?" + query;
+            String a2 = request.getMethod() + ":" + uri;
             if ("auth-int".equals(qop))
-                A2 += ":" + toHexString(digester.digest(content));
-            String hashA2 = toHexString(digester.digest(A2.getBytes(StandardCharsets.ISO_8859_1)));
+                a2 += ":" + toHexString(digester.digest(content));
+            String hashA2 = toHexString(digester.digest(a2.getBytes(StandardCharsets.ISO_8859_1)));
 
             String nonceCount;
             String clientNonce;
-            String A3;
+            String a3;
             if (qop != null)
             {
                 nonceCount = nextNonceCount();
                 clientNonce = newClientNonce();
-                A3 = hashA1 + ":" + nonce + ":" +  nonceCount + ":" + clientNonce + ":" + qop + ":" + hashA2;
+                a3 = hashA1 + ":" + nonce + ":" + nonceCount + ":" + clientNonce + ":" + qop + ":" + hashA2;
             }
             else
             {
                 nonceCount = null;
                 clientNonce = null;
-                A3 = hashA1 + ":" + nonce + ":" + hashA2;
+                a3 = hashA1 + ":" + nonce + ":" + hashA2;
             }
-            String hashA3 = toHexString(digester.digest(A3.getBytes(StandardCharsets.ISO_8859_1)));
+            String hashA3 = toHexString(digester.digest(a3.getBytes(StandardCharsets.ISO_8859_1)));
 
             StringBuilder value = new StringBuilder("Digest");
             value.append(" username=\"").append(user).append("\"");
@@ -262,7 +233,6 @@ public class DigestAuthentication extends AbstractAuthentication
 
         private String newClientNonce()
         {
-            Random random = new Random();
             byte[] bytes = new byte[8];
             random.nextBytes(bytes);
             return toHexString(bytes);

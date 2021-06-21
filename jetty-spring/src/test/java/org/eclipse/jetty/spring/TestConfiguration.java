@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,9 +20,9 @@ package org.eclipse.jetty.spring;
 
 import java.net.URL;
 
-import org.junit.Ignore;
+import org.junit.jupiter.api.Disabled;
 
-@Ignore
+@Disabled("Not a test case")
 public class TestConfiguration
 {
     public static int VALUE = 77;
@@ -37,7 +37,6 @@ public class TestConfiguration
     public URL url;
     public Object[] objArray;
     public int[] intArray;
-
 
     public static int getVALUE()
     {

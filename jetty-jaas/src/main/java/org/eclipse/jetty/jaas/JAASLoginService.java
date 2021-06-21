@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,62 +24,59 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
-
 import javax.security.auth.Subject;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.NameCallback;
-import javax.security.auth.callback.PasswordCallback;
 import javax.security.auth.callback.UnsupportedCallbackException;
+import javax.security.auth.login.Configuration;
+import javax.security.auth.login.FailedLoginException;
 import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
 import javax.servlet.ServletRequest;
 
-import org.eclipse.jetty.jaas.callback.ObjectCallback;
-import org.eclipse.jetty.jaas.callback.RequestParameterCallback;
+import org.eclipse.jetty.jaas.callback.DefaultCallbackHandler;
 import org.eclipse.jetty.security.DefaultIdentityService;
 import org.eclipse.jetty.security.IdentityService;
 import org.eclipse.jetty.security.LoginService;
+import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.UserIdentity;
+import org.eclipse.jetty.util.ArrayUtil;
 import org.eclipse.jetty.util.Loader;
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
-/* ---------------------------------------------------- */
-/** 
+/**
  * JAASLoginService
  *
+ *
+ * Implementation of jetty's LoginService that works with JAAS for
+ * authorization and authentication.
  */
-public class JAASLoginService extends AbstractLifeCycle implements LoginService
+public class JAASLoginService extends ContainerLifeCycle implements LoginService
 {
     private static final Logger LOG = Log.getLogger(JAASLoginService.class);
 
     public static final String DEFAULT_ROLE_CLASS_NAME = "org.eclipse.jetty.jaas.JAASRole";
     public static final String[] DEFAULT_ROLE_CLASS_NAMES = {DEFAULT_ROLE_CLASS_NAME};
-
+    public static final ThreadLocal<JAASLoginService> INSTANCE = new ThreadLocal<>();
+    
     protected String[] _roleClassNames = DEFAULT_ROLE_CLASS_NAMES;
     protected String _callbackHandlerClass;
     protected String _realmName;
     protected String _loginModuleName;
     protected JAASUserPrincipal _defaultUser = new JAASUserPrincipal(null, null, null);
     protected IdentityService _identityService;
+    protected Configuration _configuration;
 
-    /* ---------------------------------------------------- */
-    /**
-     * Constructor.
-     *
-     */
     public JAASLoginService()
     {
     }
 
-
-    /* ---------------------------------------------------- */
     /**
-     * Constructor.
-     *
      * @param name the name of the realm
      */
     public JAASLoginService(String name)
@@ -89,146 +86,135 @@ public class JAASLoginService extends AbstractLifeCycle implements LoginService
         _loginModuleName = name;
     }
 
-
-    /* ---------------------------------------------------- */
     /**
      * Get the name of the realm.
      *
      * @return name or null if not set.
      */
+    @Override
     public String getName()
     {
         return _realmName;
     }
 
-
-    /* ---------------------------------------------------- */
     /**
      * Set the name of the realm
      *
      * @param name a <code>String</code> value
      */
-    public void setName (String name)
+    public void setName(String name)
     {
         _realmName = name;
     }
 
-    /* ------------------------------------------------------------ */
-    /** Get the identityService.
+    /**
+     * @return the configuration
+     */
+    public Configuration getConfiguration()
+    {
+        return _configuration;
+    }
+
+    /**
+     * @param configuration the configuration to set
+     */
+    public void setConfiguration(Configuration configuration)
+    {
+        _configuration = configuration;
+    }
+
+    /**
+     * Get the identityService.
+     *
      * @return the identityService
      */
+    @Override
     public IdentityService getIdentityService()
     {
         return _identityService;
     }
 
-    /* ------------------------------------------------------------ */
-    /** Set the identityService.
+    /**
+     * Set the identityService.
+     *
      * @param identityService the identityService to set
      */
+    @Override
     public void setIdentityService(IdentityService identityService)
     {
         _identityService = identityService;
     }
 
-    /* ------------------------------------------------------------ */
     /**
      * Set the name to use to index into the config
      * file of LoginModules.
      *
      * @param name a <code>String</code> value
      */
-    public void setLoginModuleName (String name)
+    public void setLoginModuleName(String name)
     {
         _loginModuleName = name;
     }
 
-    /* ------------------------------------------------------------ */
-    public void setCallbackHandlerClass (String classname)
+    public void setCallbackHandlerClass(String classname)
     {
         _callbackHandlerClass = classname;
     }
 
-    /* ------------------------------------------------------------ */
-    public void setRoleClassNames (String[] classnames)
+    public void setRoleClassNames(String[] classnames)
     {
-        ArrayList<String> tmp = new ArrayList<String>();
+        if (classnames == null || classnames.length == 0)
+        {
+            _roleClassNames = DEFAULT_ROLE_CLASS_NAMES;
+            return;
+        }
 
-        if (classnames != null)
-            tmp.addAll(Arrays.asList(classnames));
-
-        if (!tmp.contains(DEFAULT_ROLE_CLASS_NAME))
-            tmp.add(DEFAULT_ROLE_CLASS_NAME);
-        _roleClassNames = tmp.toArray(new String[tmp.size()]);
+        _roleClassNames = ArrayUtil.addToArray(classnames, DEFAULT_ROLE_CLASS_NAME, String.class);
     }
 
-    /* ------------------------------------------------------------ */
     public String[] getRoleClassNames()
     {
         return _roleClassNames;
     }
 
-    /* ------------------------------------------------------------ */
-    /**
-     * @see org.eclipse.jetty.util.component.AbstractLifeCycle#doStart()
-     */
+    @Override
     protected void doStart() throws Exception
     {
-        if (_identityService==null)
-            _identityService=new DefaultIdentityService();
+        if (_identityService == null)
+            _identityService = new DefaultIdentityService();
+        addBean(new PropertyUserStoreManager());
         super.doStart();
     }
 
-    /* ------------------------------------------------------------ */
     @Override
-    public UserIdentity login(final String username,final Object credentials, final ServletRequest request)
+    public UserIdentity login(final String username, final Object credentials, final ServletRequest request)
     {
         try
         {
             CallbackHandler callbackHandler = null;
-
-
             if (_callbackHandlerClass == null)
-            {
-                callbackHandler = new CallbackHandler()
-                {
-                    public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException
-                    {
-                        for (Callback callback: callbacks)
-                        {
-                            if (callback instanceof NameCallback)
-                            {
-                                ((NameCallback)callback).setName(username);
-                            }
-                            else if (callback instanceof PasswordCallback)
-                            {
-                                ((PasswordCallback)callback).setPassword((char[]) credentials.toString().toCharArray());
-                            }
-                            else if (callback instanceof ObjectCallback)
-                            {
-                                ((ObjectCallback)callback).setObject(credentials);
-                            }
-                            else if (callback instanceof RequestParameterCallback)
-                            {
-                                RequestParameterCallback rpc = (RequestParameterCallback)callback;
-                                if (request!=null)
-                                    rpc.setParameterValues(Arrays.asList(request.getParameterValues(rpc.getParameterName())));
-                            }
-                            else
-                                throw new UnsupportedCallbackException(callback);
-                        }
-                    }
-                };
-            }
+                callbackHandler = new DefaultCallbackHandler();
             else
             {
                 Class<?> clazz = Loader.loadClass(_callbackHandlerClass);
-                callbackHandler = (CallbackHandler)clazz.newInstance();
+                callbackHandler = (CallbackHandler)clazz.getDeclaredConstructor().newInstance();
             }
+            
+            if (callbackHandler instanceof DefaultCallbackHandler)
+            {
+                DefaultCallbackHandler dch = (DefaultCallbackHandler)callbackHandler;
+                if (request instanceof Request)
+                    dch.setRequest((Request)request);
+                dch.setCredential(credentials);
+                dch.setUserName(username);
+            }
+
             //set up the login context
-            //TODO jaspi requires we provide the Configuration parameter
             Subject subject = new Subject();
-            LoginContext loginContext = new LoginContext(_loginModuleName, subject, callbackHandler);
+            INSTANCE.set(this);
+            LoginContext loginContext = 
+                (_configuration == null ? new LoginContext(_loginModuleName, subject, callbackHandler)
+                : new LoginContext(_loginModuleName, subject, callbackHandler, _configuration));
 
             loginContext.login();
 
@@ -236,51 +222,39 @@ public class JAASLoginService extends AbstractLifeCycle implements LoginService
             JAASUserPrincipal userPrincipal = new JAASUserPrincipal(getUserName(callbackHandler), subject, loginContext);
             subject.getPrincipals().add(userPrincipal);
 
-            return _identityService.newUserIdentity(subject,userPrincipal,getGroups(subject));
+            return _identityService.newUserIdentity(subject, userPrincipal, getGroups(subject));
         }
-        catch (LoginException e)
+        catch (FailedLoginException e)
         {
-            LOG.warn(e);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Login failed", e);
         }
-        catch (IOException e)
+        catch (Exception e)
         {
-            LOG.warn(e);
+            LOG.ignore(e);
         }
-        catch (UnsupportedCallbackException e)
+        finally
         {
-           LOG.warn(e);
-        }
-        catch (InstantiationException e)
-        {
-            LOG.warn(e);
-        }
-        catch (IllegalAccessException e)
-        {
-            LOG.warn(e);
-        }
-        catch (ClassNotFoundException e)
-        {
-            LOG.warn(e);
+            INSTANCE.remove();
         }
         return null;
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
     public boolean validate(UserIdentity user)
     {
         // TODO optionally check user is still valid
         return true;
     }
 
-    /* ------------------------------------------------------------ */
     private String getUserName(CallbackHandler callbackHandler) throws IOException, UnsupportedCallbackException
     {
         NameCallback nameCallback = new NameCallback("foo");
-        callbackHandler.handle(new Callback[] {nameCallback});
+        callbackHandler.handle(new Callback[]{nameCallback});
         return nameCallback.getName();
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
     public void logout(UserIdentity user)
     {
         Set<JAASUserPrincipal> userPrincipals = user.getSubject().getPrincipals(JAASUserPrincipal.class);
@@ -295,32 +269,45 @@ public class JAASLoginService extends AbstractLifeCycle implements LoginService
         }
     }
 
-
-    /* ------------------------------------------------------------ */
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private String[] getGroups (Subject subject)
+    /**
+     * Get all of the groups for the user.
+     *
+     * @param subject the Subject representing the user
+     * @return all the names of groups that the user is in, or 0 length array if none
+     */
+    protected String[] getGroups(Subject subject)
     {
-        //get all the roles of the various types
-        String[] roleClassNames = getRoleClassNames();
-        Collection<String> groups = new LinkedHashSet<String>();
-        try
+        Collection<String> groups = new LinkedHashSet<>();
+        for (Principal principal : subject.getPrincipals())
         {
-            for (String roleClassName : roleClassNames)
-            {
-                Class load_class = Thread.currentThread().getContextClassLoader().loadClass(roleClassName);
-                Set<Principal> rolesForType = subject.getPrincipals(load_class);
-                for (Principal principal : rolesForType)
-                {
-                    groups.add(principal.getName());
-                }
-            }
+            if (isRoleClass(principal.getClass(), Arrays.asList(getRoleClassNames())))
+                groups.add(principal.getName());
+        }
 
-            return groups.toArray(new String[groups.size()]);
-        }
-        catch (ClassNotFoundException e)
-        {
-            throw new RuntimeException(e);
-        }
+        return groups.toArray(new String[groups.size()]);
     }
-
+    
+    /**
+     * Check whether the class, its superclasses or any interfaces they implement
+     * is one of the classes that represents a role.
+     * 
+     * @param clazz the class to check
+     * @param roleClassNames the list of classnames that represent roles
+     * @return true if the class is a role class
+     */
+    private static boolean isRoleClass(Class<?> clazz, List<String> roleClassNames)
+    {
+        Class<?> c = clazz;
+        
+        //add the class, its interfaces and superclasses to the list to test
+        List<String> classnames = new ArrayList<>();
+        while (c != null)
+        {
+            classnames.add(c.getName());
+            Arrays.stream(c.getInterfaces()).map(Class::getName).forEach(classnames::add);
+            c = c.getSuperclass();
+        }
+        
+        return roleClassNames.stream().anyMatch(classnames::contains);
+    }
 }

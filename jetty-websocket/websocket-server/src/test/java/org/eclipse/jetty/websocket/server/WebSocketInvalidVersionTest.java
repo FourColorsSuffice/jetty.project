@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,56 +18,77 @@
 
 package org.eclipse.jetty.websocket.server;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.is;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import org.eclipse.jetty.http.HttpHeader;
+import org.eclipse.jetty.websocket.api.UpgradeException;
 import org.eclipse.jetty.websocket.common.test.BlockheadClient;
-import org.eclipse.jetty.websocket.common.test.HttpResponse;
+import org.eclipse.jetty.websocket.common.test.BlockheadClientRequest;
+import org.eclipse.jetty.websocket.common.test.BlockheadConnection;
+import org.eclipse.jetty.websocket.common.test.Timeouts;
 import org.eclipse.jetty.websocket.server.examples.MyEchoServlet;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class WebSocketInvalidVersionTest
 {
+    private static BlockheadClient client;
     private static SimpleServletServer server;
 
-    @BeforeClass
+    @BeforeAll
     public static void startServer() throws Exception
     {
         server = new SimpleServletServer(new MyEchoServlet());
         server.start();
     }
 
-    @AfterClass
+    @AfterAll
     public static void stopServer()
     {
         server.stop();
     }
 
+    @BeforeAll
+    public static void startClient() throws Exception
+    {
+        client = new BlockheadClient();
+        client.setIdleTimeout(TimeUnit.SECONDS.toMillis(2));
+        client.start();
+    }
+
+    @AfterAll
+    public static void stopClient() throws Exception
+    {
+        client.stop();
+    }
+
     /**
      * Test the requirement of responding with an http 400 when using a Sec-WebSocket-Version that is unsupported.
+     *
      * @throws Exception on test failure
      */
     @Test
     public void testRequestVersion29() throws Exception
     {
-        @SuppressWarnings("resource")
-        BlockheadClient client = new BlockheadClient(server.getServerUri());
-        client.setVersion(29); // intentionally bad version
-        try
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
+        // intentionally bad version
+        request.header(HttpHeader.SEC_WEBSOCKET_VERSION, "29");
+
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        ExecutionException x = assertThrows(ExecutionException.class, () ->
         {
-            client.connect();
-            client.sendStandardRequest();
-            HttpResponse response = client.readResponseHeader();
-            Assert.assertThat("Response Status Code",response.getStatusCode(),is(400));
-            Assert.assertThat("Response Status Reason",response.getStatusReason(),containsString("Unsupported websocket version specification"));
-            Assert.assertThat("Response Versions",response.getHeader("Sec-WebSocket-Version"),is("13"));
-        }
-        finally
-        {
-            client.disconnect();
-        }
+            connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT);
+        });
+        assertThat(x.getCause(), instanceOf(UpgradeException.class));
+        assertThat(x.getMessage(), containsString("400 "));
     }
 }

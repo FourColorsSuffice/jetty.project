@@ -1,3 +1,5 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Redirects JVMs console stderr and stdout to a log file,
 including output from Jetty's default StdErrLog logging.
@@ -16,7 +18,7 @@ resources/
 
 [ini-template]
 ## Logging directory (relative to $jetty.base)
-# jetty.console-capture.dir=logs
+# jetty.console-capture.dir=./logs
 
 ## Whether to append to existing file
 # jetty.console-capture.append=true

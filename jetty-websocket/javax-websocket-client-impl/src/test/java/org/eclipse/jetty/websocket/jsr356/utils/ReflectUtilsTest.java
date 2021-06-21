@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,12 @@
 
 package org.eclipse.jetty.websocket.jsr356.utils;
 
-import static org.hamcrest.Matchers.nullValue;
-
 import org.eclipse.jetty.websocket.common.util.ReflectUtils;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class ReflectUtilsTest
 {
@@ -38,15 +39,15 @@ public class ReflectUtilsTest
     {
     }
 
-    public static abstract class Apple<T extends Object> implements Fruit<T>, Color<String>
+    public abstract static class Apple<T extends Object> implements Fruit<T>, Color<String>
     {
     }
 
-    public static abstract class Cherry<A extends Object, B extends Number> implements Fruit<A>, Color<B>
+    public abstract static class Cherry<A extends Object, B extends Number> implements Fruit<A>, Color<B>
     {
     }
 
-    public static abstract class Banana implements Fruit<String>, Color<String>
+    public abstract static class Banana implements Fruit<String>, Color<String>
     {
     }
 
@@ -79,60 +80,60 @@ public class ReflectUtilsTest
     }
 
     @Test
-    public void testFindGeneric_PearFruit()
+    public void testFindGenericPearFruit()
     {
-        assertFindGenericClass(Pear.class,Fruit.class,String.class);
+        assertFindGenericClass(Pear.class, Fruit.class, String.class);
     }
 
     @Test
-    public void testFindGeneric_PizzaFruit()
+    public void testFindGenericPizzaFruit()
     {
-        assertFindGenericClass(Pizza.class,Fruit.class,Integer.class);
+        assertFindGenericClass(Pizza.class, Fruit.class, Integer.class);
     }
 
     @Test
-    public void testFindGeneric_KiwiFruit()
+    public void testFindGenericKiwiFruit()
     {
-        assertFindGenericClass(Kiwi.class,Fruit.class,Character.class);
+        assertFindGenericClass(Kiwi.class, Fruit.class, Character.class);
     }
 
     @Test
-    public void testFindGeneric_PearColor()
+    public void testFindGenericPearColor()
     {
-        assertFindGenericClass(Pear.class,Color.class,Double.class);
+        assertFindGenericClass(Pear.class, Color.class, Double.class);
     }
 
     @Test
-    public void testFindGeneric_GrannySmithFruit()
+    public void testFindGenericGrannySmithFruit()
     {
-        assertFindGenericClass(GrannySmith.class,Fruit.class,Long.class);
+        assertFindGenericClass(GrannySmith.class, Fruit.class, Long.class);
     }
 
     @Test
-    public void testFindGeneric_CavendishFruit()
+    public void testFindGenericCavendishFruit()
     {
-        assertFindGenericClass(Cavendish.class,Fruit.class,String.class);
+        assertFindGenericClass(Cavendish.class, Fruit.class, String.class);
     }
 
     @Test
-    public void testFindGeneric_RainierFruit()
+    public void testFindGenericRainierFruit()
     {
-        assertFindGenericClass(Rainier.class,Fruit.class,Short.class);
+        assertFindGenericClass(Rainier.class, Fruit.class, Short.class);
     }
 
     @Test
-    public void testFindGeneric_WashingtonFruit()
+    public void testFindGenericWashingtonFruit()
     {
         // Washington does not have a concrete implementation
         // of the Fruit interface, this should return null
-        Class<?> impl = ReflectUtils.findGenericClassFor(Washington.class,Fruit.class);
-        Assert.assertThat("Washington -> Fruit implementation",impl,nullValue());
+        Class<?> impl = ReflectUtils.findGenericClassFor(Washington.class, Fruit.class);
+        assertThat("Washington -> Fruit implementation", impl, nullValue());
     }
 
     private void assertFindGenericClass(Class<?> baseClass, Class<?> ifaceClass, Class<?> expectedClass)
     {
-        Class<?> foundClass = ReflectUtils.findGenericClassFor(baseClass,ifaceClass);
-        String msg = String.format("Expecting %s<%s> found on %s",ifaceClass.getName(),expectedClass.getName(),baseClass.getName());
-        Assert.assertEquals(msg,expectedClass,foundClass);
+        Class<?> foundClass = ReflectUtils.findGenericClassFor(baseClass, ifaceClass);
+        String msg = String.format("Expecting %s<%s> found on %s", ifaceClass.getName(), expectedClass.getName(), baseClass.getName());
+        assertEquals(expectedClass, foundClass, msg);
     }
 }

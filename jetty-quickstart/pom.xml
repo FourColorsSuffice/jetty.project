@@ -2,14 +2,13 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.eclipse.jetty</groupId>
   <artifactId>jetty-quickstart</artifactId>
   <name>Jetty :: Quick Start</name>
   <description>Jetty Quick Start</description>
-  <url>http://www.eclipse.org/jetty</url>
   <properties>
     <bundle-symbolic-name>${project.groupId}.quickstart</bundle-symbolic-name>
   </properties>
@@ -37,7 +36,6 @@
     <dependency>
       <groupId>javax.transaction</groupId>
       <artifactId>javax.transaction-api</artifactId>
-      <version>1.2</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
@@ -49,7 +47,6 @@
     <dependency>
       <groupId>org.eclipse.jetty.orbit</groupId>
       <artifactId>javax.mail.glassfish</artifactId>
-      <version>1.4.1.v201005082020</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -82,14 +79,13 @@
       <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
-      <dependency>
+    <dependency>
       <groupId>org.eclipse.jetty.toolchain</groupId>
       <artifactId>jetty-test-helper</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
   <build>
-    <plugins>
-    </plugins>
+    <plugins></plugins>
   </build>
 </project>

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,14 +18,7 @@
 
 package org.eclipse.jetty.server.session;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
 import java.io.IOException;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -38,30 +31,35 @@ import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.servlet.ServletContextHandler;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * RemoveSessionTest
  *
  * Test that invalidating a session does not return the session on the next request.
- * 
  */
 public class RemoveSessionTest
 {
-
 
     @Test
     public void testRemoveSession() throws Exception
     {
         String contextPath = "";
         String servletMapping = "/server";
-        
+
         DefaultSessionCacheFactory cacheFactory = new DefaultSessionCacheFactory();
+        cacheFactory.setFlushOnResponseCommit(true);
         cacheFactory.setEvictionPolicy(SessionCache.NEVER_EVICT);
         SessionDataStoreFactory storeFactory = new TestSessionDataStoreFactory();
-        
-        TestServer server = new TestServer(0, -1, -1,cacheFactory, storeFactory);
-        
+
+        TestServer server = new TestServer(0, -1, -1, cacheFactory, storeFactory);
+
         ServletContextHandler context = server.addContext(contextPath);
         context.addServlet(TestServlet.class, servletMapping);
         TestEventListener testListener = new TestEventListener();
@@ -77,38 +75,38 @@ public class RemoveSessionTest
             try
             {
                 ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping + "?action=create");
-                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+                assertEquals(HttpServletResponse.SC_OK, response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
-                //ensure sessionCreated listener is called
-                assertTrue (testListener.isCreated());
+
+                //ensure sessionCreated bindingListener is called
+                assertTrue(testListener.isCreated());
                 assertEquals(1, m.getSessionsCreated());
                 assertEquals(1, ((DefaultSessionCache)m.getSessionCache()).getSessionsMax());
                 assertEquals(1, ((DefaultSessionCache)m.getSessionCache()).getSessionsTotal());
-                
+
                 //now delete the session
                 Request request = client.newRequest("http://localhost:" + port + contextPath + servletMapping + "?action=delete");
-                request.header("Cookie", sessionCookie);
                 response = request.send();
-                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
-                //ensure sessionDestroyed listener is called
+                assertEquals(HttpServletResponse.SC_OK, response.getStatus());
+                //ensure sessionDestroyed bindingListener is called
                 assertTrue(testListener.isDestroyed());
                 assertEquals(0, ((DefaultSessionCache)m.getSessionCache()).getSessionsCurrent());
                 assertEquals(1, ((DefaultSessionCache)m.getSessionCache()).getSessionsMax());
                 assertEquals(1, ((DefaultSessionCache)m.getSessionCache()).getSessionsTotal());
                 
+                //check the session is no longer in the cache
+                assertFalse(((AbstractSessionCache)m.getSessionCache()).contains(TestServer.extractSessionId(sessionCookie)));
+
                 //check the session is not persisted any more
                 assertFalse(m.getSessionCache().getSessionDataStore().exists(TestServer.extractSessionId(sessionCookie)));
 
                 // The session is not there anymore, even if we present an old cookie
                 request = client.newRequest("http://localhost:" + port + contextPath + servletMapping + "?action=check");
-                request.header("Cookie", sessionCookie);
                 response = request.send();
-                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+                assertEquals(HttpServletResponse.SC_OK, response.getStatus());
                 assertEquals(0, ((DefaultSessionCache)m.getSessionCache()).getSessionsCurrent());
-                assertEquals(1,  ((DefaultSessionCache)m.getSessionCache()).getSessionsMax());
+                assertEquals(1, ((DefaultSessionCache)m.getSessionCache()).getSessionsMax());
                 assertEquals(1, ((DefaultSessionCache)m.getSessionCache()).getSessionsTotal());
             }
             finally
@@ -120,16 +118,19 @@ public class RemoveSessionTest
         {
             server.stop();
         }
-
     }
+
     public static class TestServlet extends HttpServlet
     {
+        private static final long serialVersionUID = 1L;
+
         protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
         {
             String action = request.getParameter("action");
             if ("create".equals(action))
             {
-                request.getSession(true);
+                HttpSession s = request.getSession(true);
+                s.setAttribute("foo", "bar");
             }
             else if ("delete".equals(action))
             {
@@ -141,8 +142,8 @@ public class RemoveSessionTest
             }
             else
             {
-               HttpSession s = request.getSession(false);
-               assertNull(s);
+                HttpSession s = request.getSession(false);
+                assertNull(s);
             }
         }
     }
@@ -152,14 +153,16 @@ public class RemoveSessionTest
         boolean wasCreated;
         boolean wasDestroyed;
 
+        @Override
         public void sessionCreated(HttpSessionEvent se)
         {
             wasCreated = true;
         }
 
+        @Override
         public void sessionDestroyed(HttpSessionEvent se)
         {
-           wasDestroyed = true;
+            wasDestroyed = true;
         }
 
         public boolean isDestroyed()
@@ -167,12 +170,9 @@ public class RemoveSessionTest
             return wasDestroyed;
         }
 
-
         public boolean isCreated()
         {
             return wasCreated;
         }
-
     }
-
 }

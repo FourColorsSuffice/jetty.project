@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -56,11 +56,12 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         public String version;
         public String type;
         public String classifier;
+        private String mavenRepoUri = DEFAULT_REMOTE_REPO;
 
         public String toPath()
         {
             StringBuilder pathlike = new StringBuilder();
-            pathlike.append(groupId.replace('.','/'));
+            pathlike.append(groupId.replace('.', '/'));
             pathlike.append('/').append(artifactId);
             pathlike.append('/').append(version);
             pathlike.append('/').append(artifactId);
@@ -75,23 +76,33 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
 
         public URI toCentralURI()
         {
-            return URI.create("http://central.maven.org/maven2/" + toPath());
+            return URI.create(mavenRepoUri + toPath());
         }
     }
 
+    private static final String DEFAULT_REMOTE_REPO = "https://repo1.maven.org/maven2/";
     private Path localRepositoryDir;
     private final boolean readonly;
+    private String mavenRepoUri;
 
     public MavenLocalRepoFileInitializer(BaseHome baseHome)
     {
-        this(baseHome,null,true);
+        this(baseHome, null, true);
     }
 
     public MavenLocalRepoFileInitializer(BaseHome baseHome, Path localRepoDir, boolean readonly)
     {
-        super(baseHome,"maven");
+        super(baseHome, "maven");
         this.localRepositoryDir = localRepoDir;
         this.readonly = readonly;
+    }
+
+    public MavenLocalRepoFileInitializer(BaseHome baseHome, Path localRepoDir, boolean readonly, String mavenRepoUri)
+    {
+        super(baseHome, "maven");
+        this.localRepositoryDir = localRepoDir;
+        this.readonly = readonly;
+        this.mavenRepoUri = mavenRepoUri;
     }
 
     @Override
@@ -104,31 +115,30 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
             return false;
         }
 
-        Path destination = getDestination(uri,location);
-        
+        Path destination = getDestination(uri, location);
+
         if (isFilePresent(destination))
             return false;
 
-        
         // If using local repository
         if (this.localRepositoryDir != null)
         {
             // Grab copy from local repository (download if needed to local
             // repository)
             Path localRepoFile = getLocalRepoFile(coords);
-            
-            if (localRepoFile!=null)
+
+            if (localRepoFile != null)
             {
                 if (FS.ensureDirectoryExists(destination.getParent()))
-                    StartLog.log("MKDIR",_basehome.toShortForm(destination.getParent()));
-                StartLog.log("COPY ","%s to %s",localRepoFile,_basehome.toShortForm(destination));
-                Files.copy(localRepoFile,destination);
+                    StartLog.log("MKDIR", _basehome.toShortForm(destination.getParent()));
+                StartLog.log("COPY ", "%s to %s", localRepoFile, _basehome.toShortForm(destination));
+                Files.copy(localRepoFile, destination);
                 return true;
             }
         }
 
         // normal non-local repo version
-        download(coords.toCentralURI(),destination);
+        download(coords.toCentralURI(), destination);
         return true;
     }
 
@@ -141,11 +151,23 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         // Download, if needed
         if (!readonly)
         {
-            download(coords.toCentralURI(),localFile);
+            download(coords.toCentralURI(), localFile);
             return localFile;
         }
-        
+
         return null;
+    }
+
+    public String getRemoteUri()
+    {
+        if (this.mavenRepoUri != null)
+        {
+            return this.mavenRepoUri;
+        }
+        else
+        {
+            return System.getProperty("maven.repo.uri", DEFAULT_REMOTE_REPO);
+        }
     }
 
     public Coordinates getCoordinates(URI uri)
@@ -162,15 +184,15 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
             ssp = ssp.substring(2);
         }
 
-        String parts[] = ssp.split("/");
+        String[] parts = ssp.split("/");
 
         if (StartLog.isDebugEnabled())
         {
-            StartLog.debug("ssp = %s",ssp);
-            StartLog.debug("parts = %d",parts.length);
+            StartLog.debug("ssp = %s", ssp);
+            StartLog.debug("parts = %d", parts.length);
             for (int i = 0; i < parts.length; i++)
             {
-                StartLog.debug("  part[%2d]: [%s]",i,parts[i]);
+                StartLog.debug("  part[%2d]: [%s]", i, parts[i]);
             }
         }
 
@@ -185,6 +207,7 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         coords.version = parts[2];
         coords.type = "jar";
         coords.classifier = null;
+        coords.mavenRepoUri = getRemoteUri();
 
         if (parts.length >= 4)
         {
@@ -200,5 +223,18 @@ public class MavenLocalRepoFileInitializer extends FileInitializer
         }
 
         return coords;
+    }
+
+    /**
+     * protected only for testing purpose
+     *
+     * @param uri the the uri to download
+     * @param destination the destination File
+     */
+    @Override
+    protected void download(URI uri, Path destination)
+        throws IOException
+    {
+        super.download(uri, destination);
     }
 }

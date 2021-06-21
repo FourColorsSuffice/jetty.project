@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,12 +18,7 @@
 
 package org.eclipse.jetty.jndi.java;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
-
 import java.util.Hashtable;
-
 import javax.naming.Context;
 import javax.naming.InitialContext;
 import javax.naming.Name;
@@ -37,8 +32,12 @@ import javax.naming.StringRefAddr;
 import javax.naming.spi.ObjectFactory;
 
 import org.eclipse.jetty.jndi.NamingUtil;
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  *
@@ -51,11 +50,12 @@ public class TestLocalJNDI
         {
         }
 
+        @Override
         public Object getObjectInstance(Object obj, Name name, Context ctx, Hashtable env) throws Exception
         {
 
             if (!env.containsKey("flavour"))
-                throw new Exception ("No flavour!");
+                throw new Exception("No flavour!");
 
             if (obj instanceof Reference)
             {
@@ -70,9 +70,8 @@ public class TestLocalJNDI
                 }
             }
             return null;
-         }
+        }
     }
-
 
     public static class Fruit implements Referenceable
     {
@@ -83,6 +82,7 @@ public class TestLocalJNDI
             fruit = f;
         }
 
+        @Override
         public Reference getReference() throws NamingException
         {
             return new Reference(
@@ -92,31 +92,24 @@ public class TestLocalJNDI
                 null);          // Factory location
         }
 
+        @Override
         public String toString()
         {
             return fruit;
         }
     }
 
-
-
-
-
-
-
-
-    @After
+    @AfterEach
     public void tearDown() throws Exception
     {
         InitialContext ic = new InitialContext();
         ic.destroySubcontext("a");
     }
 
-
     @Test
     public void testLocalReferenceable() throws Exception
     {
-        Hashtable<String,String> env1 = new Hashtable<String,String>();
+        Hashtable<String, String> env1 = new Hashtable<String, String>();
         env1.put("flavour", "orange");
         InitialContext ic1 = new InitialContext(env1);
 
@@ -124,7 +117,7 @@ public class TestLocalJNDI
 
         Object o = ic1.lookup("valencia");
 
-        Hashtable<String,String> env2 = new Hashtable<String,String>();
+        Hashtable<String, String> env2 = new Hashtable<String, String>();
         InitialContext ic2 = new InitialContext(env2);
         try
         {
@@ -137,11 +130,10 @@ public class TestLocalJNDI
         }
     }
 
-
     @Test
     public void testLocalEnvironment() throws Exception
     {
-        Hashtable<String,String> env1 = new Hashtable<String,String>();
+        Hashtable<String, String> env1 = new Hashtable<String, String>();
         env1.put("make", "holden");
         env1.put("model", "commodore");
 
@@ -159,7 +151,7 @@ public class TestLocalJNDI
         assertEquals("holden", ht.get("make"));
         assertEquals("commodore", ht.get("model"));
 
-        Hashtable<String,String> env2 = new Hashtable<String,String>();
+        Hashtable<String, String> env2 = new Hashtable<String, String>();
         env2.put("flavour", "strawberry");
         InitialContext ic2 = new InitialContext(env2);
         assertEquals(car1, ic2.lookup("car1"));
@@ -185,14 +177,10 @@ public class TestLocalJNDI
         c = (Context)ic.lookup("carz/hatchbackz");
         assertNotNull(c);
         assertEquals(hatchbackz, c);
-
     }
 
-
-
-
     @Test
-    public void testLocal () throws Exception
+    public void testLocal() throws Exception
     {
         InitialContext ic = new InitialContext();
         NameParser parser = ic.getNameParser("");

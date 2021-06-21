@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,8 +20,10 @@ package org.eclipse.jetty.http2.server;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
@@ -87,67 +89,166 @@ public class HttpTransportOverHTTP2 implements HttpTransport
     @Override
     public void send(MetaData.Response info, boolean isHeadRequest, ByteBuffer content, boolean lastContent, Callback callback)
     {
-        boolean hasContent = BufferUtil.hasContent(content) && !isHeadRequest;
         if (info != null)
+            sendHeaders(info, content, lastContent, isHeadRequest, callback);
+        else
+            sendContent(content, lastContent, isHeadRequest, callback);
+    }
+
+    private void sendHeaders(MetaData.Response info, ByteBuffer content, boolean lastContent, boolean isHeadRequest, Callback callback)
+    {
+        metaData = info;
+
+        HeadersFrame headersFrame;
+        DataFrame dataFrame = null;
+        HeadersFrame trailersFrame = null;
+
+        boolean hasContent = BufferUtil.hasContent(content) && !isHeadRequest;
+        int status = info.getStatus();
+        boolean interimResponse = status == HttpStatus.CONTINUE_100 || status == HttpStatus.PROCESSING_102;
+        if (interimResponse)
         {
-            metaData = info;
-
-            int status = info.getStatus();
-            boolean informational = HttpStatus.isInformational(status) && status != HttpStatus.SWITCHING_PROTOCOLS_101;
-            if (informational)
+            // Must not commit interim responses.
+            if (hasContent)
             {
-                if (transportCallback.start(callback, false))
-                    sendHeaders(info, false, transportCallback);
+                callback.failed(new IllegalStateException("Interim response cannot have content"));
+                return;
             }
-            else
+            headersFrame = new HeadersFrame(stream.getId(), info, null, false);
+        }
+        else
+        {
+            if (commit.compareAndSet(false, true))
             {
-                boolean needsCommit = commit.compareAndSet(false, true);
-                if (needsCommit)
+                if (lastContent)
                 {
-                    Supplier<HttpFields> trailers = info.getTrailerSupplier();
-
-                    if (hasContent)
+                    long realContentLength = BufferUtil.length(content);
+                    long contentLength = info.getContentLength();
+                    if (contentLength < 0)
                     {
-                        Callback nested = trailers == null || !lastContent ? callback : new SendTrailers(callback);
-                        Callback commitCallback = new Callback.Nested(nested)
+                        info.setContentLength(realContentLength);
+                    }
+                    else if (hasContent && contentLength != realContentLength)
+                    {
+                        callback.failed(new BadMessageException(HttpStatus.INTERNAL_SERVER_ERROR_500, String.format("Incorrect Content-Length %d!=%d", contentLength, realContentLength)));
+                        return;
+                    }
+                }
+
+                if (hasContent)
+                {
+                    headersFrame = new HeadersFrame(stream.getId(), info, null, false);
+                    if (lastContent)
+                    {
+                        HttpFields trailers = retrieveTrailers();
+                        if (trailers == null)
                         {
-                            @Override
-                            public void succeeded()
-                            {
-                                if (transportCallback.start(nested, false))
-                                    sendContent(content, lastContent, trailers == null && lastContent, transportCallback);
-                            }
-                        };
-                        if (transportCallback.start(commitCallback, true))
-                            sendHeaders(info, false, transportCallback);
+                            dataFrame = new DataFrame(stream.getId(), content, true);
+                        }
+                        else
+                        {
+                            dataFrame = new DataFrame(stream.getId(), content, false);
+                            trailersFrame = new HeadersFrame(stream.getId(), new MetaData(HttpVersion.HTTP_2, trailers), null, true);
+                        }
                     }
                     else
                     {
-                        Callback nested = trailers == null ? callback : new SendTrailers(callback);
-                        if (transportCallback.start(nested, true))
-                            sendHeaders(info, trailers == null && lastContent, transportCallback);
+                        dataFrame = new DataFrame(stream.getId(), content, false);
                     }
                 }
                 else
                 {
-                    callback.failed(new IllegalStateException("committed"));
+                    if (lastContent)
+                    {
+                        HttpFields trailers = retrieveTrailers();
+                        if (trailers == null)
+                        {
+                            headersFrame = new HeadersFrame(stream.getId(), info, null, true);
+                        }
+                        else
+                        {
+                            headersFrame = new HeadersFrame(stream.getId(), info, null, false);
+                            trailersFrame = new HeadersFrame(stream.getId(), new MetaData(HttpVersion.HTTP_2, trailers), null, true);
+                        }
+                    }
+                    else
+                    {
+                        headersFrame = new HeadersFrame(stream.getId(), info, null, false);
+                    }
                 }
+            }
+            else
+            {
+                callback.failed(new IllegalStateException("Response already committed"));
+                return;
+            }
+        }
+
+        HeadersFrame hf = headersFrame;
+        DataFrame df = dataFrame;
+        HeadersFrame tf = trailersFrame;
+
+        transportCallback.send(callback, true, c ->
+        {
+            if (LOG.isDebugEnabled())
+            {
+                LOG.debug("HTTP2 Response #{}/{}:{}{} {}{}{}",
+                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
+                    System.lineSeparator(), HttpVersion.HTTP_2, info.getStatus(),
+                    System.lineSeparator(), info.getFields());
+            }
+            stream.send(new IStream.FrameList(hf, df, tf), c);
+        });
+    }
+
+    private void sendContent(ByteBuffer content, boolean lastContent, boolean isHeadRequest, Callback callback)
+    {
+        boolean hasContent = BufferUtil.hasContent(content) && !isHeadRequest;
+        if (hasContent || lastContent)
+        {
+            if (lastContent)
+            {
+                HttpFields trailers = retrieveTrailers();
+                if (trailers == null)
+                {
+                    transportCallback.send(callback, false, c ->
+                        sendDataFrame(content, true, true, c));
+                }
+                else
+                {
+                    SendTrailers sendTrailers = new SendTrailers(callback, trailers);
+                    if (hasContent)
+                    {
+                        transportCallback.send(sendTrailers, false, c ->
+                            sendDataFrame(content, true, false, c));
+                    }
+                    else
+                    {
+                        sendTrailers.succeeded();
+                    }
+                }
+            }
+            else
+            {
+                transportCallback.send(callback, false, c ->
+                    sendDataFrame(content, false, false, c));
             }
         }
         else
         {
-            if (hasContent || lastContent)
-            {
-                Supplier<HttpFields> trailers = metaData.getTrailerSupplier();
-                Callback nested = trailers == null ? callback : new SendTrailers(callback);
-                if (transportCallback.start(nested, false))
-                    sendContent(content, lastContent, trailers == null && lastContent, transportCallback);
-            }
-            else
-            {
-                callback.succeeded();
-            }
+            callback.succeeded();
         }
+    }
+
+    private HttpFields retrieveTrailers()
+    {
+        Supplier<HttpFields> supplier = metaData.getTrailerSupplier();
+        if (supplier == null)
+            return null;
+        HttpFields trailers = supplier.get();
+        if (trailers == null)
+            return null;
+        return trailers.size() == 0 ? null : trailers;
     }
 
     @Override
@@ -169,7 +270,7 @@ public class HttpTransportOverHTTP2 implements HttpTransport
         if (LOG.isDebugEnabled())
             LOG.debug("HTTP/2 Push {}", request);
 
-        stream.push(new PushPromiseFrame(stream.getId(), 0, request), new Promise<Stream>()
+        stream.push(new PushPromiseFrame(stream.getId(), request), new Promise<Stream>()
         {
             @Override
             public void succeeded(Stream pushStream)
@@ -186,38 +287,24 @@ public class HttpTransportOverHTTP2 implements HttpTransport
         }, new Stream.Listener.Adapter()); // TODO: handle reset from the client ?
     }
 
-    private void sendHeaders(MetaData.Response info, boolean endStream, Callback callback)
-    {
-        if (LOG.isDebugEnabled())
-        {
-            LOG.debug("HTTP2 Response #{}/{}:{}{} {}{}{}",
-                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
-                    System.lineSeparator(), HttpVersion.HTTP_2, info.getStatus(),
-                    System.lineSeparator(), info.getFields());
-        }
-
-        HeadersFrame frame = new HeadersFrame(stream.getId(), info, null, endStream);
-        stream.headers(frame, callback);
-    }
-
-    private void sendContent(ByteBuffer content, boolean lastContent, boolean endStream, Callback callback)
+    private void sendDataFrame(ByteBuffer content, boolean lastContent, boolean endStream, Callback callback)
     {
         if (LOG.isDebugEnabled())
         {
             LOG.debug("HTTP2 Response #{}/{}: {} content bytes{}",
-                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
-                    content.remaining(), lastContent ? " (last chunk)" : "");
+                stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
+                content.remaining(), lastContent ? " (last chunk)" : "");
         }
         DataFrame frame = new DataFrame(stream.getId(), content, endStream);
         stream.data(frame, callback);
     }
 
-    private void sendTrailers(MetaData metaData, Callback callback)
+    private void sendTrailersFrame(MetaData metaData, Callback callback)
     {
         if (LOG.isDebugEnabled())
         {
             LOG.debug("HTTP2 Response #{}/{}: trailers",
-                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()));
+                stream.getId(), Integer.toHexString(stream.getSession().hashCode()));
         }
 
         HeadersFrame frame = new HeadersFrame(stream.getId(), metaData, null, true);
@@ -226,12 +313,12 @@ public class HttpTransportOverHTTP2 implements HttpTransport
 
     public void onStreamFailure(Throwable failure)
     {
-        transportCallback.failed(failure);
+        transportCallback.abort(failure);
     }
 
     public boolean onStreamTimeout(Throwable failure)
     {
-        return transportCallback.onIdleTimeout(failure);
+        return transportCallback.idleTimeout(failure);
     }
 
     @Override
@@ -248,7 +335,7 @@ public class HttpTransportOverHTTP2 implements HttpTransport
 
         // Consume the existing queued data frames to
         // avoid stalling the session flow control.
-        HttpChannelOverHTTP2 channel = (HttpChannelOverHTTP2)stream.getAttribute(IStream.CHANNEL_ATTRIBUTE);
+        HttpChannelOverHTTP2 channel = (HttpChannelOverHTTP2)stream.getAttachment();
         if (channel != null)
             channel.consumeInput();
     }
@@ -259,86 +346,149 @@ public class HttpTransportOverHTTP2 implements HttpTransport
         IStream stream = this.stream;
         if (LOG.isDebugEnabled())
             LOG.debug("HTTP2 Response #{}/{} aborted", stream == null ? -1 : stream.getId(),
-                    stream == null ? -1 : Integer.toHexString(stream.getSession().hashCode()));
+                stream == null ? -1 : Integer.toHexString(stream.getSession().hashCode()));
         if (stream != null)
-            stream.reset(new ResetFrame(stream.getId(), ErrorCode.INTERNAL_ERROR.code), Callback.NOOP);
+            stream.reset(new ResetFrame(stream.getId(), ErrorCode.CANCEL_STREAM_ERROR.code), Callback.NOOP);
     }
 
+    /**
+     * <p>Callback that controls sends initiated by the transport, by eventually
+     * notifying a nested callback.</p>
+     * <p>There are 3 sources of concurrency after a send is initiated:</p>
+     * <ul>
+     *   <li>the completion of the send operation, either success or failure</li>
+     *   <li>an asynchronous failure coming from the read side such as a stream
+     *   being reset, or the connection being closed</li>
+     *   <li>an asynchronous idle timeout</li>
+     * </ul>
+     *
+     * @see State
+     */
     private class TransportCallback implements Callback
     {
-        private State state = State.IDLE;
-        private Callback callback;
-        private Throwable failure;
-        private boolean commit;
+        private State _state = State.IDLE;
+        private Callback _callback;
+        private boolean _commit;
+        private Throwable _failure;
 
-        public boolean start(Callback callback, boolean commit)
+        private void reset(Throwable failure)
         {
-            State state;
-            Throwable failure;
+            assert Thread.holdsLock(this);
+            _state = failure != null ? State.FAILED : State.IDLE;
+            _callback = null;
+            _commit = false;
+            _failure = failure;
+        }
+
+        private void send(Callback callback, boolean commit, Consumer<Callback> sendFrame)
+        {
+            Throwable failure = sending(callback, commit);
+            if (failure == null)
+                sendFrame.accept(this);
+            else
+                callback.failed(failure);
+        }
+
+        private void abort(Throwable failure)
+        {
+            failed(failure);
+        }
+
+        private Throwable sending(Callback callback, boolean commit)
+        {
             synchronized (this)
             {
-                state = this.state;
-                failure = this.failure;
-                if (state == State.IDLE)
+                switch (_state)
                 {
-                    this.state = State.WRITING;
-                    this.callback = callback;
-                    this.commit = commit;
-                    return true;
+                    case IDLE:
+                    {
+                        _state = State.SENDING;
+                        _callback = callback;
+                        _commit = commit;
+                        return null;
+                    }
+                    case FAILED:
+                    {
+                        return _failure;
+                    }
+                    default:
+                    {
+                        return new IllegalStateException("Invalid transport state: " + _state);
+                    }
                 }
             }
-            if (failure == null)
-                failure = new IllegalStateException("Invalid transport state: " + state);
-            callback.failed(failure);
-            return false;
         }
 
         @Override
         public void succeeded()
         {
+            Callback callback;
             boolean commit;
-            Callback callback = null;
             synchronized (this)
             {
-                commit = this.commit;
-                if (state == State.WRITING)
+                if (_state != State.SENDING)
                 {
-                    callback = this.callback;
-                    this.callback = null;
-                    this.state = State.IDLE;
+                    // This thread lost the race to succeed the current
+                    // send, as other threads likely already failed it.
+                    return;
                 }
+                callback = _callback;
+                commit = _commit;
+                reset(null);
             }
             if (LOG.isDebugEnabled())
-                LOG.debug("HTTP2 Response #{}/{} {} {}",
-                        stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
-                        commit ? "commit" : "flush",
-                        callback == null ? "failure" : "success");
-            if (callback != null)
-                callback.succeeded();
+                LOG.debug("HTTP2 Response #{}/{} {} success",
+                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
+                    commit ? "commit" : "flush");
+            callback.succeeded();
         }
 
         @Override
         public void failed(Throwable failure)
         {
+            Callback callback;
             boolean commit;
+            synchronized (this)
+            {
+                if (_state != State.SENDING)
+                {
+                    reset(failure);
+                    return;
+                }
+                callback = _callback;
+                commit = _commit;
+                reset(failure);
+            }
+            if (LOG.isDebugEnabled())
+                LOG.debug("HTTP2 Response #{}/{} {} failure",
+                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
+                    commit ? "commit" : "flush",
+                    failure);
+            callback.failed(failure);
+        }
+
+        private boolean idleTimeout(Throwable failure)
+        {
             Callback callback = null;
             synchronized (this)
             {
-                commit = this.commit;
-                // Only fail pending writes, as we
-                // may need to write an error page.
-                if (state == State.WRITING)
+                // Ignore idle timeouts if not writing,
+                // as the application may be suspended.
+                if (_state == State.SENDING)
                 {
-                    this.state = State.FAILED;
-                    callback = this.callback;
-                    this.callback = null;
-                    this.failure = failure;
+                    callback = _callback;
+                    reset(failure);
                 }
             }
+            boolean timeout = callback != null;
             if (LOG.isDebugEnabled())
-                LOG.debug(String.format("HTTP2 Response #%d/%h failed to %s", stream.getId(), stream.getSession(), commit ? "commit" : "flush"), failure);
-            if (callback != null)
+                LOG.debug("HTTP2 Response #{}/{} idle timeout {}",
+                    stream.getId(), Integer.toHexString(stream.getSession().hashCode()),
+                    timeout ? "expired" : "ignored",
+                    failure);
+            if (timeout)
                 callback.failed(failure);
+            return timeout;
         }
 
         @Override
@@ -347,53 +497,48 @@ public class HttpTransportOverHTTP2 implements HttpTransport
             Callback callback;
             synchronized (this)
             {
-                callback = this.callback;
+                callback = _callback;
             }
             return callback != null ? callback.getInvocationType() : Callback.super.getInvocationType();
         }
-
-        private boolean onIdleTimeout(Throwable failure)
-        {
-            boolean result;
-            Callback callback = null;
-            synchronized (this)
-            {
-                // Ignore idle timeouts if not writing,
-                // as the application may be suspended.
-                result = state == State.WRITING;
-                if (result)
-                {
-                    this.state = State.TIMEOUT;
-                    callback = this.callback;
-                    this.callback = null;
-                    this.failure = failure;
-                }
-            }
-            if (LOG.isDebugEnabled())
-                LOG.debug(String.format("HTTP2 Response #%d/%h idle timeout", stream.getId(), stream.getSession()), failure);
-            if (result)
-                callback.failed(failure);
-            return result;
-        }
     }
 
+    /**
+     * <p>Send states for {@link TransportCallback}.</p>
+     *
+     * @see TransportCallback
+     */
     private enum State
     {
-        IDLE, WRITING, FAILED, TIMEOUT
+        /**
+         * <p>No send initiated or in progress.</p>
+         */
+        IDLE,
+        /**
+         * <p>A send is initiated and possibly in progress.</p>
+         */
+        SENDING,
+        /**
+         * <p>The terminal state indicating failure of the send.</p>
+         */
+        FAILED
     }
 
     private class SendTrailers extends Callback.Nested
     {
-        private SendTrailers(Callback callback)
+        private final HttpFields trailers;
+
+        private SendTrailers(Callback callback, HttpFields trailers)
         {
             super(callback);
+            this.trailers = trailers;
         }
 
         @Override
         public void succeeded()
         {
-            if (transportCallback.start(getCallback(), false))
-                sendTrailers(new MetaData(HttpVersion.HTTP_2, metaData.getTrailerSupplier().get()), transportCallback);
+            transportCallback.send(getCallback(), false, c ->
+                sendTrailersFrame(new MetaData(HttpVersion.HTTP_2, trailers), c));
         }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,7 @@
 
 package org.eclipse.jetty.server.session;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import java.io.IOException;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -34,12 +30,14 @@ import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * ClientCrossContextSessionTest
- * 
+ *
  * Test that a client can create a session on one context and
  * then re-use that session id on a request to another context,
  * but the session contents are separate on each.
@@ -53,13 +51,13 @@ public class ClientCrossContextSessionTest
         String contextA = "/contextA";
         String contextB = "/contextB";
         String servletMapping = "/server";
-        
+
         DefaultSessionCacheFactory cacheFactory = new DefaultSessionCacheFactory();
         cacheFactory.setEvictionPolicy(SessionCache.NEVER_EVICT);
         SessionDataStoreFactory storeFactory = new NullSessionDataStoreFactory();
-        
-        TestServer server = new TestServer(0, TestServer.DEFAULT_MAX_INACTIVE,  TestServer.DEFAULT_SCAVENGE_SEC, 
-                                                           cacheFactory, storeFactory);
+
+        TestServer server = new TestServer(0, TestServer.DEFAULT_MAX_INACTIVE, TestServer.DEFAULT_SCAVENGE_SEC,
+            cacheFactory, storeFactory);
         TestServletA servletA = new TestServletA();
         ServletHolder holderA = new ServletHolder(servletA);
         ServletContextHandler ctxA = server.addContext(contextA);
@@ -73,7 +71,7 @@ public class ClientCrossContextSessionTest
         {
             server.start();
             int port = server.getPort();
-            
+
             HttpClient client = new HttpClient();
             client.start();
             try
@@ -81,17 +79,16 @@ public class ClientCrossContextSessionTest
                 // Perform a request to contextA
                 ContentResponse response = client.GET("http://localhost:" + port + contextA + servletMapping);
 
-                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+                assertEquals(HttpServletResponse.SC_OK, response.getStatus());
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
+                String sessionId = TestServer.extractSessionId(sessionCookie);
 
                 // Perform a request to contextB with the same session cookie
                 Request request = client.newRequest("http://localhost:" + port + contextB + servletMapping);
-                request.header("Cookie", sessionCookie);
+                request.header("Cookie", "JSESSIONID=" + sessionId);
                 ContentResponse responseB = request.send();
-                assertEquals(HttpServletResponse.SC_OK,responseB.getStatus());
+                assertEquals(HttpServletResponse.SC_OK, responseB.getStatus());
                 assertEquals(servletA.sessionId, servletB.sessionId);
             }
             finally
@@ -107,6 +104,7 @@ public class ClientCrossContextSessionTest
 
     public static class TestServletA extends HttpServlet
     {
+        private static final long serialVersionUID = 1L;
         public String sessionId;
 
         @Override
@@ -130,6 +128,7 @@ public class ClientCrossContextSessionTest
 
     public static class TestServletB extends HttpServlet
     {
+        private static final long serialVersionUID = 1L;
         public String sessionId;
 
         @Override
@@ -141,8 +140,6 @@ public class ClientCrossContextSessionTest
 
             sessionId = session.getId();
 
-
-
             // Add something to the session
             session.setAttribute("B", "B");
 
@@ -151,6 +148,4 @@ public class ClientCrossContextSessionTest
             assertTrue(objectA == null);
         }
     }
-
- 
 }

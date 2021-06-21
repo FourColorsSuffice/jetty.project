@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,11 @@
 
 package org.eclipse.jetty.websocket.common.extensions;
 
-import static org.hamcrest.Matchers.is;
-
 import java.util.ArrayList;
 import java.util.List;
 
+import org.eclipse.jetty.io.ByteBufferPool;
+import org.eclipse.jetty.io.MappedByteBufferPool;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
@@ -31,17 +31,17 @@ import org.eclipse.jetty.websocket.api.extensions.ExtensionConfig;
 import org.eclipse.jetty.websocket.common.extensions.identity.IdentityExtension;
 import org.eclipse.jetty.websocket.common.scopes.SimpleContainerScope;
 import org.eclipse.jetty.websocket.common.scopes.WebSocketContainerScope;
-import org.eclipse.jetty.websocket.common.test.LeakTrackingBufferPoolRule;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class ExtensionStackTest
 {
     private static final Logger LOG = Log.getLogger(ExtensionStackTest.class);
-    
-    @Rule
-    public LeakTrackingBufferPoolRule bufferPool = new LeakTrackingBufferPoolRule("Test");
+
+    public ByteBufferPool bufferPool = new MappedByteBufferPool();
 
     @SuppressWarnings("unchecked")
     private <T> T assertIsExtension(String msg, Object obj, Class<T> clazz)
@@ -50,15 +50,15 @@ public class ExtensionStackTest
         {
             return (T)obj;
         }
-        Assert.assertEquals("Expected " + msg + " class",clazz.getName(),obj.getClass().getName());
+        assertEquals(clazz.getName(), obj.getClass().getName(), "Expected " + msg + " class");
         return null;
     }
 
     private ExtensionStack createExtensionStack()
     {
         WebSocketPolicy policy = WebSocketPolicy.newClientPolicy();
-        WebSocketContainerScope container = new SimpleContainerScope(policy,bufferPool);
-        
+        WebSocketContainerScope container = new SimpleContainerScope(policy, bufferPool);
+
         WebSocketExtensionFactory factory = new WebSocketExtensionFactory(container);
         return new ExtensionStack(factory);
     }
@@ -84,12 +84,12 @@ public class ExtensionStackTest
             stack.start();
 
             // Dump
-            LOG.debug("{}",stack.dump());
+            LOG.debug("{}", stack.dump());
 
             // Should be no change to handlers
-            Extension actualIncomingExtension = assertIsExtension("Incoming",stack.getNextIncoming(),IdentityExtension.class);
-            Extension actualOutgoingExtension = assertIsExtension("Outgoing",stack.getNextOutgoing(),IdentityExtension.class);
-            Assert.assertEquals(actualIncomingExtension,actualOutgoingExtension);
+            Extension actualIncomingExtension = assertIsExtension("Incoming", stack.getNextIncoming(), IdentityExtension.class);
+            Extension actualOutgoingExtension = assertIsExtension("Outgoing", stack.getNextOutgoing(), IdentityExtension.class);
+            assertEquals(actualIncomingExtension, actualOutgoingExtension);
         }
         finally
         {
@@ -119,14 +119,14 @@ public class ExtensionStackTest
             stack.start();
 
             // Dump
-            LOG.debug("{}",stack.dump());
+            LOG.debug("{}", stack.dump());
 
             // Should be no change to handlers
-            IdentityExtension actualIncomingExtension = assertIsExtension("Incoming",stack.getNextIncoming(),IdentityExtension.class);
-            IdentityExtension actualOutgoingExtension = assertIsExtension("Outgoing",stack.getNextOutgoing(),IdentityExtension.class);
+            IdentityExtension actualIncomingExtension = assertIsExtension("Incoming", stack.getNextIncoming(), IdentityExtension.class);
+            IdentityExtension actualOutgoingExtension = assertIsExtension("Outgoing", stack.getNextOutgoing(), IdentityExtension.class);
 
-            Assert.assertThat("Incoming[identity].id",actualIncomingExtension.getParam("id"),is("A"));
-            Assert.assertThat("Outgoing[identity].id",actualOutgoingExtension.getParam("id"),is("B"));
+            assertThat("Incoming[identity].id", actualIncomingExtension.getParam("id"), is("A"));
+            assertThat("Outgoing[identity].id", actualOutgoingExtension.getParam("id"), is("B"));
         }
         finally
         {
@@ -154,11 +154,11 @@ public class ExtensionStackTest
             stack.start();
 
             // Dump
-            LOG.debug("{}",stack.dump());
+            LOG.debug("{}", stack.dump());
 
             // Should be no change to handlers
-            Assert.assertEquals("Incoming Handler",stack.getNextIncoming(),session);
-            Assert.assertEquals("Outgoing Handler",stack.getNextOutgoing(),connection);
+            assertEquals(stack.getNextIncoming(), session, "Incoming Handler");
+            assertEquals(stack.getNextOutgoing(), connection, "Outgoing Handler");
         }
         finally
         {
@@ -171,22 +171,22 @@ public class ExtensionStackTest
     {
         ExtensionStack stack = createExtensionStack();
         // Shouldn't cause a NPE.
-        LOG.debug("Shouldn't cause a NPE: {}",stack.toString());
+        LOG.debug("Shouldn't cause a NPE: {}", stack.toString());
     }
-    
+
     @Test
     public void testNegotiateChrome32()
     {
         ExtensionStack stack = createExtensionStack();
-        
+
         String chromeRequest = "permessage-deflate; client_max_window_bits, x-webkit-deflate-frame";
         List<ExtensionConfig> requestedConfigs = ExtensionConfig.parseList(chromeRequest);
         stack.negotiate(requestedConfigs);
-        
+
         List<ExtensionConfig> negotiated = stack.getNegotiatedExtensions();
         String response = ExtensionConfig.toHeaderValue(negotiated);
-        
-        Assert.assertThat("Negotiated Extensions", response, is("permessage-deflate"));
-        LOG.debug("Shouldn't cause a NPE: {}",stack.toString());
+
+        assertThat("Negotiated Extensions", response, is("permessage-deflate"));
+        LOG.debug("Shouldn't cause a NPE: {}", stack.toString());
     }
 }

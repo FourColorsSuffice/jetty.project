@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,21 +19,19 @@
 package org.eclipse.jetty.websocket.jsr356.server.samples.echo;
 
 import java.io.IOException;
-
+import java.util.concurrent.LinkedBlockingQueue;
 import javax.websocket.CloseReason;
 import javax.websocket.OnMessage;
 import javax.websocket.OnOpen;
 import javax.websocket.Session;
 import javax.websocket.server.ServerEndpoint;
 
-import org.eclipse.jetty.toolchain.test.EventQueue;
-
 @ServerEndpoint(value = "/echoreturn")
 public class EchoReturnEndpoint
 {
     private Session session = null;
     public CloseReason close = null;
-    public EventQueue<String> messageQueue = new EventQueue<>();
+    public LinkedBlockingQueue<String> messageQueue = new LinkedBlockingQueue<>();
 
     public void onClose(CloseReason close)
     {

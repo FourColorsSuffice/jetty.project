@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -41,8 +41,11 @@ import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.Promise;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class StreamCloseTest extends AbstractTest
 {
@@ -55,7 +58,7 @@ public class StreamCloseTest extends AbstractTest
             @Override
             public Stream.Listener onNewStream(Stream stream, HeadersFrame frame)
             {
-                Assert.assertTrue(((HTTP2Stream)stream).isRemotelyClosed());
+                assertTrue(((HTTP2Stream)stream).isRemotelyClosed());
                 latch.countDown();
                 return null;
             }
@@ -66,8 +69,8 @@ public class StreamCloseTest extends AbstractTest
         FuturePromise<Stream> promise = new FuturePromise<>();
         session.newStream(frame, promise, null);
         Stream stream = promise.get(5, TimeUnit.SECONDS);
-        Assert.assertTrue(((HTTP2Stream)stream).isLocallyClosed());
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(((HTTP2Stream)stream).isLocallyClosed());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -86,8 +89,8 @@ public class StreamCloseTest extends AbstractTest
                     @Override
                     public void succeeded()
                     {
-                        Assert.assertTrue(stream.isClosed());
-                        Assert.assertEquals(0, stream.getSession().getStreams().size());
+                        assertTrue(stream.isClosed());
+                        assertEquals(0, stream.getSession().getStreams().size());
                         latch.countDown();
                     }
                 });
@@ -108,8 +111,8 @@ public class StreamCloseTest extends AbstractTest
             }
         });
         Stream stream = promise.get(5, TimeUnit.SECONDS);
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(stream.isClosed());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(stream.isClosed());
     }
 
     @Test
@@ -130,25 +133,19 @@ public class StreamCloseTest extends AbstractTest
                     @Override
                     public void onData(final Stream stream, DataFrame frame, final Callback callback)
                     {
-                        Assert.assertTrue(((HTTP2Stream)stream).isRemotelyClosed());
+                        assertTrue(((HTTP2Stream)stream).isRemotelyClosed());
 
-                        // We must copy the data that we send asynchronously.
-                        ByteBuffer data = frame.getData();
-                        ByteBuffer copy = ByteBuffer.allocate(data.remaining());
-                        copy.put(data).flip();
-
-                        completable.thenRun(() ->
-                                stream.data(new DataFrame(stream.getId(), copy, frame.isEndStream()), new Callback()
-                                {
-                                    @Override
-                                    public void succeeded()
-                                    {
-                                        Assert.assertTrue(stream.isClosed());
-                                        Assert.assertEquals(0, stream.getSession().getStreams().size());
-                                        callback.succeeded();
-                                        serverDataLatch.countDown();
-                                    }
-                                }));
+                        completable.thenRun(() -> stream.data(frame, new Callback()
+                        {
+                            @Override
+                            public void succeeded()
+                            {
+                                assertTrue(stream.isClosed());
+                                assertEquals(0, stream.getSession().getStreams().size());
+                                callback.succeeded();
+                                serverDataLatch.countDown();
+                            }
+                        }));
                     }
                 };
             }
@@ -169,8 +166,8 @@ public class StreamCloseTest extends AbstractTest
             }
         });
         final Stream stream = promise.get(5, TimeUnit.SECONDS);
-        Assert.assertFalse(stream.isClosed());
-        Assert.assertFalse(((HTTP2Stream)stream).isLocallyClosed());
+        assertFalse(stream.isClosed());
+        assertFalse(((HTTP2Stream)stream).isLocallyClosed());
 
         final CountDownLatch clientDataLatch = new CountDownLatch(1);
         stream.data(new DataFrame(stream.getId(), ByteBuffer.wrap(new byte[512]), true), new Callback()
@@ -183,11 +180,11 @@ public class StreamCloseTest extends AbstractTest
             }
         });
 
-        Assert.assertTrue(clientDataLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(serverDataLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(stream.isClosed());
-        Assert.assertEquals(0, stream.getSession().getStreams().size());
+        assertTrue(clientDataLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(serverDataLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(stream.isClosed());
+        assertEquals(0, stream.getSession().getStreams().size());
     }
 
     @Test
@@ -199,21 +196,21 @@ public class StreamCloseTest extends AbstractTest
             @Override
             public Stream.Listener onNewStream(Stream stream, HeadersFrame frame)
             {
-                PushPromiseFrame pushFrame = new PushPromiseFrame(stream.getId(), 0, newRequest("GET", new HttpFields()));
+                PushPromiseFrame pushFrame = new PushPromiseFrame(stream.getId(), newRequest("GET", new HttpFields()));
                 stream.push(pushFrame, new Promise.Adapter<Stream>()
                 {
                     @Override
                     public void succeeded(final Stream pushedStream)
                     {
                         // When created, pushed stream must be implicitly remotely closed.
-                        Assert.assertTrue(((HTTP2Stream)pushedStream).isRemotelyClosed());
+                        assertTrue(((HTTP2Stream)pushedStream).isRemotelyClosed());
                         // Send some data with endStream = true.
                         pushedStream.data(new DataFrame(pushedStream.getId(), ByteBuffer.allocate(16), true), new Callback()
                         {
                             @Override
                             public void succeeded()
                             {
-                                Assert.assertTrue(pushedStream.isClosed());
+                                assertTrue(pushedStream.isClosed());
                                 serverLatch.countDown();
                             }
                         });
@@ -233,13 +230,13 @@ public class StreamCloseTest extends AbstractTest
             @Override
             public Stream.Listener onPush(Stream pushedStream, PushPromiseFrame frame)
             {
-                Assert.assertTrue(((HTTP2Stream)pushedStream).isLocallyClosed());
+                assertTrue(((HTTP2Stream)pushedStream).isLocallyClosed());
                 return new Adapter()
                 {
                     @Override
                     public void onData(Stream pushedStream, DataFrame frame, Callback callback)
                     {
-                        Assert.assertTrue(pushedStream.isClosed());
+                        assertTrue(pushedStream.isClosed());
                         callback.succeeded();
                         clientLatch.countDown();
                     }
@@ -247,8 +244,8 @@ public class StreamCloseTest extends AbstractTest
             }
         });
 
-        Assert.assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -266,8 +263,8 @@ public class StreamCloseTest extends AbstractTest
                     @Override
                     public void onReset(Stream pushedStream, ResetFrame frame)
                     {
-                        Assert.assertTrue(pushedStream.isReset());
-                        Assert.assertTrue(pushedStream.isClosed());
+                        assertTrue(pushedStream.isReset());
+                        assertTrue(pushedStream.isClosed());
                         HeadersFrame response = new HeadersFrame(stream.getId(), new MetaData.Response(HttpVersion.HTTP_2, 200, new HttpFields()), null, true);
                         stream.headers(response, Callback.NOOP);
                         serverLatch.countDown();
@@ -290,8 +287,8 @@ public class StreamCloseTest extends AbstractTest
                     @Override
                     public void succeeded()
                     {
-                        Assert.assertTrue(pushedStream.isReset());
-                        Assert.assertTrue(pushedStream.isClosed());
+                        assertTrue(pushedStream.isReset());
+                        assertTrue(pushedStream.isClosed());
                         clientLatch.countDown();
                     }
                 });
@@ -305,8 +302,8 @@ public class StreamCloseTest extends AbstractTest
             }
         });
 
-        Assert.assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -324,7 +321,9 @@ public class StreamCloseTest extends AbstractTest
                 MetaData.Request request = (MetaData.Request)frame.getMetaData();
                 if ("GET".equals(request.getMethod()))
                 {
-                    ((HTTP2Session)stream.getSession()).getEndPoint().close();
+                    // Only shutdown the output, since closing the EndPoint causes a call to
+                    // stop() on different thread which tries to concurrently fail the stream.
+                    ((HTTP2Session)stream.getSession()).getEndPoint().shutdownOutput();
                     // Try to write something to force an error.
                     stream.data(new DataFrame(stream.getId(), ByteBuffer.allocate(1024), true), Callback.NOOP);
                 }
@@ -349,14 +348,16 @@ public class StreamCloseTest extends AbstractTest
         HeadersFrame request2 = new HeadersFrame(newRequest("GET", new HttpFields()), null, true);
         session.newStream(request2, new Promise.Adapter<>(), new Stream.Listener.Adapter());
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
         Session serverSession = sessionRef.get();
 
         // Wait for the server to finish the close activities.
         Thread.sleep(1000);
 
-        Assert.assertEquals(0, serverSession.getStreams().size());
+        assertEquals(0, serverSession.getStreams().size());
         for (Stream stream : streams)
-            Assert.assertTrue(stream.isClosed());
+        {
+            assertTrue(stream.isClosed());
+        }
     }
 }

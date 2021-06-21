@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,20 +26,21 @@ import javax.servlet.ServletContextListener;
  *
  * Cleans a static cache of Methods held by java.beans.Introspector
  * class when a context is undeployed.
- * 
+ *
  * @see java.beans.Introspector
  */
 public class IntrospectorCleaner implements ServletContextListener
 {
 
+    @Override
     public void contextInitialized(ServletContextEvent sce)
     {
-        
+
     }
 
+    @Override
     public void contextDestroyed(ServletContextEvent sce)
     {
         java.beans.Introspector.flushCaches();
     }
-
 }

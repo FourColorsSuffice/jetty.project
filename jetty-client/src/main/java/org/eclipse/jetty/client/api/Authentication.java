@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,9 +19,11 @@
 package org.eclipse.jetty.client.api;
 
 import java.net.URI;
+import java.util.Map;
 
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.util.Attributes;
+import org.eclipse.jetty.util.StringUtil;
 
 /**
  * {@link Authentication} represents a mechanism to authenticate requests for protected resources.
@@ -40,12 +42,14 @@ public interface Authentication
 {
     /**
      * Constant used to indicate that any realm will match.
+     *
      * @see #matches(String, URI, String)
      */
-    public static final String ANY_REALM = "<<ANY_REALM>>";
+    String ANY_REALM = "<<ANY_REALM>>";
 
     /**
      * Matches {@link Authentication}s based on the given parameters
+     *
      * @param type the {@link Authentication} type such as "Basic" or "Digest"
      * @param uri the request URI
      * @param realm the authentication realm as provided in the {@code WWW-Authenticate} response header
@@ -64,9 +68,9 @@ public interface Authentication
      * @param request the request to execute the authentication mechanism for
      * @param response the 401 response obtained in the previous attempt to request the protected resource
      * @param headerInfo the {@code WWW-Authenticate} (or {@code Proxy-Authenticate}) header chosen for this
-     *                     authentication (among the many that the response may contain)
+     * authentication (among the many that the response may contain)
      * @param context the conversation context in case the authentication needs multiple exchanges
-     *                to be completed and information needs to be stored across exchanges
+     * to be completed and information needs to be stored across exchanges
      * @return the authentication result, or null if the authentication could not be performed
      */
     Result authenticate(Request request, ContentResponse response, HeaderInfo headerInfo, Attributes context);
@@ -74,19 +78,17 @@ public interface Authentication
     /**
      * Structure holding information about the {@code WWW-Authenticate} (or {@code Proxy-Authenticate}) header.
      */
-    public static class HeaderInfo
+    class HeaderInfo
     {
-        private final String type;
-        private final String realm;
-        private final String params;
         private final HttpHeader header;
+        private final String type;
+        private final Map<String, String> params;
 
-        public HeaderInfo(String type, String realm, String params, HttpHeader header)
+        public HeaderInfo(HttpHeader header, String type, Map<String, String> params) throws IllegalArgumentException
         {
-            this.type = type;
-            this.realm = realm;
-            this.params = params;
             this.header = header;
+            this.type = type;
+            this.params = params;
         }
 
         /**
@@ -98,19 +100,35 @@ public interface Authentication
         }
 
         /**
-         * @return the realm name
+         * @return the realm name or null if there is no realm parameter
          */
         public String getRealm()
         {
-            return realm;
+            return params.get("realm");
+        }
+
+        /**
+         * @return the base64 content as a string if it exists otherwise null
+         */
+        public String getBase64()
+        {
+            return params.get("base64");
         }
 
         /**
          * @return additional authentication parameters
          */
-        public String getParameters()
+        public Map<String, String> getParameters()
         {
             return params;
+        }
+
+        /**
+         * @return specified authentication parameter or null if does not exist
+         */
+        public String getParameter(String paramName)
+        {
+            return params.get(StringUtil.asciiToLowerCase(paramName));
         }
 
         /**
@@ -125,7 +143,7 @@ public interface Authentication
     /**
      * {@link Result} holds the information needed to authenticate a {@link Request} via {@link org.eclipse.jetty.client.api.Authentication.Result#apply(org.eclipse.jetty.client.api.Request)}.
      */
-    public static interface Result
+    interface Result
     {
         /**
          * @return the URI of the request that has been used to generate this {@link Result}

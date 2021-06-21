@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,6 +25,7 @@ import org.eclipse.jetty.client.HttpReceiver;
 import org.eclipse.jetty.client.HttpSender;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.http2.ErrorCode;
+import org.eclipse.jetty.http2.IStream;
 import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.Stream;
 import org.eclipse.jetty.http2.frames.ResetFrame;
@@ -34,17 +35,15 @@ public class HttpChannelOverHTTP2 extends HttpChannel
 {
     private final HttpConnectionOverHTTP2 connection;
     private final Session session;
-    private final boolean push;
     private final HttpSenderOverHTTP2 sender;
     private final HttpReceiverOverHTTP2 receiver;
     private Stream stream;
 
-    public HttpChannelOverHTTP2(HttpDestination destination, HttpConnectionOverHTTP2 connection, Session session, boolean push)
+    public HttpChannelOverHTTP2(HttpDestination destination, HttpConnectionOverHTTP2 connection, Session session)
     {
         super(destination);
         this.connection = connection;
         this.session = session;
-        this.push = push;
         this.sender = new HttpSenderOverHTTP2(this);
         this.receiver = new HttpReceiverOverHTTP2(this);
     }
@@ -84,40 +83,76 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     public void setStream(Stream stream)
     {
         this.stream = stream;
+        if (stream != null)
+            ((IStream)stream).setAttachment(this);
+    }
+
+    public boolean isFailed()
+    {
+        return sender.isFailed() || receiver.isFailed();
     }
 
     @Override
-    public void send()
+    public void send(HttpExchange exchange)
     {
-        HttpExchange exchange = getHttpExchange();
-        if (exchange != null)
-            sender.send(exchange);
+        sender.send(exchange);
     }
 
     @Override
     public void release()
     {
-        connection.release(this);
-    }
-
-    @Override
-    public boolean abort(HttpExchange exchange, Throwable requestFailure, Throwable responseFailure)
-    {
-        boolean aborted = super.abort(exchange, requestFailure, responseFailure);
-        if (aborted)
-        {
-            Stream stream = getStream();
-            if (stream != null)
-                stream.reset(new ResetFrame(stream.getId(), ErrorCode.CANCEL_STREAM_ERROR.code), Callback.NOOP);
-        }
-        return aborted;
+        setStream(null);
+        if (connection.release(this))
+            getHttpDestination().release(getHttpConnection());
     }
 
     @Override
     public void exchangeTerminated(HttpExchange exchange, Result result)
     {
         super.exchangeTerminated(exchange, result);
-        if (!push)
+        if (result.isSucceeded())
+        {
             release();
+        }
+        else
+        {
+            Stream stream = getStream();
+            if (stream != null)
+                stream.reset(new ResetFrame(stream.getId(), ErrorCode.CANCEL_STREAM_ERROR.code), new ReleaseCallback());
+            else
+                release();
+        }
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("%s[send=%s,recv=%s]",
+            super.toString(),
+            sender,
+            receiver);
+    }
+
+    private class ReleaseCallback implements Callback
+    {
+        @Override
+        public void succeeded()
+        {
+            release();
+        }
+
+        @Override
+        public void failed(Throwable x)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug(x);
+            release();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
+        }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,23 +20,21 @@ package org.eclipse.jetty.http2.frames;
 
 import org.eclipse.jetty.http.MetaData;
 
-public class PushPromiseFrame extends Frame
+public class PushPromiseFrame extends StreamFrame
 {
-    private final int streamId;
     private final int promisedStreamId;
     private final MetaData metaData;
 
-    public PushPromiseFrame(int streamId, int promisedStreamId, MetaData metaData)
+    public PushPromiseFrame(int streamId, MetaData metaData)
     {
-        super(FrameType.PUSH_PROMISE);
-        this.streamId = streamId;
-        this.promisedStreamId = promisedStreamId;
-        this.metaData = metaData;
+        this(streamId, 0, metaData);
     }
 
-    public int getStreamId()
+    public PushPromiseFrame(int streamId, int promisedStreamId, MetaData metaData)
     {
-        return streamId;
+        super(FrameType.PUSH_PROMISE, streamId);
+        this.promisedStreamId = promisedStreamId;
+        this.metaData = metaData;
     }
 
     public int getPromisedStreamId()
@@ -50,8 +48,14 @@ public class PushPromiseFrame extends Frame
     }
 
     @Override
+    public PushPromiseFrame withStreamId(int streamId)
+    {
+        return new PushPromiseFrame(getStreamId(), streamId, getMetaData());
+    }
+
+    @Override
     public String toString()
     {
-        return String.format("%s#%d/#%d", super.toString(), streamId, promisedStreamId);
+        return String.format("%s#%d/#%d", super.toString(), getStreamId(), promisedStreamId);
     }
 }

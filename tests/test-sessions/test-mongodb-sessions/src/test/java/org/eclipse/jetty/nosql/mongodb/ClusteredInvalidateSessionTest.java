@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,29 +18,30 @@
 
 package org.eclipse.jetty.nosql.mongodb;
 
-
 import org.eclipse.jetty.server.session.AbstractClusteredInvalidationSessionTest;
 import org.eclipse.jetty.server.session.SessionDataStoreFactory;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
+@Testcontainers(disabledWithoutDocker = true)
 public class ClusteredInvalidateSessionTest extends AbstractClusteredInvalidationSessionTest
 {
-    
-    @BeforeClass
+
+    @BeforeAll
     public static void beforeClass() throws Exception
     {
         MongoTestHelper.dropCollection();
         MongoTestHelper.createCollection();
     }
 
-    @AfterClass
+    @AfterAll
     public static void afterClass() throws Exception
     {
         MongoTestHelper.dropCollection();
     }
 
-    /** 
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
@@ -48,7 +49,4 @@ public class ClusteredInvalidateSessionTest extends AbstractClusteredInvalidatio
     {
         return MongoTestHelper.newSessionDataStoreFactory();
     }
-
-  
-
 }

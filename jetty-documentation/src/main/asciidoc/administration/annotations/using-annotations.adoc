@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[using-annotations]]
 === Working with Annotations
@@ -39,7 +41,7 @@ Jetty supports interpretation and application of the following annotations:
 ==== Discovered vs Introspected Annotations
 
 Some types of annotation can be placed on any class, not necessarily just those with which the container interacts directly.
-These type of annotations are refered to as "discovered" to indicate that the container must take proactive action to go out and find them.
+These type of annotations are referred to as "discovered" to indicate that the container must take proactive action to go out and find them.
 The other type of annotation is call "introspected", meaning that they occur on classes with which the container interacts during their lifecycle (e.g. `javax.servlet.Servlet`, `javax.servlet.Filter`, ...etc.), and hence can be found by simple inspection of the class at that point.
 
 Some examples of discovered annotations are:
@@ -117,6 +119,12 @@ By default Jetty will call them in the following order:
 
 As is the case with annotation scanning, the link:#using-extra-classpath-method[extraClasspath] is fully considered for `ServletContainerInitializer` callbacks. `ServletContainerInitializer` derived from a classes directory on the `extraClasspath` and jars from an `extraClasspath` for the webapp are called in step 2 and 3, respectively.
 
+[NOTE]
+====
+As of Jetty-9.4.4, unless the `web.xml` is version 3.0 or greater, only `ServletContainerInitializers` that are on the container classpath will be discovered.
+Users wishing to use `ServletContainerInitializers` from within the webapp with older versions of `web.xml` must either upgrade their `web.xml` version, or call `WebAppContext.setConfigurationDiscovered(true)` either programmatically or in xml.
+Upgrading the `web.xml` version is preferable.
+====
 ===== Controlling the order of ServletContainerInitializer invocation
 
 If you need `ServletContainerInitializer` classes called in a specific order that is different from that outlined above, you can use the link:#context_attributes[context attribute] `org.eclipse.jetty.containerInitializerOrder`.
@@ -126,7 +134,7 @@ It will match all `ServletContainerInitializer` classed not explicitly named in 
 
 Here is an example, setting the context attribute in code (although you can also do the link:#intro-jetty-configuration-webapps[same in xml]):
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 WebAppContext context = new WebAppContext();
 context.setAttribute("org.eclipse.jetty.containerInitializerOrder",
@@ -145,7 +153,7 @@ In this case, you can define the `org.eclipse.jetty.containerInitializerExclusio
 This is a regular expression that defines http://docs.oracle.com/javase/7/docs/api/java/util/regex/Pattern.html[patterns] of classnames that you want to exclude.
 Here's an example, setting the context attribute in code, although you may do exactly the link:#intro-jetty-configuration-webapps[same in xml]:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 WebAppContext context = new WebAppContext();
 context.setAttribute("org.eclipse.jetty.containerInitializerExclusionPattern",

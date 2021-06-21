@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,53 +16,56 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.jndi;
 
 import java.util.Iterator;
-
 import javax.naming.Binding;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
 
-/** 
+/**
  * BindingEnumeration
  */
 public class BindingEnumeration implements NamingEnumeration<Binding>
 {
     Iterator<Binding> _delegate;
 
-    public BindingEnumeration (Iterator<Binding> e)
+    public BindingEnumeration(Iterator<Binding> e)
     {
         _delegate = e;
     }
 
+    @Override
     public void close()
         throws NamingException
     {
     }
 
-    public boolean hasMore ()
+    @Override
+    public boolean hasMore()
         throws NamingException
     {
         return _delegate.hasNext();
     }
 
+    @Override
     public Binding next()
         throws NamingException
     {
-        Binding b = (Binding)_delegate.next();
-        return new Binding (b.getName(), b.getClassName(), b.getObject(), true);
+        Binding b = _delegate.next();
+        return new Binding(b.getName(), b.getClassName(), b.getObject(), true);
     }
 
+    @Override
     public boolean hasMoreElements()
     {
         return _delegate.hasNext();
     }
 
+    @Override
     public Binding nextElement()
     {
-        Binding b = (Binding)_delegate.next();
-        return new Binding (b.getName(), b.getClassName(), b.getObject(),true);
+        Binding b = _delegate.next();
+        return new Binding(b.getName(), b.getClassName(), b.getObject(), true);
     }
 }

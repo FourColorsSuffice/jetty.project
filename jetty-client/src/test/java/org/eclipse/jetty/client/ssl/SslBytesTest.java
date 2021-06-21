@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -33,17 +33,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.TestTracker;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
-import org.junit.Assert;
-import org.junit.Rule;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public abstract class SslBytesTest
 {
-    @Rule
-    public TestTracker tracker = new TestTracker();
-
     protected final Logger logger = Log.getLogger(getClass());
 
     public static class TLSRecord
@@ -140,6 +136,7 @@ public abstract class SslBytesTest
             serverSocket.close();
         }
 
+        @Override
         public void run()
         {
             try
@@ -149,7 +146,10 @@ public abstract class SslBytesTest
             }
             catch (IOException x)
             {
-                x.printStackTrace();
+                logger.info(x.getClass() + ": " + x.getMessage());
+
+                if (logger.isDebugEnabled())
+                    logger.debug(x);
             }
         }
 
@@ -237,6 +237,7 @@ public abstract class SslBytesTest
 
         public void flushToServer(TLSRecord record, long sleep) throws Exception
         {
+            logger.debug("P --> S {}", record);
             if (record == null)
             {
                 server.shutdownOutput();
@@ -275,6 +276,7 @@ public abstract class SslBytesTest
 
         public void flushToClient(TLSRecord record) throws Exception
         {
+            logger.debug("C <-- P {}", record);
             if (record == null)
             {
                 client.shutdownOutput();
@@ -336,7 +338,7 @@ public abstract class SslBytesTest
                     logger.debug("Automatic flow C <-- S finished");
                 }
             });
-            Assert.assertTrue(startLatch.await(5, TimeUnit.SECONDS));
+            assertTrue(startLatch.await(5, TimeUnit.SECONDS));
             return new SslBytesServerTest.SimpleProxy.AutomaticFlow(stopLatch, clientToServer, serverToClient);
         }
 

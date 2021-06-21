@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,88 +16,76 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.servlet;
 
-import static org.junit.Assert.*;
-
-import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
-import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 
 import org.eclipse.jetty.util.log.StacklessLogging;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * FilterHolderTest
- *
- *
  */
 public class FilterHolderTest
 {
 
     @Test
     public void testInitialize()
-    throws Exception
+        throws Exception
     {
         ServletHandler handler = new ServletHandler();
-        
+
         final AtomicInteger counter = new AtomicInteger(0);
-        Filter filter = new Filter ()
-                {
-                    @Override
-                    public void init(FilterConfig filterConfig) throws ServletException
-                    {   
-                        counter.incrementAndGet();
-                    }
+        Filter filter = new Filter()
+        {
+            @Override
+            public void init(FilterConfig filterConfig)
+            {
+                counter.incrementAndGet();
+            }
 
-                    @Override
-                    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException
-                    {  
-                    }
+            @Override
+            public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            {
+            }
 
-                    @Override
-                    public void destroy()
-                    { 
-                    }
-            
-                };
+            @Override
+            public void destroy()
+            {
+            }
+        };
 
-      FilterHolder fh = new FilterHolder();
-      fh.setServletHandler(handler);
-     
-      fh.setName("xx");
-      fh.setFilter(filter);
+        FilterHolder fh = new FilterHolder();
+        fh.setServletHandler(handler);
 
-      try (StacklessLogging stackless = new StacklessLogging(FilterHolder.class))
-      {
-          fh.initialize();
-          fail("Not started");
-      }
-      catch (Exception e)
-      {
-          //expected
-      }
+        fh.setName("xx");
+        fh.setFilter(filter);
 
-       fh.start();
-       fh.initialize();
-       assertEquals(1, counter.get());
-       
-       fh.initialize();
-       assertEquals(1, counter.get());
-       
-       fh.stop();
-       assertEquals(1, counter.get());
-       fh.start();
-       assertEquals(1, counter.get());
-       fh.initialize();
-       assertEquals(2, counter.get());
+        try (StacklessLogging ignored = new StacklessLogging(FilterHolder.class))
+        {
+            assertThrows(IllegalStateException.class, fh::initialize);
+        }
+
+        fh.start();
+        fh.initialize();
+        assertEquals(1, counter.get());
+
+        fh.initialize();
+        assertEquals(1, counter.get());
+
+        fh.stop();
+        assertEquals(1, counter.get());
+        fh.start();
+        assertEquals(1, counter.get());
+        fh.initialize();
+        assertEquals(2, counter.get());
     }
-
 }

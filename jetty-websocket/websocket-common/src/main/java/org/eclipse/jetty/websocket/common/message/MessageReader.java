@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,6 +24,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
+import org.eclipse.jetty.websocket.api.Session;
+
 /**
  * Support class for reading a (single) WebSocket TEXT message via a Reader.
  * <p>
@@ -32,6 +34,11 @@ import java.nio.charset.StandardCharsets;
 public class MessageReader extends InputStreamReader implements MessageAppender
 {
     private final MessageInputStream stream;
+
+    public MessageReader(Session session)
+    {
+        this(new MessageInputStream(session));
+    }
 
     public MessageReader(MessageInputStream stream)
     {
@@ -49,5 +56,10 @@ public class MessageReader extends InputStreamReader implements MessageAppender
     public void messageComplete()
     {
         this.stream.messageComplete();
+    }
+
+    public void handlerComplete()
+    {
+        this.stream.handlerComplete();
     }
 }

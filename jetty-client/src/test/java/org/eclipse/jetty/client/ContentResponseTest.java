@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,6 @@ package org.eclipse.jetty.client;
 import java.io.IOException;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -30,23 +29,22 @@ import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.eclipse.jetty.util.ssl.SslContextFactory;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ArgumentsSource;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class ContentResponseTest extends AbstractHttpClientServerTest
 {
-    public ContentResponseTest(SslContextFactory sslContextFactory)
-    {
-        super(sslContextFactory);
-    }
-
-    @Test
-    public void testResponseWithoutContentType() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testResponseWithoutContentType(Scenario scenario) throws Exception
     {
         final byte[] content = new byte[1024];
         new Random().nextBytes(content);
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
             public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
@@ -57,22 +55,23 @@ public class ContentResponseTest extends AbstractHttpClientServerTest
         });
 
         ContentResponse response = client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .scheme(scenario.getScheme())
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertArrayEquals(content, response.getContent());
-        Assert.assertNull(response.getMediaType());
-        Assert.assertNull(response.getEncoding());
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(content, response.getContent());
+        assertNull(response.getMediaType());
+        assertNull(response.getEncoding());
     }
 
-    @Test
-    public void testResponseWithMediaType() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testResponseWithMediaType(Scenario scenario) throws Exception
     {
         final String content = "The quick brown fox jumped over the lazy dog";
         final String mediaType = "text/plain";
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
             public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
@@ -84,42 +83,73 @@ public class ContentResponseTest extends AbstractHttpClientServerTest
         });
 
         ContentResponse response = client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .scheme(scenario.getScheme())
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertEquals(content, response.getContentAsString());
-        Assert.assertEquals(mediaType, response.getMediaType());
-        Assert.assertNull(response.getEncoding());
+        assertEquals(200, response.getStatus());
+        assertEquals(content, response.getContentAsString());
+        assertEquals(mediaType, response.getMediaType());
+        assertNull(response.getEncoding());
     }
 
-    @Test
-    public void testResponseWithContentType() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testResponseWithContentType(Scenario scenario) throws Exception
     {
         final String content = "The quick brown fox jumped over the lazy dog";
         final String mediaType = "text/plain";
         final String encoding = "UTF-8";
         final String contentType = mediaType + "; charset=" + encoding;
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
             public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
             {
                 baseRequest.setHandled(true);
                 response.setHeader(HttpHeader.CONTENT_TYPE.asString(), contentType);
-                response.getOutputStream().write(content.getBytes("UTF-8"));
+                response.getOutputStream().write(content.getBytes(encoding));
             }
         });
 
         ContentResponse response = client.newRequest("localhost", connector.getLocalPort())
-                .scheme(scheme)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .scheme(scenario.getScheme())
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertEquals(content, response.getContentAsString());
-        Assert.assertEquals(mediaType, response.getMediaType());
-        Assert.assertEquals(encoding, response.getEncoding());
+        assertEquals(200, response.getStatus());
+        assertEquals(content, response.getContentAsString());
+        assertEquals(mediaType, response.getMediaType());
+        assertEquals(encoding, response.getEncoding());
+    }
+
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testResponseWithContentTypeWithQuotedCharset(Scenario scenario) throws Exception
+    {
+        final String content = "The quick brown fox jumped over the lazy dog";
+        final String mediaType = "text/plain";
+        final String encoding = "UTF-8";
+        final String contentType = mediaType + "; charset=\"" + encoding + "\"";
+        start(scenario, new AbstractHandler()
+        {
+            @Override
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            {
+                baseRequest.setHandled(true);
+                response.setHeader(HttpHeader.CONTENT_TYPE.asString(), contentType);
+                response.getOutputStream().write(content.getBytes(encoding));
+            }
+        });
+
+        ContentResponse response = client.newRequest("localhost", connector.getLocalPort())
+            .scheme(scenario.getScheme())
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
+
+        assertEquals(200, response.getStatus());
+        assertEquals(content, response.getContentAsString());
+        assertEquals(mediaType, response.getMediaType());
+        assertEquals(encoding, response.getEncoding());
     }
 }

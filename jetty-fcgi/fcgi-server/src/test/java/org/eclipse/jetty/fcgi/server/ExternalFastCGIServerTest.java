@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -27,14 +27,15 @@ import java.util.concurrent.TimeUnit;
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.fcgi.client.http.HttpClientTransportOverFCGI;
-import org.junit.Assert;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class ExternalFastCGIServerTest
 {
     @Test
-    @Ignore("Relies on an external server")
+    @Disabled("Relies on an external server")
     public void testExternalFastCGIServer() throws Exception
     {
         // Assume a FastCGI server is listening on localhost:9000
@@ -43,11 +44,11 @@ public class ExternalFastCGIServerTest
         client.start();
 
         ContentResponse response = client.newRequest("localhost", 9000)
-                .path("/index.php")
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .path("/index.php")
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
 
         Path responseFile = Paths.get(System.getProperty("java.io.tmpdir"), "fcgi_response.html");
         Files.write(responseFile, response.getContent(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);

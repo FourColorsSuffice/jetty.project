@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,16 +19,19 @@
 package org.eclipse.jetty.server;
 
 import org.eclipse.jetty.io.ConnectionStatistics;
-import org.eclipse.jetty.util.component.Container;
 
+@Deprecated
 public class ServerConnectionStatistics extends ConnectionStatistics
 {
+    /**
+     * @param server the server to use to add {@link ConnectionStatistics} to all Connectors.
+     * @deprecated use {@link Server#addBeanToAllConnectors(Object)} instead.
+     */
     public static void addToAllConnectors(Server server)
     {
         for (Connector connector : server.getConnectors())
         {
-            if (connector instanceof Container)
-                ((Container)connector).addBean(new ConnectionStatistics());
+            connector.addBean(new ConnectionStatistics());
         }
     }
 }

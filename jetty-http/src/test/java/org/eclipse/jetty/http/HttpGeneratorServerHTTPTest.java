@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,42 +18,36 @@
 
 package org.eclipse.jetty.http;
 
-import static org.hamcrest.Matchers.either;
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.EnumSet;
-import java.util.List;
+import java.util.stream.Stream;
 
 import org.eclipse.jetty.util.BufferUtil;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-@RunWith(Parameterized.class)
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.either;
+import static org.hamcrest.Matchers.equalTo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 public class HttpGeneratorServerHTTPTest
 {
-    @Parameter(value = 0)
-    public Run run;
     private String _content;
     private String _reason;
 
-    @Test
-    public void testHTTP() throws Exception
+    @ParameterizedTest
+    @MethodSource("data")
+    public void testHTTP(Run run) throws Exception
     {
         Handler handler = new Handler();
 
         HttpGenerator gen = new HttpGenerator();
 
-        String t = run.toString();
+        String msg = run.toString();
 
         run.result.getHttpFields().clear();
 
@@ -65,19 +59,20 @@ public class HttpGeneratorServerHTTPTest
         parser.parseNext(BufferUtil.toBuffer(response));
 
         if (run.result._body != null)
-            assertEquals(t, run.result._body, this._content);
+            assertEquals(run.result._body, this._content, msg);
 
+        // TODO: Break down rationale more clearly, these should be separate checks and/or assertions
         if (run.httpVersion == 10)
-            assertTrue(t, gen.isPersistent() || run.result._contentLength >= 0 || EnumSet.of(ConnectionType.CLOSE, ConnectionType.KEEP_ALIVE, ConnectionType.NONE).contains(run.connection));
+            assertTrue(gen.isPersistent() || run.result._contentLength >= 0 || EnumSet.of(ConnectionType.CLOSE, ConnectionType.KEEP_ALIVE, ConnectionType.NONE).contains(run.connection), msg);
         else
-            assertTrue(t, gen.isPersistent() || EnumSet.of(ConnectionType.CLOSE, ConnectionType.TE_CLOSE).contains(run.connection));
+            assertTrue(gen.isPersistent() || EnumSet.of(ConnectionType.CLOSE, ConnectionType.TE_CLOSE).contains(run.connection), msg);
 
         assertEquals("OK??Test", _reason);
 
         if (_content == null)
-            assertTrue(t, run.result._body == null);
+            assertTrue(run.result._body == null, msg);
         else
-            assertThat(t, run.result._contentLength, either(equalTo(_content.length())).or(equalTo(-1)));
+            assertThat(msg, run.result._contentLength, either(equalTo(_content.length())).or(equalTo(-1)));
     }
 
     private static class Result
@@ -160,6 +155,12 @@ public class HttpGeneratorServerHTTPTest
                         header = BufferUtil.allocate(2048);
                         continue;
 
+                    case HEADER_OVERFLOW:
+                        if (header.capacity() >= 8192)
+                            throw new BadMessageException(500, "Header too large");
+                        header = BufferUtil.allocate(8192);
+                        continue;
+
                     case NEED_CHUNK:
                         chunk = BufferUtil.allocate(HttpGenerator.CHUNK_SIZE);
                         continue;
@@ -167,7 +168,6 @@ public class HttpGeneratorServerHTTPTest
                     case NEED_CHUNK_TRAILER:
                         chunk = BufferUtil.allocate(2048);
                         continue;
-
 
                     case FLUSH:
                         if (BufferUtil.hasContent(header))
@@ -261,36 +261,34 @@ public class HttpGeneratorServerHTTPTest
         }
 
         @Override
-        public void badMessage(int status, String reason)
+        public void badMessage(BadMessageException failure)
         {
-            throw new IllegalStateException(reason);
+            throw failure;
         }
 
         @Override
         public int getHeaderCacheSize()
         {
-            return 256;
+            return 1024;
         }
     }
 
-    public final static String CONTENT = "The quick brown fox jumped over the lazy dog.\nNow is the time for all good men to come to the aid of the party\nThe moon is blue to a fish in love.\n";
+    public static final String CONTENT = "The quick brown fox jumped over the lazy dog.\nNow is the time for all good men to come to the aid of the party\nThe moon is blue to a fish in love.\n";
 
     private static class Run
     {
-        public static Run[] as(Result result, int ver, int chunks, ConnectionType connection)
-        {
-            Run run = new Run();
-            run.result = result;
-            run.httpVersion = ver;
-            run.chunks = chunks;
-            run.connection = connection;
-            return new Run[]{run};
-        }
-
         private Result result;
         private ConnectionType connection;
         private int httpVersion;
         private int chunks;
+
+        public Run(Result result, int ver, int chunks, ConnectionType connection)
+        {
+            this.result = result;
+            this.httpVersion = ver;
+            this.chunks = chunks;
+            this.connection = connection;
+        }
 
         @Override
         public String toString()
@@ -328,21 +326,20 @@ public class HttpGeneratorServerHTTPTest
         }
     }
 
-    @Parameters(name = "{0}")
-    public static Collection<Run[]> data()
+    public static Stream<Arguments> data()
     {
         Result[] results = {
-                new Result(200, null, -1, null, false),
-                new Result(200, null, -1, CONTENT, false),
-                new Result(200, null, CONTENT.length(), null, true),
-                new Result(200, null, CONTENT.length(), CONTENT, false),
-                new Result(200, "text/html", -1, null, true),
-                new Result(200, "text/html", -1, CONTENT, false),
-                new Result(200, "text/html", CONTENT.length(), null, true),
-                new Result(200, "text/html", CONTENT.length(), CONTENT, false)
+            new Result(200, null, -1, null, false),
+            new Result(200, null, -1, CONTENT, false),
+            new Result(200, null, CONTENT.length(), null, true),
+            new Result(200, null, CONTENT.length(), CONTENT, false),
+            new Result(200, "text/html", -1, null, true),
+            new Result(200, "text/html", -1, CONTENT, false),
+            new Result(200, "text/html", CONTENT.length(), null, true),
+            new Result(200, "text/html", CONTENT.length(), CONTENT, false)
         };
 
-        List<Run[]> data = new ArrayList<>();
+        ArrayList<Arguments> data = new ArrayList<>();
 
         // For each test result
         for (Result result : results)
@@ -358,12 +355,13 @@ public class HttpGeneratorServerHTTPTest
                     {
                         if (connection.isSupportedByHttp(v))
                         {
-                            data.add(Run.as(result, v, chunks, connection));
+                            data.add(Arguments.of(new Run(result, v, chunks, connection)));
                         }
                     }
                 }
             }
         }
-        return data;
+
+        return data.stream();
     }
 }

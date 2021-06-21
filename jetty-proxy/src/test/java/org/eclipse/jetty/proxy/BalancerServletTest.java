@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -37,10 +36,11 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.session.DefaultSessionIdManager;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class BalancerServletTest
 {
@@ -53,14 +53,14 @@ public class BalancerServletTest
     private Server balancer;
     private HttpClient client;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         client = new HttpClient();
         client.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         server1.stop();
@@ -114,9 +114,9 @@ public class BalancerServletTest
     protected byte[] sendRequestToBalancer(String path) throws Exception
     {
         ContentResponse response = client.newRequest("localhost", getServerPort(balancer))
-                .path(CONTEXT_PATH + SERVLET_PATH + path)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .path(CONTEXT_PATH + SERVLET_PATH + path)
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
         return response.getContent();
     }
 
@@ -131,7 +131,7 @@ public class BalancerServletTest
             String returnedCounter = readFirstLine(responseBytes);
             // Counter should increment every other request
             String expectedCounter = String.valueOf(i / 2);
-            Assert.assertEquals(expectedCounter, returnedCounter);
+            assertEquals(expectedCounter, returnedCounter);
         }
     }
 
@@ -146,7 +146,7 @@ public class BalancerServletTest
             String returnedCounter = readFirstLine(responseBytes);
             // Counter should increment every request
             String expectedCounter = String.valueOf(i);
-            Assert.assertEquals(expectedCounter, returnedCounter);
+            assertEquals(expectedCounter, returnedCounter);
         }
     }
 
@@ -157,7 +157,7 @@ public class BalancerServletTest
         startBalancer(RelocationServlet.class);
         byte[] responseBytes = sendRequestToBalancer("/index.html");
         String msg = readFirstLine(responseBytes);
-        Assert.assertEquals("success", msg);
+        assertEquals("success", msg);
     }
 
     private String readFirstLine(byte[] responseBytes) throws IOException

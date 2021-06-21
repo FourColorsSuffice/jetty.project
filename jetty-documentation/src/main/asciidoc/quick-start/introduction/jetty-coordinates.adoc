@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,15 +14,16 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[quickstart-jetty-coordinates]]
 === Finding Jetty in Maven
 
-_____
 [IMPORTANT]
+====
 It is important that only stable releases are used in production environments.
 Versions that have been deprecated or are released as Milestones (M) or Release Candidates (RC) are not suitable for production as they may contain security flaws or incomplete/non-functioning feature sets.
-_____
+====
 
 ==== Maven Coordinates
 
@@ -31,7 +33,7 @@ With Jetty 7 the project moved to the Eclipse foundation and to a new `groupId` 
 
 The top level Project Object Model (POM) for the Jetty project is located under the following coordinates.
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <dependency>
   <groupId>org.eclipse.jetty</groupId>
@@ -45,9 +47,9 @@ The top level Project Object Model (POM) for the Jetty project is located under 
 The changes between versions of Jetty are tracked in a file called VERSIONS.txt, which is under source control and is generated on release.
 Those generated files are also uploaded into Maven Central during the release of the top level POM. You can find them as a classifier marked artifact.
 
-http://central.maven.org/maven2/org/eclipse/jetty/jetty-project/
+https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-project/
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <dependency>
   <groupId>org.eclipse.jetty</groupId>

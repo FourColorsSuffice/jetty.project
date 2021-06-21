@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,14 +21,16 @@ package org.eclipse.jetty.http2.client;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.servlet.AsyncContext;
 import javax.servlet.ReadListener;
 import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
+import javax.servlet.WriteListener;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,10 +41,14 @@ import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.Stream;
 import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
+import org.eclipse.jetty.http2.frames.SettingsFrame;
+import org.eclipse.jetty.server.HttpOutput;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class AsyncIOTest extends AbstractTest
 {
@@ -97,7 +103,7 @@ public class AsyncIOTest extends AbstractTest
         Stream stream = promise.get(5, TimeUnit.SECONDS);
         stream.data(new DataFrame(stream.getId(), ByteBuffer.allocate(16), true), Callback.NOOP);
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -151,7 +157,7 @@ public class AsyncIOTest extends AbstractTest
         Thread.sleep(1000);
         stream.data(new DataFrame(stream.getId(), ByteBuffer.allocate(16), true), Callback.NOOP);
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
@@ -211,9 +217,69 @@ public class AsyncIOTest extends AbstractTest
         Thread.sleep(1000);
         stream.data(new DataFrame(stream.getId(), ByteBuffer.allocate(1), true), Callback.NOOP);
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
         // Make sure onDataAvailable() has been called twice
-        Assert.assertEquals(2, count.get());
+        assertEquals(2, count.get());
+    }
+
+    @Test
+    public void testDirectAsyncWriteThenComplete() throws Exception
+    {
+        // Use a small flow control window to stall the server writes.
+        int clientWindow = 16;
+        start(new EmptyHttpServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            {
+                AsyncContext asyncContext = request.startAsync();
+                HttpOutput output = (HttpOutput)response.getOutputStream();
+                output.setWriteListener(new WriteListener()
+                {
+                    @Override
+                    public void onWritePossible() throws IOException
+                    {
+                        // The write is too large and will stall.
+                        output.write(ByteBuffer.wrap(new byte[2 * clientWindow]));
+
+                        // We can now call complete() now before checking for isReady().
+                        // This will asynchronously complete when the write is finished.
+                        asyncContext.complete();
+                    }
+
+                    @Override
+                    public void onError(Throwable t)
+                    {
+                    }
+                });
+            }
+        });
+
+        Session session = newClient(new Session.Listener.Adapter()
+        {
+            @Override
+            public Map<Integer, Integer> onPreface(Session session)
+            {
+                Map<Integer, Integer> settings = new HashMap<>();
+                settings.put(SettingsFrame.INITIAL_WINDOW_SIZE, clientWindow);
+                return settings;
+            }
+        });
+
+        HttpFields fields = new HttpFields();
+        MetaData.Request metaData = newRequest("GET", fields);
+        HeadersFrame frame = new HeadersFrame(metaData, null, true);
+        CountDownLatch latch = new CountDownLatch(1);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        session.newStream(frame, promise, new Stream.Listener.Adapter()
+        {
+            @Override
+            public void onClosed(Stream stream)
+            {
+                latch.countDown();
+            }
+        });
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 
     private static void sleep(long ms) throws InterruptedIOException

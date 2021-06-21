@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -40,12 +40,12 @@ public abstract class AbstractConnection implements Connection
 {
     private static final Logger LOG = Log.getLogger(AbstractConnection.class);
 
-    private final List<Listener> listeners = new CopyOnWriteArrayList<>();
-    private final long _created=System.currentTimeMillis();
+    private final List<Listener> _listeners = new CopyOnWriteArrayList<>();
+    private final long _created = System.currentTimeMillis();
     private final EndPoint _endPoint;
     private final Executor _executor;
     private final Callback _readCallback;
-    private int _inputBufferSize=2048;
+    private int _inputBufferSize = 2048;
 
     protected AbstractConnection(EndPoint endp, Executor executor)
     {
@@ -59,13 +59,13 @@ public abstract class AbstractConnection implements Connection
     @Override
     public void addListener(Listener listener)
     {
-        listeners.add(listener);
+        _listeners.add(listener);
     }
 
     @Override
     public void removeListener(Listener listener)
     {
-        listeners.remove(listener);
+        _listeners.remove(listener);
     }
 
     public int getInputBufferSize()
@@ -96,28 +96,27 @@ public abstract class AbstractConnection implements Connection
                 LOG.warn(e);
             }
         };
-        
-        switch(Invocable.getInvocationType(callback))
+
+        switch (Invocable.getInvocationType(callback))
         {
             case BLOCKING:
                 try
                 {
-                    getExecutor().execute(failCallback); 
+                    getExecutor().execute(failCallback);
                 }
-                catch(RejectedExecutionException e)
+                catch (RejectedExecutionException e)
                 {
                     LOG.debug(e);
                     callback.failed(x);
                 }
                 break;
-                
+
             case NON_BLOCKING:
                 failCallback.run();
                 break;
-                
+
             case EITHER:
                 Invocable.invokeNonBlocking(failCallback);
-
         }
     }
 
@@ -125,12 +124,13 @@ public abstract class AbstractConnection implements Connection
      * <p>Utility method to be called to register read interest.</p>
      * <p>After a call to this method, {@link #onFillable()} or {@link #onFillInterestedFailed(Throwable)}
      * will be called back as appropriate.</p>
+     *
      * @see #onFillable()
      */
     public void fillInterested()
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("fillInterested {}",this);
+            LOG.debug("fillInterested {}", this);
         getEndPoint().fillInterested(_readCallback);
     }
 
@@ -151,12 +151,14 @@ public abstract class AbstractConnection implements Connection
 
     /**
      * <p>Callback method invoked when the endpoint is ready to be read.</p>
+     *
      * @see #fillInterested()
      */
     public abstract void onFillable();
 
     /**
      * <p>Callback method invoked when the endpoint failed to be ready to be read.</p>
+     *
      * @param cause the exception that caused the failure
      */
     protected void onFillInterestedFailed(Throwable cause)
@@ -167,7 +169,7 @@ public abstract class AbstractConnection implements Connection
         {
             boolean close = true;
             if (cause instanceof TimeoutException)
-                close = onReadTimeout();
+                close = onReadTimeout(cause);
             if (close)
             {
                 if (_endPoint.isOutputShutdown())
@@ -183,9 +185,11 @@ public abstract class AbstractConnection implements Connection
 
     /**
      * <p>Callback method invoked when the endpoint failed to be ready to be read after a timeout</p>
+     *
+     * @param timeout the cause of the read timeout
      * @return true to signal that the endpoint must be closed, false to keep the endpoint open
      */
-    protected boolean onReadTimeout()
+    protected boolean onReadTimeout(Throwable timeout)
     {
         return true;
     }
@@ -196,18 +200,46 @@ public abstract class AbstractConnection implements Connection
         if (LOG.isDebugEnabled())
             LOG.debug("onOpen {}", this);
 
-        for (Listener listener : listeners)
+        for (Listener listener : _listeners)
+        {
+            onOpened(listener);
+        }
+    }
+
+    private void onOpened(Listener listener)
+    {
+        try
+        {
             listener.onOpened(this);
+        }
+        catch (Throwable x)
+        {
+            LOG.info("Failure while notifying listener " + listener, x);
+        }
     }
 
     @Override
     public void onClose()
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("onClose {}",this);
+            LOG.debug("onClose {}", this);
 
-        for (Listener listener : listeners)
+        for (Listener listener : _listeners)
+        {
+            onClosed(listener);
+        }
+    }
+
+    private void onClosed(Listener listener)
+    {
+        try
+        {
             listener.onClosed(this);
+        }
+        catch (Throwable x)
+        {
+            LOG.info("Failure while notifying listener " + listener, x);
+        }
     }
 
     @Override
@@ -261,7 +293,7 @@ public abstract class AbstractConnection implements Connection
     @Override
     public final String toString()
     {
-        return String.format("%s<-%s",toConnectionString(),getEndPoint());
+        return String.format("%s@%h::%s", getClass().getSimpleName(), this, getEndPoint());
     }
 
     public String toConnectionString()
@@ -288,8 +320,7 @@ public abstract class AbstractConnection implements Connection
         @Override
         public String toString()
         {
-            return String.format("AC.ReadCB@%h{%s}", AbstractConnection.this,AbstractConnection.this);
+            return String.format("AC.ReadCB@%h{%s}", AbstractConnection.this, AbstractConnection.this);
         }
     }
-
 }

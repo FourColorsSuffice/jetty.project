@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,23 +22,25 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.util.log.StacklessLogging;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SweeperTest
 {
     private Scheduler scheduler;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         scheduler = new ScheduledExecutorScheduler();
         scheduler.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         scheduler.stop();
@@ -82,9 +84,9 @@ public class SweeperTest
             }
         });
 
-        Assert.assertTrue(sweepLatch.await(2 * period, TimeUnit.MILLISECONDS));
-        Assert.assertTrue(taskLatch.await(2 * period, TimeUnit.MILLISECONDS));
-        Assert.assertEquals(sweep ? 0 : 1, sweeper.getSize());
+        assertTrue(sweepLatch.await(2 * period, TimeUnit.MILLISECONDS));
+        assertTrue(taskLatch.await(2 * period, TimeUnit.MILLISECONDS));
+        assertEquals(sweep ? 0 : 1, sweeper.getSize());
 
         sweeper.stop();
     }
@@ -92,7 +94,7 @@ public class SweeperTest
     @Test
     public void testSweepThrows() throws Exception
     {
-        try(StacklessLogging scope = new StacklessLogging(Sweeper.class))
+        try (StacklessLogging scope = new StacklessLogging(Sweeper.class))
         {
             long period = 500;
             final CountDownLatch taskLatch = new CountDownLatch(2);
@@ -118,9 +120,9 @@ public class SweeperTest
                 }
             });
 
-            Assert.assertTrue(sweepLatch.await(4 * period, TimeUnit.MILLISECONDS));
-            Assert.assertTrue(taskLatch.await(4 * period, TimeUnit.MILLISECONDS));
-            Assert.assertEquals(1, sweeper.getSize());
+            assertTrue(sweepLatch.await(4 * period, TimeUnit.MILLISECONDS));
+            assertTrue(taskLatch.await(4 * period, TimeUnit.MILLISECONDS));
+            assertEquals(1, sweeper.getSize());
 
             sweeper.stop();
         }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.tests.webapp;
 
 import java.io.IOException;
 import java.util.Enumeration;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -28,7 +27,7 @@ import javax.servlet.http.HttpServletResponse;
 
 /**
  * Servlet declaring the various do* methods.
- * 
+ *
  * The Jetty internals for OPTIONS should detect the declared do* methods and
  * return an appropriate listing of available OPTIONS on an OPTIONS request.
  */
@@ -46,8 +45,9 @@ public class HttpMethodsServlet extends HttpServlet
 
     /**
      * @see HttpServlet#doGet(HttpServletRequest request, HttpServletResponse
-     *      response)
+     * response)
      */
+    @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
         /* do nothing */
@@ -55,8 +55,9 @@ public class HttpMethodsServlet extends HttpServlet
 
     /**
      * @see HttpServlet#doPost(HttpServletRequest request, HttpServletResponse
-     *      response)
+     * response)
      */
+    @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
         /* do nothing */
@@ -65,6 +66,7 @@ public class HttpMethodsServlet extends HttpServlet
     /**
      * @see HttpServlet#doPut(HttpServletRequest, HttpServletResponse)
      */
+    @Override
     protected void doPut(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
         /* do nothing */
@@ -73,6 +75,7 @@ public class HttpMethodsServlet extends HttpServlet
     /**
      * @see HttpServlet#doDelete(HttpServletRequest, HttpServletResponse)
      */
+    @Override
     protected void doDelete(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
         /* do nothing */
@@ -81,6 +84,7 @@ public class HttpMethodsServlet extends HttpServlet
     /**
      * @see HttpServlet#doHead(HttpServletRequest, HttpServletResponse)
      */
+    @Override
     protected void doHead(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
         /* do nothing */
@@ -89,9 +93,10 @@ public class HttpMethodsServlet extends HttpServlet
     /**
      * @see HttpServlet#doTrace(HttpServletRequest, HttpServletResponse)
      */
+    @Override
     protected void doTrace(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
-        response.addHeader("Content-Type","message/http");
+        response.addHeader("Content-Type", "message/http");
         StringBuffer msg = new StringBuffer();
         msg.append(request.getMethod()).append(' ');
         msg.append(request.getRequestURI()).append(' ');

@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[custom-modules]]
 === Custom Modules
@@ -77,6 +79,32 @@ If a user does not accept the license agreement, the module will not be activate
 Additional Startup Commands - `[exec]`::
 The `[exec]` section is used to define additional parameters specific to the module.
 These commands are added to the server startup.
+JPMS Module-Path Definitions - `[jpms]`::
+The `[jpms]` section is used to add link:#startup-jpms[JPMS modules] to the module-path for startup when using the `--jpms` command.
+
+[[custom-module-properties]]
+==== Module Properties
+
+Properties are used to parameterize:
+
+* XML files using the `<Property name="pname"/>` element
+* Module files using the `${pname}` syntax
+
+Properties and System Properties may be set on the command line, in a ini file or in a `[ini]` section of a module using the following syntax.
+
+`name=value`;;
+Set a property that can be expanded in XML files with the <Property> element.
+
+`name+=value`;;
+Append value to an existing property value.
+
+`name+=,value`;;
+Append value to an existing property value, using a comma separator if needed.
+
+`name?=value`;;
+Set a property only if it is not already set.
+
+If any of the previous formats is preceded by `-D`, then a system property is set as well as a start property.
 
 [[custom-module-location]]
 ==== Location of Modules
@@ -181,7 +209,7 @@ MKDIR : ${jetty.base}/lib/alpn
 MKDIR : ${jetty.base}/etc
 COPY  : ${jetty.home}/modules/ssl/keystore to ${jetty.base}/etc/keystore
 MKDIR : ${jetty.base}/webapps
-DOWNLD: http://central.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/8.1.8.v20160420/alpn-boot-8.1.8.v20160420.jar to ${jetty.base}/lib/alpn/alpn-boot-8.1.8.v20160420.jar
+DOWNLD: https://repo1.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/8.1.8.v20160420/alpn-boot-8.1.8.v20160420.jar to ${jetty.base}/lib/alpn/alpn-boot-8.1.8.v20160420.jar
 COPY  : ${jetty.home}/modules/acme/acme.xml to ${jetty.base}/etc/acme.xml
 INFO  : Base directory was modified
 ----
@@ -212,8 +240,8 @@ INFO  : server          initialized in ${jetty.base}/start.d/server.ini
 INFO  : Base directory was modified
 ----
 
-____
 [NOTE]
+====
 It is important to keep in mind that when activating a dependency, Jetty does not just go one layer down.
 If a dependent module also has dependencies they too will be enabled.
-____
+====

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.fcgi.server.proxy;
 
 import java.io.IOException;
 import java.util.EnumSet;
-
 import javax.servlet.DispatcherType;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -35,9 +34,11 @@ import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TryFilesFilterTest
 {
@@ -53,13 +54,10 @@ public class TryFilesFilterTest
         connector = new ServerConnector(server);
         server.addConnector(connector);
 
-        SslContextFactory sslContextFactory = new SslContextFactory();
-        sslContextFactory.setEndpointIdentificationAlgorithm("");
-        sslContextFactory.setKeyStorePath("src/test/resources/keystore.jks");
-        sslContextFactory.setKeyStorePassword("storepwd");
-        sslContextFactory.setTrustStorePath("src/test/resources/truststore.jks");
-        sslContextFactory.setTrustStorePassword("storepwd");
-        sslConnector = new ServerConnector(server, sslContextFactory);
+        SslContextFactory.Server serverSslContextFactory = new SslContextFactory.Server();
+        serverSslContextFactory.setKeyStorePath("src/test/resources/keystore.jks");
+        serverSslContextFactory.setKeyStorePassword("storepwd");
+        sslConnector = new ServerConnector(server, serverSslContextFactory);
         server.addConnector(sslConnector);
 
         ServletContextHandler context = new ServletContextHandler(server, "/");
@@ -70,13 +68,19 @@ public class TryFilesFilterTest
 
         context.addServlet(new ServletHolder(servlet), "/*");
 
-        client = new HttpClient(sslContextFactory);
+        SslContextFactory.Client clientSslContextFactory = new SslContextFactory.Client();
+        clientSslContextFactory.setEndpointIdentificationAlgorithm(null);
+        clientSslContextFactory.setKeyStorePath("src/test/resources/keystore.jks");
+        clientSslContextFactory.setKeyStorePassword("storepwd");
+        clientSslContextFactory.setTrustStorePath("src/test/resources/truststore.jks");
+        clientSslContextFactory.setTrustStorePassword("storepwd");
+        client = new HttpClient(clientSslContextFactory);
         server.addBean(client);
 
         server.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         server.stop();
@@ -91,18 +95,18 @@ public class TryFilesFilterTest
             @Override
             protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException
             {
-                Assert.assertTrue("https".equalsIgnoreCase(req.getScheme()));
-                Assert.assertTrue(req.isSecure());
-                Assert.assertEquals(forwardPath, req.getRequestURI());
-                Assert.assertTrue(req.getQueryString().endsWith(path));
+                assertTrue("https".equalsIgnoreCase(req.getScheme()));
+                assertTrue(req.isSecure());
+                assertEquals(forwardPath, req.getRequestURI());
+                assertTrue(req.getQueryString().endsWith(path));
             }
         });
 
         ContentResponse response = client.newRequest("localhost", sslConnector.getLocalPort())
-                .scheme("https")
-                .path(path)
-                .send();
+            .scheme("https")
+            .path(path)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,6 +21,7 @@ package org.eclipse.jetty.http2.parser;
 import java.nio.ByteBuffer;
 
 import org.eclipse.jetty.http2.frames.Frame;
+import org.eclipse.jetty.http2.frames.FrameType;
 
 /**
  * <p>The parser for the frame header of HTTP/2 frames.</p>
@@ -29,13 +30,23 @@ import org.eclipse.jetty.http2.frames.Frame;
  */
 public class HeaderParser
 {
+    private final RateControl rateControl;
     private State state = State.LENGTH;
     private int cursor;
-
     private int length;
     private int type;
     private int flags;
     private int streamId;
+
+    public HeaderParser(RateControl rateControl)
+    {
+        this.rateControl = rateControl;
+    }
+
+    public RateControl getRateControl()
+    {
+        return rateControl;
+    }
 
     protected void reset()
     {
@@ -142,6 +153,12 @@ public class HeaderParser
     public int getStreamId()
     {
         return streamId;
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("[%s|%d|%d|%d]", FrameType.from(getFrameType()), getLength(), flags, getStreamId());
     }
 
     private enum State

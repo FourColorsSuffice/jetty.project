@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,17 +18,16 @@
 
 package org.eclipse.jetty;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-
+import com.acme.DispatchServlet;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.servlet.ServletTester;
 import org.hamcrest.Matchers;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import com.acme.DispatchServlet;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Simple tests against DispatchServlet.
@@ -68,8 +67,6 @@ public class DispatchServletTest
      * afflict the Jetty's core."
      * </p>
      * </blockquote>
-     *
-     * @throws Exception
      */
     @Test
     public void testSelfRefForwardDenialOfService() throws Exception
@@ -77,8 +74,8 @@ public class DispatchServletTest
         ServletTester tester = new ServletTester();
         tester.setContextPath("/tests");
 
-        ServletHolder dispatch = tester.addServlet(DispatchServlet.class,"/dispatch/*");
-        tester.addServlet(DefaultServlet.class,"/");
+        ServletHolder dispatch = tester.addServlet(DispatchServlet.class, "/dispatch/*");
+        tester.addServlet(DefaultServlet.class, "/");
         tester.start();
 
         StringBuilder req1 = new StringBuilder();
@@ -91,8 +88,8 @@ public class DispatchServletTest
 
         String msg = "Response code on SelfRefDoS";
 
-        assertFalse(msg + " should not be code 500.",response.startsWith("HTTP/1.1 500 "));
-        assertTrue(msg + " should return error code 403 (Forbidden)", response.startsWith("HTTP/1.1 403 "));
+        assertFalse(response.startsWith("HTTP/1.1 500 "), msg + " should not be code 500.");
+        assertTrue(response.startsWith("HTTP/1.1 403 "), msg + " should return error code 403 (Forbidden)");
     }
 
     @Test
@@ -100,12 +97,12 @@ public class DispatchServletTest
     {
         ServletTester tester = new ServletTester();
         tester.setContextPath("/tests");
-        tester.addServlet(DispatchServlet.class,"/dispatch/*");
-        tester.addServlet(DefaultServlet.class,"/");
+        tester.addServlet(DispatchServlet.class, "/dispatch/*");
+        tester.addServlet(DefaultServlet.class, "/");
         tester.start();
 
-        String selfRefs[] =
-        { "/dispatch/forward", "/dispatch/includeS", "/dispatch/includeW", "/dispatch/includeN", };
+        String[] selfRefs =
+            {"/dispatch/forward", "/dispatch/includeS", "/dispatch/includeW", "/dispatch/includeN"};
 
         /*
          * Number of nested dispatch requests. 220 is a good value, as it won't
@@ -134,12 +131,12 @@ public class DispatchServletTest
             msg.append("Response code on nested \"").append(selfRef).append("\"");
             msg.append(" (depth:").append(nestedDepth).append(")");
 
-            assertFalse(msg + " should not be code 413 (Request Entity Too Large)," +
-                    "the nestedDepth in the TestCase is too large (reduce it)",
-                    response.startsWith("HTTP/1.1 413 "));
+            assertFalse(response.startsWith("HTTP/1.1 413 "),
+                msg + " should not be code 413 (Request Entity Too Large)," +
+                    "the nestedDepth in the TestCase is too large (reduce it)");
 
-            assertFalse(msg + " should not be code 500.", response.startsWith("HTTP/1.1 500 "));
-            assertThat(response,Matchers.startsWith("HTTP/1.1 403 "));
+            assertFalse(response.startsWith("HTTP/1.1 500 "), msg + " should not be code 500.");
+            assertThat(response, Matchers.startsWith("HTTP/1.1 403 "));
         }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,19 +18,19 @@
 
 package org.eclipse.jetty.rewrite.handler;
 
-import static org.junit.Assert.assertEquals;
-
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class MsieSslRuleTest extends AbstractRuleTestCase
 {
     private MsieSslRule _rule;
 
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         // enable SSL
@@ -48,7 +48,6 @@ public class MsieSslRuleTest extends AbstractRuleTestCase
 
         assertEquals(_request.getRequestURI(), result);
         assertEquals(HttpHeaderValue.CLOSE.asString(), _response.getHeader(HttpHeader.CONNECTION.asString()));
-
 
         fields.add("User-Agent", "Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)");
         result = _rule.matchAndApply(_request.getRequestURI(), _request, _response);

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -27,7 +27,6 @@ import java.util.Map;
 import org.eclipse.jetty.http.MimeTypes.Type;
 import org.eclipse.jetty.util.resource.Resource;
 
-/* ------------------------------------------------------------ */
 public class PrecompressedHttpContent implements HttpContent
 {
     private final HttpContent _content;
@@ -66,13 +65,13 @@ public class PrecompressedHttpContent implements HttpContent
     @Override
     public HttpField getETag()
     {
-        return new HttpField(HttpHeader.ETAG,getETagValue());
+        return new HttpField(HttpHeader.ETAG, getETagValue());
     }
 
     @Override
     public String getETagValue()
     {
-        return _content.getResource().getWeakETag(_format._etag);
+        return _content.getResource().getWeakETag(_format.getEtagSuffix());
     }
 
     @Override
@@ -102,13 +101,13 @@ public class PrecompressedHttpContent implements HttpContent
     @Override
     public HttpField getContentEncoding()
     {
-        return _format._contentEncoding;
+        return _format.getContentEncoding();
     }
 
     @Override
     public String getContentEncodingValue()
     {
-        return _format._contentEncoding.getValue();
+        return _format.getContentEncoding().getValue();
     }
 
     @Override
@@ -168,10 +167,12 @@ public class PrecompressedHttpContent implements HttpContent
     @Override
     public String toString()
     {
-        return String.format("PrecompressedHttpContent@%x{e=%s,r=%s|%s,lm=%s|%s,ct=%s}",hashCode(),_format._encoding,
-                _content.getResource(),_precompressedContent.getResource(),
-                _content.getResource().lastModified(),_precompressedContent.getResource().lastModified(),
-                getContentType());
+        return String.format("%s@%x{e=%s,r=%s|%s,lm=%s|%s,ct=%s}",
+            this.getClass().getSimpleName(), hashCode(),
+            _format,
+            _content.getResource(), _precompressedContent.getResource(),
+            _content.getResource().lastModified(), _precompressedContent.getResource().lastModified(),
+            getContentType());
     }
 
     @Override

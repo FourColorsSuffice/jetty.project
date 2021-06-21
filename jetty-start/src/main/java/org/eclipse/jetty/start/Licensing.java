@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -48,7 +48,7 @@ public class Licensing
             return;
         }
 
-        licenseMap.put(module.getName(),module.getLicense());
+        licenseMap.put(module.getName(), module.getLicense());
     }
 
     public boolean hasLicenses()
@@ -59,7 +59,7 @@ public class Licensing
     public boolean acknowledgeLicenses() throws IOException
     {
         StartLog.debug("Requesting License Acknowledgement");
-        
+
         if (!hasLicenses())
         {
             return true;
@@ -71,13 +71,10 @@ public class Licensing
         System.err.printf(" + contains software not covered by the Eclipse Public License!%n");
         System.err.printf(" + has not been audited for compliance with its license%n");
 
-        for (String key : licenseMap.keySet())
+        for (Map.Entry<String, List<String>> entry : licenseMap.entrySet())
         {
-            System.err.printf("%n Module: %s%n",key);
-            for (String line : licenseMap.get(key))
-            {
-                System.err.printf("  + %s%n",line);
-            }
+            System.err.printf("%n Module: %s%n", entry.getKey());
+            entry.getValue().forEach(line -> System.err.printf("  + %s%n", line));
         }
 
         boolean licenseAck = false;
@@ -85,7 +82,7 @@ public class Licensing
         String propBasedAckValue = System.getProperty(PROP_ACK_LICENSES);
         if (propBasedAckValue != null)
         {
-            StartLog.log("TESTING MODE","Programmatic ACK - %s=%s",PROP_ACK_LICENSES,propBasedAckValue);
+            StartLog.log("TESTING MODE", "Programmatic ACK - %s=%s", PROP_ACK_LICENSES, propBasedAckValue);
             licenseAck = Boolean.parseBoolean(propBasedAckValue);
         }
         else

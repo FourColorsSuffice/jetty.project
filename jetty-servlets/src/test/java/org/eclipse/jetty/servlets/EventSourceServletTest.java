@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -28,17 +28,20 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-
 import javax.servlet.http.HttpServletRequest;
 
 import org.eclipse.jetty.server.NetworkConnector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class EventSourceServletTest
 {
@@ -46,7 +49,7 @@ public class EventSourceServletTest
     private NetworkConnector connector;
     private ServletContextHandler context;
 
-    @Before
+    @BeforeEach
     public void startServer() throws Exception
     {
         server = new Server(0);
@@ -57,7 +60,7 @@ public class EventSourceServletTest
         server.start();
     }
 
-    @After
+    @AfterEach
     public void stopServer() throws Exception
     {
         if (server != null)
@@ -77,12 +80,14 @@ public class EventSourceServletTest
             {
                 return new EventSource()
                 {
+                    @Override
                     public void onOpen(Emitter emitter) throws IOException
                     {
                         emitterRef.set(emitter);
                         emitterLatch.countDown();
                     }
 
+                    @Override
                     public void onClose()
                     {
                         closeLatch.countDown();
@@ -101,9 +106,9 @@ public class EventSourceServletTest
         writeHTTPRequest(socket, servletPath);
         BufferedReader reader = readAndDiscardHTTPResponse(socket);
 
-        Assert.assertTrue(emitterLatch.await(1, TimeUnit.SECONDS));
+        assertTrue(emitterLatch.await(1, TimeUnit.SECONDS));
         EventSource.Emitter emitter = emitterRef.get();
-        Assert.assertNotNull(emitter);
+        assertNotNull(emitter);
 
         String data = "foo";
         emitter.data(data);
@@ -118,10 +123,10 @@ public class EventSourceServletTest
             line = reader.readLine();
         }
 
-        Assert.assertEquals("data: " + data, received);
+        assertEquals("data: " + data, received);
 
         socket.close();
-        Assert.assertTrue(closeLatch.await(heartBeatPeriod * 3, TimeUnit.SECONDS));
+        assertTrue(closeLatch.await(heartBeatPeriod * 3, TimeUnit.SECONDS));
     }
 
     @Test
@@ -136,12 +141,14 @@ public class EventSourceServletTest
             {
                 return new EventSource()
                 {
+                    @Override
                     public void onOpen(Emitter emitter) throws IOException
                     {
                         emitterRef.set(emitter);
                         emitterLatch.countDown();
                     }
 
+                    @Override
                     public void onClose()
                     {
                     }
@@ -156,9 +163,9 @@ public class EventSourceServletTest
         writeHTTPRequest(socket, servletPath);
         BufferedReader reader = readAndDiscardHTTPResponse(socket);
 
-        Assert.assertTrue(emitterLatch.await(1, TimeUnit.SECONDS));
+        assertTrue(emitterLatch.await(1, TimeUnit.SECONDS));
         EventSource.Emitter emitter = emitterRef.get();
-        Assert.assertNotNull(emitter);
+        assertNotNull(emitter);
 
         String comment = "foo";
         emitter.comment(comment);
@@ -173,12 +180,12 @@ public class EventSourceServletTest
             line = reader.readLine();
         }
 
-        Assert.assertEquals(": " + comment, received);
+        assertEquals(": " + comment, received);
 
         emitter.close();
 
         line = reader.readLine();
-        Assert.assertNull(line);
+        assertNull(line);
 
         socket.close();
     }
@@ -187,7 +194,7 @@ public class EventSourceServletTest
     public void testEncoding() throws Exception
     {
         // The EURO symbol
-        final String data = "\u20AC";
+        final String data = "%E2%82%AC";
         class S extends EventSourceServlet
         {
             @Override
@@ -195,11 +202,13 @@ public class EventSourceServletTest
             {
                 return new EventSource()
                 {
+                    @Override
                     public void onOpen(Emitter emitter) throws IOException
                     {
                         emitter.data(data);
                     }
 
+                    @Override
                     public void onClose()
                     {
                     }
@@ -224,7 +233,7 @@ public class EventSourceServletTest
             line = reader.readLine();
         }
 
-        Assert.assertEquals("data: " + data, received);
+        assertEquals("data: " + data, received);
 
         socket.close();
     }
@@ -244,11 +253,13 @@ public class EventSourceServletTest
             {
                 return new EventSource()
                 {
+                    @Override
                     public void onOpen(Emitter emitter) throws IOException
                     {
                         emitter.data(data);
                     }
 
+                    @Override
                     public void onClose()
                     {
                     }
@@ -264,15 +275,15 @@ public class EventSourceServletTest
         BufferedReader reader = readAndDiscardHTTPResponse(socket);
 
         String line1 = reader.readLine();
-        Assert.assertEquals("data: " + data1, line1);
+        assertEquals("data: " + data1, line1);
         String line2 = reader.readLine();
-        Assert.assertEquals("data: " + data2, line2);
+        assertEquals("data: " + data2, line2);
         String line3 = reader.readLine();
-        Assert.assertEquals("data: " + data3, line3);
+        assertEquals("data: " + data3, line3);
         String line4 = reader.readLine();
-        Assert.assertEquals("data: " + data4, line4);
+        assertEquals("data: " + data4, line4);
         String line5 = reader.readLine();
-        Assert.assertEquals(0, line5.length());
+        assertEquals(0, line5.length());
 
         socket.close();
     }
@@ -289,11 +300,13 @@ public class EventSourceServletTest
             {
                 return new EventSource()
                 {
+                    @Override
                     public void onOpen(Emitter emitter) throws IOException
                     {
                         emitter.event(name, data);
                     }
 
+                    @Override
                     public void onClose()
                     {
                     }
@@ -309,11 +322,11 @@ public class EventSourceServletTest
         BufferedReader reader = readAndDiscardHTTPResponse(socket);
 
         String line1 = reader.readLine();
-        Assert.assertEquals("event: " + name, line1);
+        assertEquals("event: " + name, line1);
         String line2 = reader.readLine();
-        Assert.assertEquals("data: " + data, line2);
+        assertEquals("data: " + data, line2);
         String line3 = reader.readLine();
-        Assert.assertEquals(0, line3.length());
+        assertEquals(0, line3.length());
 
         socket.close();
     }

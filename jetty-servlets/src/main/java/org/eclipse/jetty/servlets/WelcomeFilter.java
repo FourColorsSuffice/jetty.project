@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,7 +19,6 @@
 package org.eclipse.jetty.servlets;
 
 import java.io.IOException;
-
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -28,8 +27,10 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 
-/* ------------------------------------------------------------ */
-/** Welcome Filter
+import org.eclipse.jetty.util.URIUtil;
+
+/**
+ * Welcome Filter
  * This filter can be used to server an index file for a directory
  * when no index file actually exists (thus the web.xml mechanism does
  * not work).
@@ -42,30 +43,38 @@ import javax.servlet.http.HttpServletRequest;
  *
  * Requests to "/some/directory" will be redirected to "/some/directory/".
  */
-public  class WelcomeFilter implements Filter
+@Deprecated
+public class WelcomeFilter implements Filter
 {
     private String welcome;
 
+    @Override
     public void init(FilterConfig filterConfig)
     {
-        welcome=filterConfig.getInitParameter("welcome");
-        if (welcome==null)
-            welcome="index.html";
+        welcome = filterConfig.getInitParameter("welcome");
+        if (welcome == null)
+            welcome = "index.html";
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
     public void doFilter(ServletRequest request,
                          ServletResponse response,
                          FilterChain chain)
         throws IOException, ServletException
     {
-        String path=((HttpServletRequest)request).getServletPath();
-        if (welcome!=null && path.endsWith("/"))
-            request.getRequestDispatcher(path+welcome).forward(request,response);
+        String path = ((HttpServletRequest)request).getServletPath();
+        if (welcome != null && path.endsWith("/"))
+        {
+            String uriInContext = URIUtil.encodePath(URIUtil.addPaths(path, welcome));
+            request.getRequestDispatcher(uriInContext).forward(request, response);
+        }
         else
             chain.doFilter(request, response);
     }
 
-    public void destroy() {}
+    @Override
+    public void destroy()
+    {
+    }
 }
 

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,9 @@
 
 package org.eclipse.jetty.server.session;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import java.io.IOException;
-
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -32,13 +30,16 @@ import javax.servlet.http.HttpSession;
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Request;
-import org.junit.Test;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * ReentrantRequestSessionTest
- * 
- * While a request is still active in a context, make another 
+ *
+ * While a request is still active in a context, make another
  * request to it to ensure both share same session.
  */
 public class ReentrantRequestSessionTest
@@ -48,15 +49,19 @@ public class ReentrantRequestSessionTest
     {
         String contextPath = "";
         String servletMapping = "/server";
-        
+
         DefaultSessionCacheFactory cacheFactory = new DefaultSessionCacheFactory();
         cacheFactory.setEvictionPolicy(SessionCache.NEVER_EVICT);
         SessionDataStoreFactory storeFactory = new NullSessionDataStoreFactory();
-        
+
         TestServer server = new TestServer(0, -1, 60, cacheFactory, storeFactory);
 
-        
-        server.addContext(contextPath).addServlet(TestServlet.class, servletMapping);
+        ServletContextHandler context = server.addContext(contextPath);
+        context.addServlet(TestServlet.class, servletMapping);
+
+        TestHttpChannelCompleteListener scopeListener = new TestHttpChannelCompleteListener();
+        server.getServerConnector().addBean(scopeListener);
+
         try
         {
             server.start();
@@ -67,21 +72,21 @@ public class ReentrantRequestSessionTest
             try
             {
                 //create the session
-                ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping + "?action=create&port=" + port + "&path=" + contextPath + servletMapping);
-                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
-                
+                CountDownLatch latch = new CountDownLatch(1);
+                scopeListener.setExitSynchronizer(latch);
+                ContentResponse response = client.GET("http://localhost:" + port + contextPath + servletMapping + "?action=create");
+                assertEquals(HttpServletResponse.SC_OK, response.getStatus());
+
                 String sessionCookie = response.getHeaders().get("Set-Cookie");
                 assertTrue(sessionCookie != null);
-                // Mangle the cookie, replacing Path with $Path, etc.
-                sessionCookie = sessionCookie.replaceFirst("(\\W)(P|p)ath=", "$1\\$Path=");
-                
+
+                //ensure request fully finished processing
+                latch.await(5, TimeUnit.SECONDS);
+
                 //make a request that will make a simultaneous request for the same session
                 Request request = client.newRequest("http://localhost:" + port + contextPath + servletMapping + "?action=reenter&port=" + port + "&path=" + contextPath + servletMapping);
-                request.header("Cookie", sessionCookie);
                 response = request.send();
-                assertEquals(HttpServletResponse.SC_OK,response.getStatus());
-  
-                
+                assertEquals(HttpServletResponse.SC_OK, response.getStatus());
             }
             finally
             {
@@ -96,6 +101,8 @@ public class ReentrantRequestSessionTest
 
     public static class TestServlet extends HttpServlet
     {
+        private static final long serialVersionUID = 1L;
+
         @Override
         protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
         {
@@ -105,15 +112,13 @@ public class ReentrantRequestSessionTest
         @Override
         protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
         {
-
-
             String action = request.getParameter("action");
             if ("create".equals(action))
             {
                 request.getSession(true);
                 return;
             }
-            
+
             HttpSession session = request.getSession(false);
             if ("reenter".equals(action))
             {
@@ -131,9 +136,9 @@ public class ReentrantRequestSessionTest
                     client.start();
                     try
                     {
-                        ContentResponse resp = client.GET("http://localhost:" + port + path + ";jsessionid="+session.getId()+"?action=none");
-                        assertEquals(HttpServletResponse.SC_OK,resp.getStatus());
-                        assertEquals("true",session.getAttribute("reentrant"));
+                        ContentResponse resp = client.GET("http://localhost:" + port + path + ";jsessionid=" + session.getId() + "?action=none");
+                        assertEquals(HttpServletResponse.SC_OK, resp.getStatus());
+                        assertEquals("true", session.getAttribute("reentrant"));
                     }
                     finally
                     {
@@ -147,8 +152,8 @@ public class ReentrantRequestSessionTest
             }
             else
             {
-                assertTrue(session!=null);
-                session.setAttribute("reentrant","true");
+                assertTrue(session != null);
+                session.setAttribute("reentrant", "true");
             }
         }
     }

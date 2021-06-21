@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,11 +23,15 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongConsumer;
+import java.util.function.LongUnaryOperator;
 
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
@@ -36,7 +40,7 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
-import org.eclipse.jetty.util.CountingCallback;
+import org.eclipse.jetty.util.MathUtils;
 import org.eclipse.jetty.util.component.Destroyable;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -51,7 +55,7 @@ import org.eclipse.jetty.util.log.Logger;
  * <ol>
  * <li>{@link #responseBegin(HttpExchange)}, when the HTTP response data containing the HTTP status code
  * is available</li>
- * <li>{@link #responseHeader(HttpExchange, HttpField)}, when a HTTP field is available</li>
+ * <li>{@link #responseHeader(HttpExchange, HttpField)}, when an HTTP field is available</li>
  * <li>{@link #responseHeaders(HttpExchange)}, when all HTTP headers are available</li>
  * <li>{@link #responseContent(HttpExchange, ByteBuffer, Callback)}, when HTTP content is available</li>
  * <li>{@link #responseSuccess(HttpExchange)}, when the response is successful</li>
@@ -72,8 +76,11 @@ public abstract class HttpReceiver
 
     private final AtomicReference<ResponseState> responseState = new AtomicReference<>(ResponseState.IDLE);
     private final HttpChannel channel;
-    private ContentDecoder decoder;
+    private ContentListeners contentListeners;
+    private Decoder decoder;
     private Throwable failure;
+    private long demand;
+    private boolean stalled;
 
     protected HttpReceiver(HttpChannel channel)
     {
@@ -85,6 +92,55 @@ public abstract class HttpReceiver
         return channel;
     }
 
+    void demand(long n)
+    {
+        if (n <= 0)
+            throw new IllegalArgumentException("Invalid demand " + n);
+
+        boolean resume = false;
+        synchronized (this)
+        {
+            demand = MathUtils.cappedAdd(demand, n);
+            if (stalled)
+            {
+                stalled = false;
+                resume = true;
+            }
+            if (LOG.isDebugEnabled())
+                LOG.debug("Response demand={}/{}, resume={}", n, demand, resume);
+        }
+
+        if (resume)
+        {
+            if (decoder != null)
+                decoder.resume();
+            else
+                receive();
+        }
+    }
+
+    protected long demand()
+    {
+        return demand(LongUnaryOperator.identity());
+    }
+
+    private long demand(LongUnaryOperator operator)
+    {
+        synchronized (this)
+        {
+            return demand = operator.applyAsLong(demand);
+        }
+    }
+
+    protected boolean hasDemandOrStall()
+    {
+        synchronized (this)
+        {
+            stalled = demand <= 0;
+            return !stalled;
+        }
+    }
+
     protected HttpExchange getHttpExchange()
     {
         return channel.getHttpExchange();
@@ -93,6 +149,15 @@ public abstract class HttpReceiver
     protected HttpDestination getHttpDestination()
     {
         return channel.getHttpDestination();
+    }
+
+    public boolean isFailed()
+    {
+        return responseState.get() == ResponseState.FAILURE;
+    }
+
+    protected void receive()
+    {
     }
 
     /**
@@ -122,7 +187,7 @@ public abstract class HttpReceiver
         {
             handlerListener = protocolHandler.getResponseListener();
             if (LOG.isDebugEnabled())
-                LOG.debug("Found protocol handler {}", protocolHandler);
+                LOG.debug("Response {} found protocol handler {}", response, protocolHandler);
         }
         exchange.getConversation().updateResponseListeners(handlerListener);
 
@@ -134,6 +199,7 @@ public abstract class HttpReceiver
         if (updateResponseState(ResponseState.TRANSIENT, ResponseState.BEGIN))
             return true;
 
+        dispose();
         terminateResponse(exchange);
         return false;
     }
@@ -152,24 +218,8 @@ public abstract class HttpReceiver
      */
     protected boolean responseHeader(HttpExchange exchange, HttpField field)
     {
-        out: while (true)
-        {
-            ResponseState current = responseState.get();
-            switch (current)
-            {
-                case BEGIN:
-                case HEADER:
-                {
-                    if (updateResponseState(current, ResponseState.TRANSIENT))
-                        break out;
-                    break;
-                }
-                default:
-                {
-                    return false;
-                }
-            }
-        }
+        if (!updateResponseState(ResponseState.BEGIN, ResponseState.HEADER, ResponseState.TRANSIENT))
+            return false;
 
         HttpResponse response = exchange.getResponse();
         ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
@@ -201,6 +251,7 @@ public abstract class HttpReceiver
         if (updateResponseState(ResponseState.TRANSIENT, ResponseState.HEADER))
             return true;
 
+        dispose();
         terminateResponse(exchange);
         return false;
     }
@@ -234,50 +285,46 @@ public abstract class HttpReceiver
      */
     protected boolean responseHeaders(HttpExchange exchange)
     {
-        out: while (true)
-        {
-            ResponseState current = responseState.get();
-            switch (current)
-            {
-                case BEGIN:
-                case HEADER:
-                {
-                    if (updateResponseState(current, ResponseState.TRANSIENT))
-                        break out;
-                    break;
-                }
-                default:
-                {
-                    return false;
-                }
-            }
-        }
+        if (!updateResponseState(ResponseState.BEGIN, ResponseState.HEADER, ResponseState.TRANSIENT))
+            return false;
 
         HttpResponse response = exchange.getResponse();
         if (LOG.isDebugEnabled())
             LOG.debug("Response headers {}{}{}", response, System.lineSeparator(), response.getHeaders().toString().trim());
         ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
-        notifier.notifyHeaders(exchange.getConversation().getResponseListeners(), response);
+        List<Response.ResponseListener> responseListeners = exchange.getConversation().getResponseListeners();
+        notifier.notifyHeaders(responseListeners, response);
+        contentListeners = new ContentListeners(responseListeners);
+        contentListeners.notifyBeforeContent(response);
 
-        Enumeration<String> contentEncodings = response.getHeaders().getValues(HttpHeader.CONTENT_ENCODING.asString(), ",");
-        if (contentEncodings != null)
+        if (!contentListeners.isEmpty())
         {
-            for (ContentDecoder.Factory factory : getHttpDestination().getHttpClient().getContentDecoderFactories())
+            List<String> contentEncodings = response.getHeaders().getCSV(HttpHeader.CONTENT_ENCODING.asString(), false);
+            if (contentEncodings != null && !contentEncodings.isEmpty())
             {
-                while (contentEncodings.hasMoreElements())
+                for (ContentDecoder.Factory factory : getHttpDestination().getHttpClient().getContentDecoderFactories())
                 {
-                    if (factory.getEncoding().equalsIgnoreCase(contentEncodings.nextElement()))
+                    for (String encoding : contentEncodings)
                     {
-                        this.decoder = factory.newContentDecoder();
-                        break;
+                        if (factory.getEncoding().equalsIgnoreCase(encoding))
+                        {
+                            decoder = new Decoder(exchange, factory.newContentDecoder());
+                            break;
+                        }
                     }
                 }
             }
         }
 
         if (updateResponseState(ResponseState.TRANSIENT, ResponseState.HEADERS))
-            return true;
+        {
+            boolean hasDemand = hasDemandOrStall();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Response headers hasDemand={} {}", hasDemand, response);
+            return hasDemand;
+        }
 
+        dispose();
         terminateResponse(exchange);
         return false;
     }
@@ -292,78 +339,51 @@ public abstract class HttpReceiver
      * @param callback the callback
      * @return whether the processing should continue
      */
-    protected boolean responseContent(HttpExchange exchange, ByteBuffer buffer, final Callback callback)
+    protected boolean responseContent(HttpExchange exchange, ByteBuffer buffer, Callback callback)
     {
-        out: while (true)
+        if (LOG.isDebugEnabled())
+            LOG.debug("Response content {}{}{}", exchange.getResponse(), System.lineSeparator(), BufferUtil.toDetailString(buffer));
+        if (demand() <= 0)
         {
-            ResponseState current = responseState.get();
-            switch (current)
-            {
-                case HEADERS:
-                case CONTENT:
-                {
-                    if (updateResponseState(current, ResponseState.TRANSIENT))
-                        break out;
-                    break;
-                }
-                default:
-                {
-                    callback.failed(new IllegalStateException("Invalid response state " + current));
-                    return false;
-                }
-            }
+            callback.failed(new IllegalStateException("No demand for response content"));
+            return false;
+        }
+        if (decoder == null)
+            return plainResponseContent(exchange, buffer, callback);
+        else
+            return decodeResponseContent(buffer, callback);
+    }
+
+    private boolean plainResponseContent(HttpExchange exchange, ByteBuffer buffer, Callback callback)
+    {
+        if (!updateResponseState(ResponseState.HEADERS, ResponseState.CONTENT, ResponseState.TRANSIENT))
+        {
+            callback.failed(new IllegalStateException("Invalid response state " + responseState));
+            return false;
         }
 
         HttpResponse response = exchange.getResponse();
-        if (LOG.isDebugEnabled())
-            LOG.debug("Response content {}{}{}", response, System.lineSeparator(), BufferUtil.toDetailString(buffer));
-
-        ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
-        List<Response.ResponseListener> listeners = exchange.getConversation().getResponseListeners();
-
-        ContentDecoder decoder = this.decoder;
-        if (decoder == null)
-        {
-            notifier.notifyContent(listeners, response, buffer, callback);
-        }
+        if (contentListeners.isEmpty())
+            callback.succeeded();
         else
-        {
-            try
-            {
-                List<ByteBuffer> decodeds = new ArrayList<>(2);
-                while (buffer.hasRemaining())
-                {
-                    ByteBuffer decoded = decoder.decode(buffer);
-                    if (!decoded.hasRemaining())
-                        continue;
-                    decodeds.add(decoded);
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Response content decoded ({}) {}{}{}", decoder, response, System.lineSeparator(), BufferUtil.toDetailString(decoded));
-                }
-
-                if (decodeds.isEmpty())
-                {
-                    callback.succeeded();
-                }
-                else
-                {
-                    int size = decodeds.size();
-                    CountingCallback counter = new CountingCallback(callback, size);
-                    for (int i = 0; i < size; ++i)
-                        notifier.notifyContent(listeners, response, decodeds.get(i), counter);
-                }
-            }
-            catch (Throwable x)
-            {
-                callback.failed(x);
-            }
-        }
+            contentListeners.notifyContent(response, buffer, callback);
 
         if (updateResponseState(ResponseState.TRANSIENT, ResponseState.CONTENT))
-            return true;
+        {
+            boolean hasDemand = hasDemandOrStall();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Response content {}, hasDemand={}", response, hasDemand);
+            return hasDemand;
+        }
 
+        dispose();
         terminateResponse(exchange);
         return false;
+    }
+
+    private boolean decodeResponseContent(ByteBuffer buffer, Callback callback)
+    {
+        return decoder.decode(buffer, callback);
     }
 
     /**
@@ -401,8 +421,7 @@ public abstract class HttpReceiver
 
         // Mark atomically the response as terminated, with
         // respect to concurrency between request and response.
-        Result result = exchange.terminateResponse();
-        terminateResponse(exchange, result);
+        terminateResponse(exchange);
 
         return true;
     }
@@ -424,6 +443,9 @@ public abstract class HttpReceiver
         // or, the server could just have timed out the connection.
         if (exchange == null)
             return false;
+
+        if (LOG.isDebugEnabled())
+            LOG.debug("Response failure " + exchange.getResponse(), failure);
 
         // Mark atomically the response as completed, with respect
         // to concurrency between response success and response failure.
@@ -452,9 +474,9 @@ public abstract class HttpReceiver
             boolean ordered = getHttpDestination().getHttpClient().isStrictEventOrdering();
             if (!ordered)
                 channel.exchangeTerminated(exchange, result);
-            if (LOG.isDebugEnabled())
-                LOG.debug("Request/Response {}: {}", failure == null ? "succeeded" : "failed", result);
             List<Response.ResponseListener> listeners = exchange.getConversation().getResponseListeners();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Request/Response {}: {}, notifying {}", failure == null ? "succeeded" : "failed", result, listeners);
             ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
             notifier.notifyComplete(listeners, result);
             if (ordered)
@@ -463,7 +485,7 @@ public abstract class HttpReceiver
     }
 
     /**
-     * Resets this {@link HttpReceiver} state.
+     * Resets the state of this HttpReceiver.
      * <p>
      * Subclasses should override (but remember to call {@code super}) to reset their own state.
      * <p>
@@ -471,12 +493,11 @@ public abstract class HttpReceiver
      */
     protected void reset()
     {
-        destroyDecoder(decoder);
-        decoder = null;
+        cleanup();
     }
 
     /**
-     * Disposes this {@link HttpReceiver} state.
+     * Disposes the state of this HttpReceiver.
      * <p>
      * Subclasses should override (but remember to call {@code super}) to dispose their own state.
      * <p>
@@ -484,89 +505,112 @@ public abstract class HttpReceiver
      */
     protected void dispose()
     {
-        destroyDecoder(decoder);
-        decoder = null;
+        assert responseState.get() != ResponseState.TRANSIENT;
+        cleanup();
     }
 
-    private static void destroyDecoder(ContentDecoder decoder)
+    private void cleanup()
     {
-        if (decoder instanceof Destroyable)
-        {
-            ((Destroyable)decoder).destroy();
-        }
+        contentListeners = null;
+        if (decoder != null)
+            decoder.destroy();
+        decoder = null;
+        demand = 0;
+        stalled = false;
     }
 
     public boolean abort(HttpExchange exchange, Throwable failure)
     {
         // Update the state to avoid more response processing.
         boolean terminate;
-        out: while (true)
+        while (true)
         {
             ResponseState current = responseState.get();
-            switch (current)
+            if (current == ResponseState.FAILURE)
+                return false;
+            if (updateResponseState(current, ResponseState.FAILURE))
             {
-                case FAILURE:
-                {
-                    return false;
-                }
-                default:
-                {
-                    if (updateResponseState(current, ResponseState.FAILURE))
-                    {
-                        terminate = current != ResponseState.TRANSIENT;
-                        break out;
-                    }
-                    break;
-                }
+                terminate = current != ResponseState.TRANSIENT;
+                break;
             }
         }
 
         this.failure = failure;
 
-        dispose();
+        if (terminate)
+            dispose();
 
         HttpResponse response = exchange.getResponse();
         if (LOG.isDebugEnabled())
-            LOG.debug("Response failure {} {} on {}: {}", response, exchange, getHttpChannel(), failure);
+            LOG.debug("Response abort {} {} on {}: {}", response, exchange, getHttpChannel(), failure);
         List<Response.ResponseListener> listeners = exchange.getConversation().getResponseListeners();
         ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
         notifier.notifyFailure(listeners, response, failure);
 
+        // We want to deliver the "complete" event as last,
+        // so we emit it here only if no event handlers are
+        // executing, otherwise they will emit it.
         if (terminate)
         {
             // Mark atomically the response as terminated, with
             // respect to concurrency between request and response.
-            Result result = exchange.terminateResponse();
-            terminateResponse(exchange, result);
+            terminateResponse(exchange);
+            return true;
         }
         else
         {
             if (LOG.isDebugEnabled())
                 LOG.debug("Concurrent failure: response termination skipped, performed by helpers");
+            return false;
         }
+    }
 
-        return true;
+    private boolean updateResponseState(ResponseState from1, ResponseState from2, ResponseState to)
+    {
+        while (true)
+        {
+            ResponseState current = responseState.get();
+            if (current == from1 || current == from2)
+            {
+                if (updateResponseState(current, to))
+                    return true;
+            }
+            else
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("State update failed: [{},{}] -> {}: {}", from1, from2, to, current);
+                return false;
+            }
+        }
     }
 
     private boolean updateResponseState(ResponseState from, ResponseState to)
     {
-        boolean updated = responseState.compareAndSet(from, to);
-        if (!updated)
+        while (true)
         {
-            if (LOG.isDebugEnabled())
-                LOG.debug("State update failed: {} -> {}: {}", from, to, responseState.get());
+            ResponseState current = responseState.get();
+            if (current == from)
+            {
+                if (responseState.compareAndSet(current, to))
+                    return true;
+            }
+            else
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("State update failed: {} -> {}: {}", from, to, current);
+                return false;
+            }
         }
-        return updated;
     }
 
     @Override
     public String toString()
     {
         return String.format("%s@%x(rsp=%s,failure=%s)",
-                getClass().getSimpleName(),
-                hashCode(),
-                responseState,
-                failure);
+            getClass().getSimpleName(),
+            hashCode(),
+            responseState,
+            failure);
     }
 
     /**
@@ -602,5 +646,232 @@ public abstract class HttpReceiver
          * The response is failed
          */
         FAILURE
+    }
+
+    /**
+     * <p>Wraps a list of content listeners, notifies them about content events and
+     * tracks individual listener demand to produce a global demand for content.</p>
+     */
+    private class ContentListeners
+    {
+        private final Map<Object, Long> demands = new ConcurrentHashMap<>();
+        private final LongConsumer demand = HttpReceiver.this::demand;
+        private final List<Response.DemandedContentListener> listeners;
+
+        private ContentListeners(List<Response.ResponseListener> responseListeners)
+        {
+            listeners = new ArrayList<>(responseListeners.size());
+            responseListeners.stream()
+                .filter(Response.DemandedContentListener.class::isInstance)
+                .map(Response.DemandedContentListener.class::cast)
+                .forEach(listeners::add);
+        }
+
+        private boolean isEmpty()
+        {
+            return listeners.isEmpty();
+        }
+
+        private void notifyBeforeContent(HttpResponse response)
+        {
+            if (isEmpty())
+            {
+                // If no listeners, we want to proceed and consume any content.
+                demand.accept(1);
+            }
+            else
+            {
+                ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
+                notifier.notifyBeforeContent(response, this::demand, listeners);
+            }
+        }
+
+        private void notifyContent(HttpResponse response, ByteBuffer buffer, Callback callback)
+        {
+            HttpReceiver.this.demand(d -> d - 1);
+            ResponseNotifier notifier = getHttpDestination().getResponseNotifier();
+            notifier.notifyContent(response, this::demand, buffer, callback, listeners);
+        }
+
+        private void demand(Object context, long value)
+        {
+            if (listeners.size() > 1)
+                accept(context, value);
+            else
+                demand.accept(value);
+        }
+
+        private void accept(Object context, long value)
+        {
+            // Increment the demand for the given listener.
+            demands.merge(context, value, MathUtils::cappedAdd);
+
+            // Check if we have demand from all listeners.
+            if (demands.size() == listeners.size())
+            {
+                long minDemand = Long.MAX_VALUE;
+                for (Long demand : demands.values())
+                {
+                    if (demand < minDemand)
+                        minDemand = demand;
+                }
+                if (minDemand > 0)
+                {
+                    // We are going to demand for minDemand content
+                    // chunks, so decrement the listener's demand by
+                    // minDemand and remove those that have no demand left.
+                    Iterator<Map.Entry<Object, Long>> iterator = demands.entrySet().iterator();
+                    while (iterator.hasNext())
+                    {
+                        Map.Entry<Object, Long> entry = iterator.next();
+                        long newValue = entry.getValue() - minDemand;
+                        if (newValue == 0)
+                            iterator.remove();
+                        else
+                            entry.setValue(newValue);
+                    }
+
+                    // Demand more content chunks for all the listeners.
+                    demand.accept(minDemand);
+                }
+            }
+        }
+    }
+
+    /**
+     * <p>Implements the decoding of content, producing decoded buffers only if there is demand for content.</p>
+     */
+    private class Decoder implements Destroyable
+    {
+        private final HttpExchange exchange;
+        private final ContentDecoder decoder;
+        private ByteBuffer encoded;
+        private Callback callback;
+
+        private Decoder(HttpExchange exchange, ContentDecoder decoder)
+        {
+            this.exchange = exchange;
+            this.decoder = Objects.requireNonNull(decoder);
+        }
+
+        private boolean decode(ByteBuffer encoded, Callback callback)
+        {
+            // Store the buffer to decode in case the
+            // decoding produces multiple decoded buffers.
+            this.encoded = encoded;
+            this.callback = callback;
+
+            HttpResponse response = exchange.getResponse();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Response content decoding {} with {}{}{}", response, decoder, System.lineSeparator(), BufferUtil.toDetailString(encoded));
+
+            boolean needInput = decode();
+            if (!needInput)
+                return false;
+
+            boolean hasDemand = hasDemandOrStall();
+            if (LOG.isDebugEnabled())
+                LOG.debug("Response content decoded, hasDemand={} {}", hasDemand, response);
+            return hasDemand;
+        }
+
+        private boolean decode()
+        {
+            while (true)
+            {
+                if (!updateResponseState(ResponseState.HEADERS, ResponseState.CONTENT, ResponseState.TRANSIENT))
+                {
+                    callback.failed(new IllegalStateException("Invalid response state " + responseState));
+                    return false;
+                }
+
+                DecodeResult result = decodeChunk();
+
+                if (updateResponseState(ResponseState.TRANSIENT, ResponseState.CONTENT))
+                {
+                    if (result == DecodeResult.NEED_INPUT)
+                        return true;
+                    if (result == DecodeResult.ABORT)
+                        return false;
+
+                    boolean hasDemand = hasDemandOrStall();
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Response content decoded chunk, hasDemand={} {}", hasDemand, exchange.getResponse());
+                    if (hasDemand)
+                        continue;
+                    else
+                        return false;
+                }
+
+                dispose();
+                terminateResponse(exchange);
+                return false;
+            }
+        }
+
+        private DecodeResult decodeChunk()
+        {
+            try
+            {
+                ByteBuffer buffer;
+                while (true)
+                {
+                    buffer = decoder.decode(encoded);
+                    if (buffer.hasRemaining())
+                        break;
+                    if (!encoded.hasRemaining())
+                    {
+                        callback.succeeded();
+                        encoded = null;
+                        callback = null;
+                        return DecodeResult.NEED_INPUT;
+                    }
+                }
+
+                ByteBuffer decoded = buffer;
+                HttpResponse response = exchange.getResponse();
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Response content decoded chunk {}{}{}", response, System.lineSeparator(), BufferUtil.toDetailString(decoded));
+
+                contentListeners.notifyContent(response, decoded, Callback.from(() -> decoder.release(decoded), callback::failed));
+
+                return DecodeResult.DECODE;
+            }
+            catch (Throwable x)
+            {
+                callback.failed(x);
+                return DecodeResult.ABORT;
+            }
+        }
+
+        private void resume()
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("Response content resume decoding {} with {}", exchange.getResponse(), decoder);
+
+            // The content and callback may be null
+            // if there is no initial content demand.
+            if (callback == null)
+            {
+                receive();
+                return;
+            }
+
+            boolean needInput = decode();
+            if (needInput)
+                receive();
+        }
+
+        @Override
+        public void destroy()
+        {
+            if (decoder instanceof Destroyable)
+                ((Destroyable)decoder).destroy();
+        }
+    }
+
+    private enum DecodeResult
+    {
+        DECODE, NEED_INPUT, ABORT
     }
 }

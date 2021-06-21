@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.start;
 
-import static java.util.stream.Collectors.toList;
-
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -32,58 +30,55 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import static java.util.stream.Collectors.toList;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 /**
  * Various Home + Base use cases
  */
-@RunWith(Parameterized.class)
 public class TestUseCases
 {
-    @Parameters(name = "{0}")
-    public static List<Object[]> getCases() throws Exception
+    public static Stream<Arguments> getCases()
     {
         File usecases = MavenTestingUtils.getTestResourceDir("usecases/");
         File[] cases = usecases.listFiles((dir, name) -> name.endsWith(".assert.txt"));
         Arrays.sort(cases);
-        
-        List<Object[]> ret = new ArrayList<>();
+
+        List<Arguments> ret = new ArrayList<>();
         for (File assertTxt : cases)
         {
             String caseName = assertTxt.getName().replace(".assert.txt", "");
-            ret.add(new Object[]{caseName});
+            ret.add(Arguments.of(caseName));
         }
-        
-        return ret;
+
+        return ret.stream();
     }
-    
-    @Parameter(0)
-    public String caseName;
-    
-    @Test
-    public void testUseCase() throws Exception
+
+    @ParameterizedTest
+    @MethodSource("getCases")
+    public void testUseCase(String caseName) throws Exception
     {
         String baseName = caseName.replaceFirst("\\..*$", "");
         File assertFile = MavenTestingUtils.getTestResourceFile("usecases/" + caseName + ".assert.txt");
-        
+
         Path homeDir = MavenTestingUtils.getTestResourceDir("dist-home").toPath().toRealPath();
-        
+
         Path baseSrcDir = MavenTestingUtils.getTestResourceDir("usecases/" + baseName).toPath().toRealPath();
         Path baseDir = MavenTestingUtils.getTargetTestingPath(caseName);
         org.eclipse.jetty.toolchain.test.FS.ensureEmpty(baseDir);
         org.eclipse.jetty.toolchain.test.IO.copyDir(baseSrcDir.toFile(), baseDir.toFile());
-        
+
         System.setProperty("jetty.home", homeDir.toString());
         System.setProperty("jetty.base", baseDir.toString());
-        
+
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream originalStream = StartLog.setStream(new PrintStream(out));
         try
@@ -98,14 +93,14 @@ public class TestUseCases
                 List<String> cmdLine = new ArrayList<>();
                 cmdLine.add("--testing-mode");
                 cmdLine.addAll(prepareArgs);
-                
+
                 main.start(main.processCommandLine(cmdLine));
             }
-            
+
             Main main = new Main();
             List<String> cmdLine = new ArrayList<>();
             // cmdLine.add("--debug");
-            
+
             // If there is a "{caseName}.cmdline.txt" then these
             // entries are extra command line argument to use for
             // the actual testcase
@@ -113,7 +108,7 @@ public class TestUseCases
             StartArgs args = main.processCommandLine(cmdLine);
             args.getAllModules().checkEnabledModules();
             BaseHome baseHome = main.getBaseHome();
-            
+
             StartLog.setStream(originalStream);
             String output = out.toString(StandardCharsets.UTF_8.name());
             ConfigurationAssert.assertConfiguration(baseHome, args, output, assertFile);
@@ -126,7 +121,7 @@ public class TestUseCases
             for (String ex : exceptions)
             {
                 ex = ex.substring(3);
-                Assert.assertThat(e.toString(), Matchers.containsString(ex));
+                assertThat(e.toString(), Matchers.containsString(ex));
             }
         }
         finally
@@ -134,12 +129,12 @@ public class TestUseCases
             StartLog.setStream(originalStream);
         }
     }
-    
+
     private List<String> lines(String filename) throws IOException
     {
         return lines(MavenTestingUtils.getTestResourcesPath().resolve("usecases" + File.separator + filename).toFile());
     }
-    
+
     private List<String> lines(File file) throws IOException
     {
         if (!file.exists() || !file.canRead())

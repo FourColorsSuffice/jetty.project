@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -43,13 +43,14 @@ public class GraphOutputDot
 
     /**
      * Comparator that makes the 'undeployed' node the first node in the sort list.
-     * 
+     *
      * This makes the 'undeployed' node show up at the top of the generated graph.
      */
     private static class TopNodeSort implements Comparator<Node>
     {
         private Collator collator = Collator.getInstance();
 
+        @Override
         public int compare(Node o1, Node o2)
         {
             if (o1.getName().equals(TOPNODE))
@@ -95,12 +96,12 @@ public class GraphOutputDot
 
             for (Node node : nodes)
             {
-                writeNode(out,node);
+                writeNode(out, node);
             }
 
             for (Edge edge : graph.getEdges())
             {
-                writeEdge(out,edge);
+                writeEdge(out, edge);
             }
 
             out.println("}");
@@ -116,7 +117,7 @@ public class GraphOutputDot
     {
         out.println();
         out.println("  // Edge");
-        out.printf("  \"%s\" -> \"%s\" [%n",toId(edge.getFrom()),toId(edge.getTo()));
+        out.printf("  \"%s\" -> \"%s\" [%n", toId(edge.getFrom()), toId(edge.getTo()));
         out.println("    arrowtail=none,");
         out.println("    arrowhead=normal");
         out.println("  ];");
@@ -126,8 +127,8 @@ public class GraphOutputDot
     {
         out.println();
         out.println("  // Node");
-        out.printf("  \"%s\" [%n",toId(node));
-        out.printf("    label=\"%s\",%n",node.getName());
+        out.printf("  \"%s\" [%n", toId(node));
+        out.printf("    label=\"%s\",%n", node.getName());
         if (node.getName().endsWith("ed"))
         {
             out.println("    color=\"#ddddff\",");

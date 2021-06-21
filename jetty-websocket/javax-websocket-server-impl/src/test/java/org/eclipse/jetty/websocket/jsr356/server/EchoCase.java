@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,6 @@ package org.eclipse.jetty.websocket.jsr356.server;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.websocket.server.ServerEndpoint;
 
 public class EchoCase
@@ -31,6 +30,7 @@ public class EchoCase
         ByteBuffer part;
 
         boolean fin;
+
         public PartialBinary(ByteBuffer part, boolean fin)
         {
             this.part = part;
@@ -43,6 +43,7 @@ public class EchoCase
         String part;
 
         boolean fin;
+
         public PartialText(String part, boolean fin)
         {
             this.part = part;
@@ -50,35 +51,41 @@ public class EchoCase
         }
     }
 
-    public static EchoCase add(List<EchoCase[]> data, Class<?> serverPojo)
+    public static EchoCase add(List<EchoCase> data, Class<?> serverPojo)
     {
-        EchoCase ecase = new EchoCase();
-        ecase.serverPojo = serverPojo;
-        data.add(new EchoCase[]
-        { ecase });
-        ServerEndpoint endpoint = serverPojo.getAnnotation(ServerEndpoint.class);
-        ecase.path = endpoint.value();
+        EchoCase ecase = new EchoCase(serverPojo);
+        data.add(ecase);
         return ecase;
     }
 
-    public static EchoCase add(List<EchoCase[]> data, Class<?> serverPojo, String path)
+    public static EchoCase add(List<EchoCase> data, Class<?> serverPojo, String path)
     {
-        EchoCase ecase = new EchoCase();
-        ecase.serverPojo = serverPojo;
-        ecase.path = path;
-        data.add(new EchoCase[]
-        { ecase });
+        EchoCase ecase = new EchoCase(serverPojo, path);
+        data.add(ecase);
         return ecase;
     }
 
     // The websocket server pojo to test against
-    public Class<?> serverPojo;
+    public final Class<?> serverPojo;
     // The (relative) URL path to hit
     public String path;
     // The messages to transmit
     public List<Object> messages = new ArrayList<>();
     // The expected Strings (that are echoed back)
     public List<String> expectedStrings = new ArrayList<>();
+
+    public EchoCase(Class<?> serverPojo)
+    {
+        this.serverPojo = serverPojo;
+        ServerEndpoint endpoint = serverPojo.getAnnotation(ServerEndpoint.class);
+        this.path = endpoint.value();
+    }
+
+    public EchoCase(Class<?> serverPojo, String path)
+    {
+        this.serverPojo = serverPojo;
+        this.path = path;
+    }
 
     public EchoCase addMessage(Object msg)
     {
@@ -91,7 +98,7 @@ public class EchoCase
         int len = parts.length;
         for (int i = 0; i < len; i++)
         {
-            addMessage(new PartialBinary(parts[i],(i == (len-1))));
+            addMessage(new PartialBinary(parts[i], (i == (len - 1))));
         }
         return this;
     }
@@ -101,7 +108,7 @@ public class EchoCase
         int len = parts.length;
         for (int i = 0; i < len; i++)
         {
-            addMessage(new PartialText(parts[i],(i == (len-1))));
+            addMessage(new PartialText(parts[i], (i == (len - 1))));
         }
         return this;
     }
@@ -175,7 +182,7 @@ public class EchoCase
                 messageCount++;
             }
         }
-        
+
         return messageCount;
     }
 }

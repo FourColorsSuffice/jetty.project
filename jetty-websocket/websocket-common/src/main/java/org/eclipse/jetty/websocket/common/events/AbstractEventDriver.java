@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,15 +20,15 @@ package org.eclipse.jetty.websocket.common.events;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Utf8Appendable.NotUtf8Exception;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
+import org.eclipse.jetty.websocket.api.BadPayloadException;
 import org.eclipse.jetty.websocket.api.BatchMode;
-import org.eclipse.jetty.websocket.api.CloseException;
-import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
 import org.eclipse.jetty.websocket.api.extensions.Frame;
 import org.eclipse.jetty.websocket.api.extensions.IncomingFrames;
@@ -43,8 +43,8 @@ import org.eclipse.jetty.websocket.common.message.MessageAppender;
  */
 public abstract class AbstractEventDriver extends AbstractLifeCycle implements IncomingFrames, EventDriver
 {
-    private static final Logger LOG = Log.getLogger(AbstractEventDriver.class);
-    protected final Logger TARGET_LOG;
+    private final Logger logger;
+    protected final Logger targetLog;
     protected WebSocketPolicy policy;
     protected final Object websocket;
     protected WebSocketSession session;
@@ -52,14 +52,15 @@ public abstract class AbstractEventDriver extends AbstractLifeCycle implements I
 
     public AbstractEventDriver(WebSocketPolicy policy, Object websocket)
     {
+        this.logger = Log.getLogger(this.getClass());
         this.policy = policy;
-        this.websocket = websocket;
-        this.TARGET_LOG = Log.getLogger(websocket.getClass());
+        this.websocket = Objects.requireNonNull(websocket, "WebSocket endpoint may not be null");
+        this.targetLog = Log.getLogger(websocket.getClass());
     }
 
     protected void appendMessage(ByteBuffer buffer, boolean fin) throws IOException
     {
-        activeMessage.appendFrame(buffer,fin);
+        activeMessage.appendFrame(buffer, fin);
 
         if (fin)
         {
@@ -86,22 +87,11 @@ public abstract class AbstractEventDriver extends AbstractLifeCycle implements I
     }
 
     @Override
-    public final void incomingError(Throwable e)
-    {
-        if (LOG.isDebugEnabled())
-        {
-            LOG.debug("incomingError(" + e.getClass().getName() + ")",e);
-        }
-
-        onError(e);
-    }
-
-    @Override
     public void incomingFrame(Frame frame)
     {
-        if (LOG.isDebugEnabled())
+        if (logger.isDebugEnabled())
         {
-            LOG.debug("incomingFrame({})",frame);
+            logger.debug("incomingFrame({})", frame);
         }
 
         try
@@ -115,25 +105,25 @@ public abstract class AbstractEventDriver extends AbstractLifeCycle implements I
                 {
                     boolean validate = true;
                     CloseFrame closeframe = (CloseFrame)frame;
-                    CloseInfo close = new CloseInfo(closeframe,validate);
+                    CloseInfo close = new CloseInfo(closeframe, validate);
 
                     // process handshake
-                    session.getConnection().getIOState().onCloseRemote(close);
+                    session.getConnection().remoteClose(close);
 
                     return;
                 }
                 case OpCode.PING:
                 {
-                    if (LOG.isDebugEnabled())
+                    if (logger.isDebugEnabled())
                     {
-                        LOG.debug("PING: {}",BufferUtil.toDetailString(frame.getPayload()));
+                        logger.debug("PING: {}", BufferUtil.toDetailString(frame.getPayload()));
                     }
                     ByteBuffer pongBuf;
                     if (frame.hasPayload())
                     {
                         pongBuf = ByteBuffer.allocate(frame.getPayload().remaining());
-                        BufferUtil.put(frame.getPayload().slice(),pongBuf);
-                        BufferUtil.flipToFlush(pongBuf,0);
+                        BufferUtil.put(frame.getPayload().slice(), pongBuf);
+                        BufferUtil.flipToFlush(pongBuf, 0);
                     }
                     else
                     {
@@ -145,46 +135,42 @@ public abstract class AbstractEventDriver extends AbstractLifeCycle implements I
                 }
                 case OpCode.PONG:
                 {
-                    if (LOG.isDebugEnabled())
+                    if (logger.isDebugEnabled())
                     {
-                        LOG.debug("PONG: {}",BufferUtil.toDetailString(frame.getPayload()));
+                        logger.debug("PONG: {}", BufferUtil.toDetailString(frame.getPayload()));
                     }
                     onPong(frame.getPayload());
                     break;
                 }
                 case OpCode.BINARY:
                 {
-                    onBinaryFrame(frame.getPayload(),frame.isFin());
+                    onBinaryFrame(frame.getPayload(), frame.isFin());
                     return;
                 }
                 case OpCode.TEXT:
                 {
-                    onTextFrame(frame.getPayload(),frame.isFin());
+                    onTextFrame(frame.getPayload(), frame.isFin());
                     return;
                 }
                 case OpCode.CONTINUATION:
                 {
-                    onContinuationFrame(frame.getPayload(),frame.isFin());
+                    onContinuationFrame(frame.getPayload(), frame.isFin());
                     return;
                 }
                 default:
                 {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Unhandled OpCode: {}",opcode);
+                    if (logger.isDebugEnabled())
+                        logger.debug("Unhandled OpCode: {}", opcode);
                 }
             }
         }
         catch (NotUtf8Exception e)
         {
-            terminateConnection(StatusCode.BAD_PAYLOAD,e.getMessage());
-        }
-        catch (CloseException e)
-        {
-            terminateConnection(e.getStatusCode(),e.getMessage());
+            session.close(new BadPayloadException(e));
         }
         catch (Throwable t)
         {
-            unhandled(t);
+            session.close(t);
         }
     }
 
@@ -196,19 +182,17 @@ public abstract class AbstractEventDriver extends AbstractLifeCycle implements I
             throw new IOException("Out of order Continuation frame encountered");
         }
 
-        appendMessage(buffer,fin);
+        appendMessage(buffer, fin);
     }
 
     @Override
     public void onPong(ByteBuffer buffer)
     {
-        /* TODO: provide annotation in future */
     }
 
     @Override
     public void onPing(ByteBuffer buffer)
     {
-        /* TODO: provide annotation in future */
     }
 
     @Override
@@ -220,52 +204,21 @@ public abstract class AbstractEventDriver extends AbstractLifeCycle implements I
     @Override
     public void openSession(WebSocketSession session)
     {
-        if (LOG.isDebugEnabled())
+        if (logger.isDebugEnabled())
         {
-            LOG.debug("openSession({})", session);
-            LOG.debug("objectFactory={}", session.getContainerScope().getObjectFactory());
+            logger.debug("openSession({}) objectFactory={}", session, session.getContainerScope().getObjectFactory());
         }
         this.session = session;
         this.session.getContainerScope().getObjectFactory().decorate(this.websocket);
-        
+
         try
         {
+            // Call application onOpen
             this.onConnect();
         }
         catch (Throwable t)
         {
-            this.session.notifyError(t);
-            throw t;
-        }
-    }
-
-    protected void terminateConnection(int statusCode, String rawreason)
-    {
-        if (LOG.isDebugEnabled())
-            LOG.debug("terminateConnection({},{})",statusCode,rawreason);
-        session.close(statusCode,CloseFrame.truncate(rawreason));
-    }
-
-    private void unhandled(Throwable t)
-    {
-        TARGET_LOG.warn("Unhandled Error (closing connection)",t);
-        onError(t);
-
-        if (t instanceof CloseException)
-        {
-            terminateConnection(((CloseException)t).getStatusCode(),t.getClass().getSimpleName());
-            return;
-        }
-
-        // Unhandled Error, close the connection.
-        switch (policy.getBehavior())
-        {
-            case SERVER:
-                terminateConnection(StatusCode.SERVER_ERROR,t.getClass().getSimpleName());
-                break;
-            case CLIENT:
-                terminateConnection(StatusCode.POLICY_VIOLATION,t.getClass().getSimpleName());
-                break;
+            this.session.close(t);
         }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,13 +19,20 @@
 package org.eclipse.jetty.osgi.test;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 import javax.inject.Inject;
 
-import org.junit.Assert;
-import org.junit.Ignore;
+import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.api.ContentResponse;
+import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.http2.client.HTTP2Client;
+import org.eclipse.jetty.http2.client.http.HttpClientTransportOverHTTP2;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.ops4j.pax.exam.Configuration;
@@ -34,21 +41,21 @@ import org.ops4j.pax.exam.Option;
 import org.ops4j.pax.exam.junit.PaxExam;
 import org.ops4j.pax.exam.spi.reactors.ExamReactorStrategy;
 import org.ops4j.pax.exam.spi.reactors.PerClass;
+import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceReference;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.ops4j.pax.exam.CoreOptions.mavenBundle;
-import static org.ops4j.pax.exam.CoreOptions.options;
 import static org.ops4j.pax.exam.CoreOptions.systemProperty;
 
-/**
- * HTTP2 setup.
- */
 @RunWith(PaxExam.class)
 @ExamReactorStrategy(PerClass.class)
 public class TestJettyOSGiBootHTTP2
 {
     private static final String LOG_LEVEL = "WARN";
-
 
     @Inject
     private BundleContext bundleContext;
@@ -56,60 +63,107 @@ public class TestJettyOSGiBootHTTP2
     @Configuration
     public Option[] config()
     {
-        ArrayList<Option> options = new ArrayList<Option>();
-        options.addAll(TestJettyOSGiBootWithJsp.configureJettyHomeAndPort(true,"jetty-http2.xml"));
-        options.addAll(TestJettyOSGiBootCore.coreJettyDependencies());
-        options.addAll(http2JettyDependencies());
+        ArrayList<Option> options = new ArrayList<>();
         options.add(CoreOptions.junitBundles());
-        options.addAll(TestJettyOSGiBootCore.httpServiceJetty());
+        options.addAll(TestOSGiUtil.configureJettyHomeAndPort(true, "jetty-http2.xml"));
+        options.add(CoreOptions.bootDelegationPackages("org.xml.sax", "org.xml.*", "org.w3c.*", "javax.xml.*", "javax.activation.*"));
+        options.add(CoreOptions.systemPackages("com.sun.org.apache.xalan.internal.res", "com.sun.org.apache.xml.internal.utils",
+            "com.sun.org.apache.xml.internal.utils", "com.sun.org.apache.xpath.internal",
+            "com.sun.org.apache.xpath.internal.jaxp", "com.sun.org.apache.xpath.internal.objects"));
+        options.addAll(http2JettyDependencies());
+
+        options.addAll(TestOSGiUtil.coreJettyDependencies());
+        options.addAll(TestOSGiUtil.jspDependencies());
+        //deploy a test webapp
+        options.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("test-jetty-webapp").classifier("webbundle").versionAsInProject());
+        options.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("jetty-alpn-openjdk8-client").versionAsInProject().start());
+        options.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("jetty-alpn-client").versionAsInProject().start());
+        options.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-client").versionAsInProject().start());
+        options.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-http-client-transport").versionAsInProject().start());
+
         options.add(systemProperty("org.ops4j.pax.logging.DefaultServiceLog.level").value(LOG_LEVEL));
-        options.add(systemProperty("org.eclipse.jetty.LEVEL").value(LOG_LEVEL));
-        return options.toArray(new Option[options.size()]);
+        options.add(systemProperty("org.eclipse.jetty.LEVEL").value("INFO"));
+        options.add(CoreOptions.cleanCaches(true));
+        return options.toArray(new Option[0]);
     }
 
     public static List<Option> http2JettyDependencies()
     {
-        List<Option> res = new ArrayList<Option>();
-        res.add(CoreOptions.systemProperty("jetty.http.port").value(String.valueOf(TestJettyOSGiBootCore.DEFAULT_HTTP_PORT)));
-        res.add(CoreOptions.systemProperty("jetty.ssl.port").value(String.valueOf(TestJettyOSGiBootCore.DEFAULT_SSL_PORT)));
+        List<Option> res = new ArrayList<>();
+        res.add(CoreOptions.systemProperty("jetty.alpn.protocols").value("h2,http/1.1"));
 
-        String alpnBoot = System.getProperty("mortbay-alpn-boot");
-        if (alpnBoot == null) { throw new IllegalStateException("Define path to alpn boot jar as system property -Dmortbay-alpn-boot"); }
-        File checkALPNBoot = new File(alpnBoot);
-        if (!checkALPNBoot.exists()) { throw new IllegalStateException("Unable to find the alpn boot jar here: " + alpnBoot); }
-
-        res.add(CoreOptions.vmOptions("-Xbootclasspath/p:" + checkALPNBoot.getAbsolutePath()));
+        String alpnAgent = System.getProperty("mortbay-alpn-agent");
+        if (alpnAgent == null)
+            throw new IllegalStateException("Define path to alpn agent jar as system property -Dmortbay-alpn-agent");
+        File alpnAgentFile = new File(alpnAgent);
+        if (!alpnAgentFile.exists())
+            throw new IllegalStateException("Unable to find the alpn agent jar here: " + alpnAgent);
+        res.add(CoreOptions.vmOptions("-javaagent:" + alpnAgentFile.getAbsolutePath() + "=debug=true"));
 
         res.add(mavenBundle().groupId("org.eclipse.jetty.osgi").artifactId("jetty-osgi-alpn").versionAsInProject().noStart());
+        res.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("jetty-alpn-openjdk8-server").versionAsInProject().start());
         res.add(mavenBundle().groupId("org.eclipse.jetty").artifactId("jetty-alpn-server").versionAsInProject().start());
 
-        res.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-common").versionAsInProject());
-        res.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-hpack").versionAsInProject());
-        res.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-server").versionAsInProject());
+        res.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-common").versionAsInProject().start());
+        res.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-hpack").versionAsInProject().start());
+        res.add(mavenBundle().groupId("org.eclipse.jetty.http2").artifactId("http2-server").versionAsInProject().start());
         return res;
     }
- 
-    @Test
-    public void checkALPNBootOnBootstrapClasspath() throws Exception
+
+    public void assertAllBundlesActiveOrResolved()
     {
-        Class<?> alpn = Thread.currentThread().getContextClassLoader().loadClass("org.eclipse.jetty.alpn.ALPN");
-        Assert.assertNotNull(alpn);
-        Assert.assertNull(alpn.getClassLoader());
-    }
-    
-    @Ignore
-    @Test
-    public void assertAllBundlesActiveOrResolved() throws Exception
-    {
-        //TestOSGiUtil.assertAllBundlesActiveOrResolved(bundleContext);
         TestOSGiUtil.debugBundles(bundleContext);
+        TestOSGiUtil.assertAllBundlesActiveOrResolved(bundleContext);
+        Bundle openjdk8 = TestOSGiUtil.getBundle(bundleContext, "org.eclipse.jetty.alpn.openjdk8.server");
+        assertNotNull(openjdk8);
+        ServiceReference<?>[] services = openjdk8.getRegisteredServices();
+        assertNotNull(services);
+        Bundle server = TestOSGiUtil.getBundle(bundleContext, "org.eclipse.jetty.alpn.server");
+        assertNotNull(server);
     }
 
-    
     @Test
-    public void testHTTP2OnHttpService() throws Exception
+    public void testHTTP2() throws Exception
     {
-        TestOSGiUtil.testHttpServiceGreetings(bundleContext, "https", TestJettyOSGiBootCore.DEFAULT_SSL_PORT);
-    }
+        if (Boolean.getBoolean(TestOSGiUtil.BUNDLE_DEBUG))
+            assertAllBundlesActiveOrResolved();
 
+        HttpClient httpClient = null;
+        HTTP2Client http2Client = null;
+        try
+        {
+            //get the port chosen for https
+            String tmp = System.getProperty("boot.https.port");
+            assertNotNull(tmp);
+            int port = Integer.parseInt(tmp.trim());
+
+            Path path = Paths.get("src", "test", "config");
+            File keys = path.resolve("etc").resolve("keystore").toFile();
+
+            //set up client to do http2
+            http2Client = new HTTP2Client();
+            SslContextFactory sslContextFactory = new SslContextFactory.Client();
+            sslContextFactory.setKeyManagerPassword("OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4");
+            sslContextFactory.setTrustStorePath(keys.getAbsolutePath());
+            sslContextFactory.setKeyStorePath(keys.getAbsolutePath());
+            sslContextFactory.setTrustStorePassword("OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4");
+            sslContextFactory.setEndpointIdentificationAlgorithm(null);
+            httpClient = new HttpClient(new HttpClientTransportOverHTTP2(http2Client), sslContextFactory);
+            Executor executor = new QueuedThreadPool();
+            httpClient.setExecutor(executor);
+            httpClient.start();
+
+            ContentResponse response = httpClient.GET("https://localhost:" + port + "/jsp/jstl.jsp");
+            assertEquals(HttpStatus.OK_200, response.getStatus());
+            String body = response.getContentAsString();
+            assertTrue("Body contains \"JSTL Example\": " + body, body.contains("JSTL Example"));
+        }
+        finally
+        {
+            if (httpClient != null)
+                httpClient.stop();
+            if (http2Client != null)
+                http2Client.stop();
+        }
+    }
 }

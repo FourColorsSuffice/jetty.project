@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,11 +25,11 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -204,7 +204,7 @@ public class CGI extends HttpServlet
             {
                 int index = path.lastIndexOf('/');
                 path = path.substring(0, index);
-                info = pathInContext.substring(index, pathInContext.length());
+                info = pathInContext.substring(index);
                 execCmd = new File(_docRoot, path);
             }
 
@@ -221,10 +221,10 @@ public class CGI extends HttpServlet
     /**
      * executes the CGI process
      *
-     * @param command  the command to execute, this command is prefixed by
-     *                 the context parameter "commandPrefix".
+     * @param command the command to execute, this command is prefixed by
+     * the context parameter "commandPrefix".
      * @param pathInfo The PATH_INFO to process,
-     *                 see http://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#getPathInfo%28%29. Cannot be null
+     * see http://docs.oracle.com/javaee/6/api/javax/servlet/http/HttpServletRequest.html#getPathInfo%28%29. Cannot be null
      * @param req the HTTP request
      * @param res the HTTP response
      * @throws IOException if the execution of the CGI process throws
@@ -252,7 +252,11 @@ public class CGI extends HttpServlet
                 String parameterName = names.nextElement();
                 parameterMap.addValues(parameterName, req.getParameterValues(parameterName));
             }
-            bodyFormEncoded = UrlEncoded.encode(parameterMap, Charset.forName(req.getCharacterEncoding()), true);
+
+            String characterEncoding = req.getCharacterEncoding();
+            Charset charset = characterEncoding != null
+                ? Charset.forName(characterEncoding) : StandardCharsets.UTF_8;
+            bodyFormEncoded = UrlEncoded.encode(parameterMap, charset, true);
         }
 
         EnvList env = new EnvList(_env);
@@ -324,7 +328,7 @@ public class CGI extends HttpServlet
             if (name.equalsIgnoreCase("Proxy"))
                 continue;
             String value = req.getHeader(name);
-            env.set("HTTP_" + name.toUpperCase(Locale.ENGLISH).replace('-', '_'), value);
+            env.set("HTTP_" + StringUtil.replace(name.toUpperCase(Locale.ENGLISH), '-', '_'), value);
         }
 
         // these extra ones were from printenv on www.dev.nomura.co.uk
@@ -435,7 +439,7 @@ public class CGI extends HttpServlet
             // terminate and clean up...
             LOG.debug("CGI: Client closed connection!", e);
         }
-        catch (InterruptedException ie)
+        catch (InterruptedException e)
         {
             LOG.debug("CGI: interrupted!");
         }
@@ -482,7 +486,8 @@ public class CGI extends HttpServlet
 
     private static void writeProcessInput(final Process p, final InputStream input, final int len)
     {
-        if (len <= 0) return;
+        if (len <= 0)
+            return;
 
         new Thread(new Runnable()
         {
@@ -550,10 +555,10 @@ public class CGI extends HttpServlet
             envMap.put(name, name + "=" + StringUtil.nonNull(value));
         }
 
-        /** 
-         * Get representation suitable for passing to exec. 
+        /**
+         * Get representation suitable for passing to exec.
          *
-         * @return the env map as an array 
+         * @return the env map as an array
          */
         public String[] getEnvArray()
         {

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,94 +16,84 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.server.session;
 
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * TestSessionDataStore
  *
- * Make a fake session data store that creates a new SessionData object
+ * Make a fake session data store (non clustered!) that creates a new SessionData object
  * every time load(id) is called.
  */
 public class TestSessionDataStore extends AbstractSessionDataStore
 {
-    public Map<String,SessionData> _map = new HashMap<>();
+    public Map<String, SessionData> _map = new ConcurrentHashMap<>();
+    public AtomicInteger _numSaves = new AtomicInteger(0);
 
+    public final boolean _passivating;
 
-    /** 
-     * @see org.eclipse.jetty.server.session.SessionDataStore#isPassivating()
-     */
+    public TestSessionDataStore()
+    {
+        _passivating = false;
+    }
+
+    public TestSessionDataStore(boolean passivating)
+    {
+        _passivating = passivating;
+    }
+
     @Override
     public boolean isPassivating()
     {
-        return false;
+        return _passivating;
     }
 
-    /** 
-     * @see org.eclipse.jetty.server.session.SessionDataStore#exists(java.lang.String)
-     */
     @Override
     public boolean exists(String id) throws Exception
     {
         return _map.containsKey(id);
     }
 
-    /** 
-     * @see org.eclipse.jetty.server.session.SessionDataMap#load(java.lang.String)
-     */
     @Override
-    public SessionData load(String id) throws Exception
+    public SessionData doLoad(String id) throws Exception
     {
         SessionData sd = _map.get(id);
         if (sd == null)
             return null;
-        SessionData nsd = new SessionData(id,"","",System.currentTimeMillis(),System.currentTimeMillis(), System.currentTimeMillis(),0 );
+        SessionData nsd = new SessionData(id, "", "", System.currentTimeMillis(), System.currentTimeMillis(), System.currentTimeMillis(), 0);
         nsd.copy(sd);
         return nsd;
     }
 
-    /** 
-     * @see org.eclipse.jetty.server.session.SessionDataMap#delete(java.lang.String)
-     */
     @Override
     public boolean delete(String id) throws Exception
     {
         return (_map.remove(id) != null);
     }
 
-    /** 
-     * @see org.eclipse.jetty.server.session.AbstractSessionDataStore#doStore(java.lang.String, org.eclipse.jetty.server.session.SessionData, long)
-     */
     @Override
     public void doStore(String id, SessionData data, long lastSaveTime) throws Exception
     {
-        _map.put(id,  data);
+        _map.put(id, data);
+        _numSaves.addAndGet(1);
     }
 
-    /** 
-     * @see org.eclipse.jetty.server.session.AbstractSessionDataStore#doGetExpired(java.util.Set)
-     */
     @Override
     public Set<String> doGetExpired(Set<String> candidates)
     {
-       HashSet<String> set = new HashSet<>();
+        HashSet<String> set = new HashSet<>();
         long now = System.currentTimeMillis();
-        
-       
-        for (SessionData d:_map.values())
+
+        for (SessionData d : _map.values())
         {
             if (d.getExpiry() > 0 && d.getExpiry() <= now)
                 set.add(d.getId());
         }
         return set;
-        
-        //return Collections.emptySet();
     }
-
 }

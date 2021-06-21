@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,7 +17,6 @@
 //
 
 package org.eclipse.jetty.websocket.common.extensions.fragment;
-
 
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
@@ -124,14 +123,19 @@ public class FragmentExtension extends AbstractExtension
         private boolean finished = true;
 
         @Override
-        protected Action process() throws Exception
+        protected Action process()
         {
             if (finished)
             {
                 current = pollEntry();
-                LOG.debug("Processing {}", current);
                 if (current == null)
+                {
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Processing IDLE", current);
                     return Action.IDLE;
+                }
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Processing {}", current);
                 fragment(current, true);
             }
             else
@@ -146,6 +150,7 @@ public class FragmentExtension extends AbstractExtension
             Frame frame = entry.frame;
             ByteBuffer payload = frame.getPayload();
             int remaining = payload.remaining();
+
             int length = Math.min(remaining, maxLength);
             finished = length == remaining;
 
@@ -172,7 +177,7 @@ public class FragmentExtension extends AbstractExtension
         {
             // This IteratingCallback never completes.
         }
-        
+
         @Override
         protected void onCompleteFailure(Throwable x)
         {
@@ -180,13 +185,16 @@ public class FragmentExtension extends AbstractExtension
             // The callback are those provided by WriteCallback (implemented
             // below) and even in case of writeFailed() we call succeeded().
         }
-        
+
         @Override
         public void writeSuccess()
         {
             // Notify first then call succeeded(), otherwise
             // write callbacks may be invoked out of order.
-            notifyCallbackSuccess(current.callback);
+
+            // only notify current (original) frame on completion
+            if (finished)
+                notifyCallbackSuccess(current.callback);
             succeeded();
         }
 

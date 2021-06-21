@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,7 +23,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import javax.websocket.ClientEndpoint;
 import javax.websocket.ClientEndpointConfig;
 import javax.websocket.Decoder;
@@ -60,16 +59,16 @@ public class AnnotatedClientEndpointConfig implements ClientEndpointConfig
         {
             try
             {
-                this.configurator = anno.configurator().newInstance();
+                this.configurator = anno.configurator().getDeclaredConstructor().newInstance();
             }
-            catch (InstantiationException | IllegalAccessException e)
+            catch (Exception e)
             {
                 StringBuilder err = new StringBuilder();
                 err.append("Unable to instantiate ClientEndpoint.configurator() of ");
                 err.append(anno.configurator().getName());
                 err.append(" defined as annotation in ");
                 err.append(anno.getClass().getName());
-                throw new InvalidWebSocketException(err.toString(),e);
+                throw new InvalidWebSocketException(err.toString(), e);
             }
         }
     }

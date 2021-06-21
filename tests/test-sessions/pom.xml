@@ -4,22 +4,35 @@
   <parent>
     <groupId>org.eclipse.jetty.tests</groupId>
     <artifactId>tests-parent</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
   </parent>
   <artifactId>test-sessions-parent</artifactId>
   <name>Jetty Tests :: Sessions :: Parent</name>
-  <url>http://www.eclipse.org/jetty</url>
   <packaging>pom</packaging>
-  <build>
-  </build>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-api</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
   <modules>
     <module>test-sessions-common</module>
-    <module>test-hash-sessions</module>
     <module>test-file-sessions</module>
     <module>test-jdbc-sessions</module>
     <module>test-mongodb-sessions</module>
     <module>test-infinispan-sessions</module>
     <module>test-gcloud-sessions</module>
     <module>test-memcached-sessions</module>
+    <module>test-hazelcast-sessions</module>
   </modules>
 </project>

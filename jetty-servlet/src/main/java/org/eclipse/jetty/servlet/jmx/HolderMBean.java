@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -28,14 +28,14 @@ public class HolderMBean extends ObjectMBean
         super(managedObject);
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
     public String getObjectNameBasis()
     {
-        if (_managed!=null && _managed instanceof Holder)
+        if (_managed != null && _managed instanceof Holder)
         {
             Holder holder = (Holder)_managed;
             String name = holder.getName();
-            if (name!=null)
+            if (name != null)
                 return name;
         }
         return super.getObjectNameBasis();

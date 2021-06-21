@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[jetty-env-xml]]
 === jetty-env.xml
@@ -28,11 +30,11 @@ You define global naming resources on the server via `jetty.xml`.
 
 Jetty applies `jetty-env.xml` on a per-webapp basis, and configures an instance of `org.eclipse.jetty.webapp.WebAppContext.`
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE Configure PUBLIC "-//Mort Bay Consulting//DTD Configure//EN" "http://www.eclipse.org/jetty/configure.dtd">
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
 
 <Configure class="org.eclipse.jetty.webapp.WebAppContext">
  ..
@@ -41,21 +43,20 @@ Jetty applies `jetty-env.xml` on a per-webapp basis, and configures an instance 
 
 ----
 
-____
 [CAUTION]
+====
 Make sure you are applying the configuration to an instance of the proper class. `jetty-env.xml` configures an instance of WebAppContext, and not an instance of Server.
-____
-
+====
 [[using-jetty-env-xml]]
 ==== Using `jetty-env.xml`
 
 Place the `jetty-env.xml` file in your web application's WEB-INF folder.
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 
  <?xml version="1.0"?>
- <!DOCTYPE Configure PUBLIC "-//Mort Bay Consulting//DTD Configure//EN" "http://jetty.mortbay.org/configure.dtd">
+ <!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
 
  <Configure class="org.eclipse.jetty.webapp.WebAppContext">
 

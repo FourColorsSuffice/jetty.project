@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.websocket.jsr356;
 
-import static org.hamcrest.Matchers.is;
-
 import javax.websocket.Encoder;
 
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
@@ -33,9 +31,12 @@ import org.eclipse.jetty.websocket.jsr356.metadata.EncoderMetadataSet;
 import org.eclipse.jetty.websocket.jsr356.samples.Fruit;
 import org.eclipse.jetty.websocket.jsr356.samples.FruitBinaryEncoder;
 import org.eclipse.jetty.websocket.jsr356.samples.FruitTextEncoder;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Tests against the Encoders class
@@ -48,44 +49,44 @@ public class EncoderFactoryTest
     private void assertMetadataFor(Class<?> type, Class<? extends Encoder> expectedEncoderClass, MessageType expectedType)
     {
         EncoderMetadata metadata = factory.getMetadataFor(type);
-        Assert.assertEquals("metadata.coderClass",metadata.getCoderClass(),expectedEncoderClass);
-        Assert.assertThat("metadata.messageType",metadata.getMessageType(),is(expectedType));
-        Assert.assertEquals("metadata.objectType",metadata.getObjectType(),type);
+        assertEquals(metadata.getCoderClass(), expectedEncoderClass, "metadata.coderClass");
+        assertThat("metadata.messageType", metadata.getMessageType(), is(expectedType));
+        assertEquals(metadata.getObjectType(), type, "metadata.objectType");
     }
 
-    @Before
+    @BeforeEach
     public void initEncoderFactory()
     {
         WebSocketContainerScope containerScope = new SimpleContainerScope(WebSocketPolicy.newClientPolicy());
-        
-        EncoderFactory primitivesFactory = new EncoderFactory(containerScope,PrimitiveEncoderMetadataSet.INSTANCE);
+
+        EncoderFactory primitivesFactory = new EncoderFactory(containerScope, PrimitiveEncoderMetadataSet.INSTANCE);
         metadatas = new EncoderMetadataSet();
-        factory = new EncoderFactory(containerScope,metadatas,primitivesFactory);
+        factory = new EncoderFactory(containerScope, metadatas, primitivesFactory);
     }
 
     @Test
     public void testGetMetadataForFruitBinary()
     {
         metadatas.add(FruitBinaryEncoder.class);
-        assertMetadataFor(Fruit.class,FruitBinaryEncoder.class,MessageType.BINARY);
+        assertMetadataFor(Fruit.class, FruitBinaryEncoder.class, MessageType.BINARY);
     }
 
     @Test
     public void testGetMetadataForFruitText()
     {
         metadatas.add(FruitTextEncoder.class);
-        assertMetadataFor(Fruit.class,FruitTextEncoder.class,MessageType.TEXT);
+        assertMetadataFor(Fruit.class, FruitTextEncoder.class, MessageType.TEXT);
     }
 
     @Test
     public void testGetMetadataForInteger()
     {
-        assertMetadataFor(Integer.TYPE,IntegerEncoder.class,MessageType.TEXT);
+        assertMetadataFor(Integer.TYPE, IntegerEncoder.class, MessageType.TEXT);
     }
 
     @Test
     public void testGetMetadataForLong()
     {
-        assertMetadataFor(Long.TYPE,LongEncoder.class,MessageType.TEXT);
+        assertMetadataFor(Long.TYPE, LongEncoder.class, MessageType.TEXT);
     }
 }

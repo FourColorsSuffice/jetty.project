@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,46 +16,56 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.server.session;
 
 import org.eclipse.jetty.session.infinispan.InfinispanSessionDataStoreFactory;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * ClusteredSessionScavengingTest
- *
- *
  */
+@ExtendWith(WorkDirExtension.class)
 public class ClusteredSessionScavengingTest extends AbstractClusteredSessionScavengingTest
 {
+    public WorkDir workDir;
+    public InfinispanTestSupport testSupport;
 
-    public static InfinispanTestSupport __testSupport;
-    
-    @BeforeClass
-    public static void setup () throws Exception
+    @BeforeEach
+    public void setup() throws Exception
     {
-        __testSupport = new InfinispanTestSupport();
-        __testSupport.setUseFileStore(true);
-        __testSupport.setup();
-    }
-    
-    @AfterClass
-    public static void teardown () throws Exception
-    {
-        __testSupport.teardown();
+        testSupport = new InfinispanTestSupport();
+        testSupport.setUseFileStore(true);
+        testSupport.setup(workDir.getEmptyPathDir());
     }
 
+    @AfterEach
+    public void teardown() throws Exception
+    {
+        if (testSupport != null)
+            testSupport.teardown();
+    }
 
-    /** 
+    @Override
+    @Test
+    public void testClusteredScavenge()
+        throws Exception
+    {
+        super.testClusteredScavenge();
+    }
+
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
     public SessionDataStoreFactory createSessionDataStoreFactory()
     {
         InfinispanSessionDataStoreFactory factory = new InfinispanSessionDataStoreFactory();
-        factory.setCache(__testSupport.getCache());
+        factory.setCache(testSupport.getCache());
         return factory;
     }
 }

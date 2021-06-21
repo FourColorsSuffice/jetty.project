@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,8 +19,9 @@
 package org.eclipse.jetty.security.authentication;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-
+import java.util.Base64;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
@@ -32,35 +33,28 @@ import org.eclipse.jetty.security.UserAuthentication;
 import org.eclipse.jetty.server.Authentication;
 import org.eclipse.jetty.server.Authentication.User;
 import org.eclipse.jetty.server.UserIdentity;
-import org.eclipse.jetty.util.B64Code;
 import org.eclipse.jetty.util.security.Constraint;
 
-/**
- * @version $Rev: 4793 $ $Date: 2009-03-19 00:00:01 +0100 (Thu, 19 Mar 2009) $
- */
 public class BasicAuthenticator extends LoginAuthenticator
 {
-    /* ------------------------------------------------------------ */
-    public BasicAuthenticator()
+    private Charset _charset;
+
+    public Charset getCharset()
     {
+        return _charset;
     }
 
-    /* ------------------------------------------------------------ */
-    /**
-     * @see org.eclipse.jetty.security.Authenticator#getAuthMethod()
-     */
+    public void setCharset(Charset charset)
+    {
+        this._charset = charset;
+    }
+
     @Override
     public String getAuthMethod()
     {
         return Constraint.__BASIC_AUTH;
     }
 
- 
-
-    /* ------------------------------------------------------------ */
-    /**
-     * @see org.eclipse.jetty.security.Authenticator#validateRequest(javax.servlet.ServletRequest, javax.servlet.ServletResponse, boolean)
-     */
     @Override
     public Authentication validateRequest(ServletRequest req, ServletResponse res, boolean mandatory) throws ServerAuthException
     {
@@ -75,25 +69,26 @@ public class BasicAuthenticator extends LoginAuthenticator
 
             if (credentials != null)
             {
-                int space=credentials.indexOf(' ');
-                if (space>0)
+                int space = credentials.indexOf(' ');
+                if (space > 0)
                 {
-                    String method=credentials.substring(0,space);
+                    String method = credentials.substring(0, space);
                     if ("basic".equalsIgnoreCase(method))
                     {
-                        credentials = credentials.substring(space+1);
-                        credentials = B64Code.decode(credentials, StandardCharsets.ISO_8859_1);
+                        credentials = credentials.substring(space + 1);
+                        Charset charset = getCharset();
+                        if (charset == null)
+                            charset = StandardCharsets.ISO_8859_1;
+                        credentials = new String(Base64.getDecoder().decode(credentials), charset);
                         int i = credentials.indexOf(':');
-                        if (i>0)
+                        if (i > 0)
                         {
-                            String username = credentials.substring(0,i);
-                            String password = credentials.substring(i+1);
+                            String username = credentials.substring(0, i);
+                            String password = credentials.substring(i + 1);
 
-                            UserIdentity user = login (username, password, request);
-                            if (user!=null)
-                            {
-                                return new UserAuthentication(getAuthMethod(),user);
-                            }
+                            UserIdentity user = login(username, password, request);
+                            if (user != null)
+                                return new UserAuthentication(getAuthMethod(), user);
                         }
                     }
                 }
@@ -102,7 +97,11 @@ public class BasicAuthenticator extends LoginAuthenticator
             if (DeferredAuthentication.isDeferred(response))
                 return Authentication.UNAUTHENTICATED;
 
-            response.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), "basic realm=\"" + _loginService.getName() + '"');
+            String value = "basic realm=\"" + _loginService.getName() + "\"";
+            Charset charset = getCharset();
+            if (charset != null)
+                value += ", charset=\"" + charset.name() + "\"";
+            response.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), value);
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
             return Authentication.SEND_CONTINUE;
         }
@@ -117,5 +116,4 @@ public class BasicAuthenticator extends LoginAuthenticator
     {
         return true;
     }
-
 }

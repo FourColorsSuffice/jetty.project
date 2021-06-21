@@ -1,3 +1,5 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Enables a TLS(SSL) Connector on the server.
 This may be used for HTTPS and/or HTTP2 by enabling
@@ -29,9 +31,6 @@ basehome:modules/ssl/keystore|etc/keystore
 ## Connector idle timeout in milliseconds
 # jetty.ssl.idleTimeout=30000
 
-## Connector socket linger time in seconds (-1 to disable)
-# jetty.ssl.soLingerTime=-1
-
 ## Number of acceptors (-1 picks default based on number of cores)
 # jetty.ssl.acceptors=-1
 
@@ -39,10 +38,34 @@ basehome:modules/ssl/keystore|etc/keystore
 # jetty.ssl.selectors=-1
 
 ## ServerSocketChannel backlog (0 picks platform default)
-# jetty.ssl.acceptorQueueSize=0
+# jetty.ssl.acceptQueueSize=0
 
 ## Thread priority delta to give to acceptor threads
 # jetty.ssl.acceptorPriorityDelta=0
+
+## The requested maximum length of the queue of incoming connections.
+# jetty.ssl.acceptQueueSize=0
+
+## Enable/disable the SO_REUSEADDR socket option.
+# jetty.ssl.reuseAddress=true
+
+## Enable/disable TCP_NODELAY on accepted sockets.
+# jetty.ssl.acceptedTcpNoDelay=true
+
+## The SO_RCVBUF option to set on accepted sockets. A value of -1 indicates that it is left to its default value.
+# jetty.ssl.acceptedReceiveBufferSize=-1
+
+## The SO_SNDBUF option to set on accepted sockets. A value of -1 indicates that it is left to its default value.
+# jetty.ssl.acceptedSendBufferSize=-1
+
+## Connect Timeout in milliseconds
+# jetty.ssl.connectTimeout=15000
+
+## Whether SNI is required for all secure connections. Rejections are in TLS handshakes.
+# jetty.sslContext.sniRequired=false
+
+## Whether SNI is required for all secure connections. Rejections are in HTTP 400 response.
+# jetty.ssl.sniRequired=false
 
 ## Whether request host names are checked to match any SNI names
 # jetty.ssl.sniHostCheck=true
@@ -55,28 +78,39 @@ basehome:modules/ssl/keystore|etc/keystore
 
 ### SslContextFactory Configuration
 ## Note that OBF passwords are not secure, just protected from casual observation
-## See http://www.eclipse.org/jetty/documentation/current/configuring-security-secure-passwords.html
+## See https://eclipse.org/jetty/documentation/current/configuring-security-secure-passwords.html
 
-## Keystore file path (relative to $jetty.base)
+## The Endpoint Identification Algorithm
+## Same as javax.net.ssl.SSLParameters#setEndpointIdentificationAlgorithm(String)
+#jetty.sslContext.endpointIdentificationAlgorithm=
+
+## SSL JSSE Provider
+# jetty.sslContext.provider=
+
+## KeyStore file path (relative to $jetty.base)
 # jetty.sslContext.keyStorePath=etc/keystore
+## KeyStore absolute file path
+# jetty.sslContext.keyStoreAbsolutePath=${jetty.base}/etc/keystore
 
-## Truststore file path (relative to $jetty.base)
+## TrustStore file path (relative to $jetty.base)
 # jetty.sslContext.trustStorePath=etc/keystore
+## TrustStore absolute file path
+# jetty.sslContext.trustStoreAbsolutePath=${jetty.base}/etc/keystore
 
-## Keystore password
+## KeyStore password
 # jetty.sslContext.keyStorePassword=OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4
 
-## Keystore type and provider
+## KeyStore type and provider
 # jetty.sslContext.keyStoreType=JKS
 # jetty.sslContext.keyStoreProvider=
 
 ## KeyManager password
 # jetty.sslContext.keyManagerPassword=OBF:1u2u1wml1z7s1z7a1wnl1u2g
 
-## Truststore password
+## TrustStore password
 # jetty.sslContext.trustStorePassword=OBF:1vny1zlo1x8e1vnw1vn61x8g1zlu1vn4
 
-## Truststore type and provider
+## TrustStore type and provider
 # jetty.sslContext.trustStoreType=JKS
 # jetty.sslContext.trustStoreProvider=
 

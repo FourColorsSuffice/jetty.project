@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -15,7 +15,6 @@
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
 //
-
 
 package org.eclipse.jetty.server.session;
 
@@ -34,28 +33,23 @@ import org.eclipse.jetty.util.thread.Scheduler;
  * HouseKeeper
  *
  * There is 1 session HouseKeeper per SessionIdManager instance.
- *
  */
 @ManagedObject
 public class HouseKeeper extends AbstractLifeCycle
 {
-    private  final static Logger LOG = Log.getLogger("org.eclipse.jetty.server.session");
-    
+    private static final Logger LOG = Log.getLogger("org.eclipse.jetty.server.session");
+
     public static final long DEFAULT_PERIOD_MS = 1000L * 60 * 10;
+    
     protected SessionIdManager _sessionIdManager;
     protected Scheduler _scheduler;
     protected Scheduler.Task _task; //scavenge task
     protected Runner _runner;
     protected boolean _ownScheduler = false;
-    private long _intervalMs =  DEFAULT_PERIOD_MS;
-   
-   
-    
-   
-    
+    private long _intervalMs = DEFAULT_PERIOD_MS;
+
     /**
      * Runner
-     *
      */
     protected class Runner implements Runnable
     {
@@ -63,208 +57,191 @@ public class HouseKeeper extends AbstractLifeCycle
         @Override
         public void run()
         {
-           try
-           {
-               scavenge();
-           }
-           finally
-           {
-               if (_scheduler != null && _scheduler.isRunning())
-                   _task = _scheduler.schedule(this, _intervalMs, TimeUnit.MILLISECONDS);
-           }
+            try
+            {
+                scavenge();
+            }
+            finally
+            {
+                synchronized (HouseKeeper.this)
+                {
+                    if (_scheduler != null && _scheduler.isRunning())
+                        _task = _scheduler.schedule(this, _intervalMs, TimeUnit.MILLISECONDS);
+                }
+            }
         }
     }
-    
-    
-    
-    
+
     /**
      * SessionIdManager associated with this scavenger
+     *
      * @param sessionIdManager the session id manager
      */
-    public void setSessionIdManager (SessionIdManager sessionIdManager)
+    public void setSessionIdManager(SessionIdManager sessionIdManager)
     {
+        if (isStarted())
+            throw new IllegalStateException("HouseKeeper started");
         _sessionIdManager = sessionIdManager;
     }
-    
-    
-    /** 
-     * @see org.eclipse.jetty.util.component.AbstractLifeCycle#doStart()
-     */
+
     @Override
     protected void doStart() throws Exception
     {
         if (_sessionIdManager == null)
-            throw new IllegalStateException ("No SessionIdManager for Housekeeper");
-        
+            throw new IllegalStateException("No SessionIdManager for Housekeeper");
+
         setIntervalSec(getIntervalSec());
-        
+
         super.doStart();
     }
 
-    
-    /**
-     * Get a scheduler. First try a common scheduler, failing that
-     * create our own.
-     * 
-     * @throws Exception
-     */
-    protected void findScheduler () throws Exception
-    {
-        if (_scheduler == null)
-        {
-            if (_sessionIdManager instanceof DefaultSessionIdManager)
-            {
-                //try and use a common scheduler, fallback to own
-                _scheduler = ((DefaultSessionIdManager)_sessionIdManager).getServer().getBean(Scheduler.class);
-            }
-
-            if (_scheduler == null)
-            {
-                _scheduler = new ScheduledExecutorScheduler();
-                _ownScheduler = true;
-                _scheduler.start();
-                if (LOG.isDebugEnabled()) LOG.debug("Using own scheduler for scavenging");
-            }
-            else if (!_scheduler.isStarted())
-                throw new IllegalStateException("Shared scheduler not started");
-        }
-    }
-    
     /**
      * If scavenging is not scheduled, schedule it.
-     * @throws Exception
+     *
+     * @throws Exception if any error during scheduling the scavenging
      */
-    protected void startScavenging()  throws Exception
+    protected void startScavenging() throws Exception
     {
         synchronized (this)
         {
-            if (_scheduler != null)
+            if (_scheduler == null)
             {
-                //cancel any previous task
-                if (_task!=null)
-                    _task.cancel();
-                if (_runner == null)
-                    _runner = new Runner();
-                LOG.info("Scavenging every {}ms", _intervalMs);
-                _task = _scheduler.schedule(_runner,_intervalMs,TimeUnit.MILLISECONDS);
+                if (_sessionIdManager instanceof DefaultSessionIdManager)
+                {
+                    //try and use a common scheduler, fallback to own
+                    _scheduler = ((DefaultSessionIdManager)_sessionIdManager).getServer().getBean(Scheduler.class);
+                }
+
+                if (_scheduler == null)
+                {
+                    _scheduler = new ScheduledExecutorScheduler(String.format("Session-HouseKeeper-%x", hashCode()), false);
+                    _ownScheduler = true;
+                    _scheduler.start();
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Using own scheduler for scavenging");
+                }
+                else if (!_scheduler.isStarted())
+                    throw new IllegalStateException("Shared scheduler not started");
             }
+
+            //cancel any previous task
+            if (_task != null)
+                _task.cancel();
+            if (_runner == null)
+                _runner = new Runner();
+            LOG.info("{} Scavenging every {}ms", _sessionIdManager.getWorkerName(), _intervalMs);
+            _task = _scheduler.schedule(_runner, _intervalMs, TimeUnit.MILLISECONDS);
         }
     }
 
     /**
      * If scavenging is scheduled, stop it.
-     * 
-     * @throws Exception
+     *
+     * @throws Exception if any error during stopping the scavenging
      */
     protected void stopScavenging() throws Exception
     {
         synchronized (this)
-        {   
-            if (_task!=null)
+        {
+            if (_task != null)
             {
                 _task.cancel();
-                LOG.info("Stopped scavenging");
+                LOG.info("{} Stopped scavenging", _sessionIdManager.getWorkerName());
             }
             _task = null;
-            if (_ownScheduler) 
+            if (_ownScheduler && _scheduler != null)
             {
+                _ownScheduler = false;
                 _scheduler.stop();
                 _scheduler = null;
             }
+            _runner = null;
         }
-        _runner = null;
     }
 
-
-    /** 
-     * @see org.eclipse.jetty.util.component.AbstractLifeCycle#doStop()
-     */
     @Override
     protected void doStop() throws Exception
     {
-        synchronized(this)
+        synchronized (this)
         {
             stopScavenging();
             _scheduler = null;
         }
         super.doStop();
     }
-    
-    
+
     /**
      * Set the period between scavenge cycles
+     *
      * @param sec the interval (in seconds)
-     * @throws Exception 
+     * @throws Exception if any error during restarting the scavenging
      */
-    public void setIntervalSec (long sec) throws Exception
+    public void setIntervalSec(long sec) throws Exception
     {
-        if (isStarted() || isStarting())
+        synchronized (this)
         {
-            if (sec <= 0)
+            if (isStarted() || isStarting())
             {
-                _intervalMs = 0L;
-                LOG.info("Scavenging disabled");
-                stopScavenging();
+                if (sec <= 0)
+                {
+                    _intervalMs = 0L;
+                    LOG.info("{} Scavenging disabled", _sessionIdManager.getWorkerName());
+                    stopScavenging();
+                }
+                else
+                {
+                    if (sec < 10)
+                        LOG.warn("{} Short interval of {}sec for session scavenging.", _sessionIdManager.getWorkerName(), sec);
+
+                    _intervalMs = sec * 1000L;
+
+                    //add a bit of variability into the scavenge time so that not all
+                    //nodes with the same scavenge interval sync up
+                    long tenPercent = _intervalMs / 10;
+                    if ((System.currentTimeMillis() % 2) == 0)
+                        _intervalMs += tenPercent;
+
+                    if (isStarting() || isStarted())
+                    {
+                        startScavenging();
+                    }
+                }
             }
             else
             {
-                if (sec < 10)
-                    LOG.warn("Short interval of {}sec for session scavenging.", sec);
-                
-                _intervalMs=sec*1000L;
-
-                //add a bit of variability into the scavenge time so that not all
-                //nodes with the same scavenge interval sync up
-                long tenPercent = _intervalMs/10;
-                if ((System.currentTimeMillis()%2) == 0)
-                    _intervalMs += tenPercent;
-                
-                if (isStarting() || isStarted())
-                {
-                    findScheduler();
-                    startScavenging();
-                }
+                _intervalMs = sec * 1000L;
             }
         }
-        else
-        {
-            _intervalMs=sec*1000L;
-        }
-
     }
 
-    
-    
     /**
      * Get the period between scavenge cycles.
-     * 
+     *
      * @return the interval (in seconds)
      */
-    @ManagedAttribute(value="secs between scavenge cycles", readonly=true)   
-    public long getIntervalSec ()
+    @ManagedAttribute(value = "secs between scavenge cycles", readonly = true)
+    public long getIntervalSec()
     {
-        return _intervalMs/1000;
+        synchronized (this)
+        {
+            return _intervalMs / 1000;
+        }
     }
-    
-    
-  
-    
-    
+
     /**
      * Periodically do session housekeeping
      */
-    public void scavenge ()
+    public void scavenge()
     {
         //don't attempt to scavenge if we are shutting down
         if (isStopping() || isStopped())
             return;
 
         if (LOG.isDebugEnabled())
-            LOG.debug("Scavenging sessions");
-        
+            LOG.debug("{} scavenging sessions", _sessionIdManager.getWorkerName());
+
         //find the session managers
-        for (SessionHandler manager:_sessionIdManager.getSessionHandlers())
+        for (SessionHandler manager : _sessionIdManager.getSessionHandlers())
         {
             if (manager != null)
             {
@@ -280,14 +257,12 @@ public class HouseKeeper extends AbstractLifeCycle
         }
     }
 
-
-    /** 
-     * @see java.lang.Object#toString()
-     */
     @Override
     public String toString()
     {
-        return super.toString()+"[interval="+_intervalMs+", ownscheduler="+_ownScheduler+"]";
+        synchronized (this)
+        {
+            return super.toString() + "[interval=" + _intervalMs + ", ownscheduler=" + _ownScheduler + "]";
+        }
     }
-
 }

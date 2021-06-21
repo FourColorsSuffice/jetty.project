@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpVersion;
@@ -44,8 +45,10 @@ import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.RuntimeIOException;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class CloseTest extends AbstractServerTest
 {
@@ -107,6 +110,7 @@ public class CloseTest extends AbstractServerTest
                     }
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
@@ -114,8 +118,8 @@ public class CloseTest extends AbstractServerTest
             Thread.sleep(1000);
 
             Session session = sessionRef.get();
-            Assert.assertTrue(session.isClosed());
-            Assert.assertTrue(((HTTP2Session)session).isDisconnected());
+            assertTrue(session.isClosed());
+            assertTrue(((HTTP2Session)session).isDisconnected());
         }
     }
 
@@ -163,21 +167,22 @@ public class CloseTest extends AbstractServerTest
                     responseLatch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
+            assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
 
             // Wait for the server to close.
             Thread.sleep(1000);
 
             // Client received the TCP FIN from server.
-            Assert.assertEquals(-1, client.getInputStream().read());
+            assertEquals(-1, client.getInputStream().read());
 
             // Server is closed.
             Session session = sessionRef.get();
-            Assert.assertTrue(session.isClosed());
-            Assert.assertTrue(((HTTP2Session)session).isDisconnected());
+            assertTrue(session.isClosed());
+            assertTrue(((HTTP2Session)session).isDisconnected());
         }
     }
 
@@ -231,11 +236,12 @@ public class CloseTest extends AbstractServerTest
                     closeLatch.countDown();
                 }
             }, 4096, 8192);
+            parser.init(UnaryOperator.identity());
 
             parseResponse(client, parser);
 
-            Assert.assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
-            Assert.assertTrue(closeLatch.await(5, TimeUnit.SECONDS));
+            assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
+            assertTrue(closeLatch.await(5, TimeUnit.SECONDS));
 
             // Don't close the connection.
 
@@ -243,12 +249,12 @@ public class CloseTest extends AbstractServerTest
             Thread.sleep(2 * idleTimeout);
 
             // Client received the TCP FIN from server.
-            Assert.assertEquals(-1, client.getInputStream().read());
+            assertEquals(-1, client.getInputStream().read());
 
             // Server is closed.
             Session session = sessionRef.get();
-            Assert.assertTrue(session.isClosed());
-            Assert.assertTrue(((HTTP2Session)session).isDisconnected());
+            assertTrue(session.isClosed());
+            assertTrue(((HTTP2Session)session).isDisconnected());
         }
     }
 }

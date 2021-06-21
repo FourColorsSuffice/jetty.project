@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.util.Map;
-
 import javax.websocket.CloseReason;
 import javax.websocket.Endpoint;
 import javax.websocket.MessageHandler;
@@ -58,7 +57,7 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
 
     public JsrEndpointEventDriver(WebSocketPolicy policy, EndpointInstance endpointInstance)
     {
-        super(policy,endpointInstance);
+        super(policy, endpointInstance);
         this.endpoint = (Endpoint)endpointInstance.getEndpoint();
     }
 
@@ -88,26 +87,32 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
             }
             else if (wrapper.wantsStreams())
             {
-                final MessageInputStream stream = new MessageInputStream();
-                activeMessage = stream;
-                dispatch(new Runnable()
+                @SuppressWarnings("unchecked")
+                MessageHandler.Whole<InputStream> handler = (Whole<InputStream>)wrapper.getHandler();
+                MessageInputStream inputStream = new MessageInputStream(session);
+                activeMessage = inputStream;
+                dispatch(() ->
                 {
-                    @SuppressWarnings("unchecked")
-                    @Override
-                    public void run()
+                    try
                     {
-                        MessageHandler.Whole<InputStream> handler = (Whole<InputStream>)wrapper.getHandler();
-                        handler.onMessage(stream);
+                        handler.onMessage(inputStream);
                     }
+                    catch (Throwable t)
+                    {
+                        session.close(t);
+                        return;
+                    }
+
+                    inputStream.handlerComplete();
                 });
             }
             else
             {
-                activeMessage = new BinaryWholeMessage(this,wrapper);
+                activeMessage = new BinaryWholeMessage(this, wrapper);
             }
         }
 
-        activeMessage.appendFrame(buffer,fin);
+        activeMessage.appendFrame(buffer, fin);
 
         if (fin)
         {
@@ -125,7 +130,7 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
     @Override
     protected void onClose(CloseReason closereason)
     {
-        endpoint.onClose(this.jsrsession,closereason);
+        endpoint.onClose(this.jsrsession, closereason);
     }
 
     @Override
@@ -133,11 +138,11 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
     {
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("onConnect({}, {})",jsrsession,config);
+            LOG.debug("onConnect({}, {})", jsrsession, config);
         }
 
         // Let unhandled exceptions flow out
-        endpoint.onOpen(jsrsession,config);
+        endpoint.onOpen(jsrsession, config);
     }
 
     @Override
@@ -145,11 +150,11 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
     {
         try
         {
-            endpoint.onError(jsrsession,cause);
+            endpoint.onError(jsrsession, cause);
         }
         catch (Throwable t)
         {
-            LOG.warn("Unable to report to onError due to exception",t);
+            LOG.warn("Unable to report to onError due to exception", t);
         }
     }
 
@@ -191,27 +196,32 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
             }
             else if (wrapper.wantsStreams())
             {
-                final MessageReader stream = new MessageReader(new MessageInputStream());
-                activeMessage = stream;
-
-                dispatch(new Runnable()
+                @SuppressWarnings("unchecked")
+                MessageHandler.Whole<Reader> handler = (Whole<Reader>)wrapper.getHandler();
+                MessageReader reader = new MessageReader(session);
+                activeMessage = reader;
+                dispatch(() ->
                 {
-                    @SuppressWarnings("unchecked")
-                    @Override
-                    public void run()
+                    try
                     {
-                        MessageHandler.Whole<Reader> handler = (Whole<Reader>)wrapper.getHandler();
-                        handler.onMessage(stream);
+                        handler.onMessage(reader);
                     }
+                    catch (Throwable t)
+                    {
+                        session.close(t);
+                        return;
+                    }
+
+                    reader.handlerComplete();
                 });
             }
             else
             {
-                activeMessage = new TextWholeMessage(this,wrapper);
+                activeMessage = new TextWholeMessage(this, wrapper);
             }
         }
 
-        activeMessage.appendFrame(buffer,fin);
+        activeMessage.appendFrame(buffer, fin);
 
         if (fin)
         {
@@ -259,8 +269,8 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
         else
         {
             pongBuf = ByteBuffer.allocate(buffer.remaining());
-            BufferUtil.put(buffer,pongBuf);
-            BufferUtil.flipToFlush(pongBuf,0);
+            BufferUtil.put(buffer, pongBuf);
+            BufferUtil.flipToFlush(pongBuf, 0);
         }
 
         @SuppressWarnings("unchecked")
@@ -277,6 +287,6 @@ public class JsrEndpointEventDriver extends AbstractJsrEventDriver
     @Override
     public String toString()
     {
-        return String.format("%s[%s]",JsrEndpointEventDriver.class.getSimpleName(),endpoint.getClass().getName());
+        return String.format("%s[%s]", JsrEndpointEventDriver.class.getSimpleName(), endpoint.getClass().getName());
     }
 }

@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 === Example: Logging with Logback
 
@@ -21,8 +23,8 @@ This is accomplished by configuring Jetty for logging to `Logback`, which uses h
 
 A convenient replacement `logging` module has been created to bootstrap the `${jetty.base}` directory for logging with logback.
 
-[source, screen, subs="{sub-order}"]
-....
+[source, screen]
+----
 [mybase]$ mkdir modules
 [mybase]$ cd modules
 
@@ -35,14 +37,14 @@ A convenient replacement `logging` module has been created to bootstrap the `${j
 [mybase]$ java -jar /opt/jetty-dist/start.jar --add-to-start=logging
 INFO: logging         initialised in ${jetty.base}/start.ini (appended)
 MKDIR: ${jetty.base}/logs
-DOWNLOAD: http://central.maven.org/maven2/org/slf4j/slf4j-api/1.6.6/slf4j-api-1.6.6.jar to lib/logging/slf4j-api-1.6.6.jar
-DOWNLOAD: http://central.maven.org/maven2/ch/qos/logback/logback-core/1.0.7/logback-core-1.0.7.jar to lib/logging/logback-core-1.0.7.jar
-DOWNLOAD: http://central.maven.org/maven2/ch/qos/logback/logback-classic/1.0.7/logback-classic-1.0.7.jar to lib/logging/logback-classic-1.0.7.jar
+DOWNLOAD: https://repo1.maven.org/maven2/org/slf4j/slf4j-api/1.6.6/slf4j-api-1.6.6.jar to lib/logging/slf4j-api-1.6.6.jar
+DOWNLOAD: https://repo1.maven.org/maven2/ch/qos/logback/logback-core/1.0.7/logback-core-1.0.7.jar to lib/logging/logback-core-1.0.7.jar
+DOWNLOAD: https://repo1.maven.org/maven2/ch/qos/logback/logback-classic/1.0.7/logback-classic-1.0.7.jar to lib/logging/logback-classic-1.0.7.jar
 DOWNLOAD: https://raw.githubusercontent.com/jetty-project/logging-modules/master/logback/logback.xml to resources/logback.xml
 DOWNLOAD: https://raw.githubusercontent.com/jetty-project/logging-modules/master/logback/jetty-logging.properties to resources/jetty-logging.properties
 
 [mybase]$ java -jar /opt/jetty-dist/start.jar
-....
+----
 
 The replacement `logging.mod` performs a number of tasks.
 

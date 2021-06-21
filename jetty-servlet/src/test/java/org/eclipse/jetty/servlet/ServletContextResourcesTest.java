@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,15 +18,11 @@
 
 package org.eclipse.jetty.servlet;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertThat;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -37,9 +33,12 @@ import org.eclipse.jetty.server.LocalConnector;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.util.IO;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 
 public class ServletContextResourcesTest
 {
@@ -75,7 +74,7 @@ public class ServletContextResourcesTest
     private LocalConnector connector;
     private ServletContextHandler context;
 
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         server = new Server();
@@ -95,7 +94,7 @@ public class ServletContextResourcesTest
         server.start();
     }
 
-    @After
+    @AfterEach
     public void destroy() throws Exception
     {
         server.stop();
@@ -103,7 +102,7 @@ public class ServletContextResourcesTest
     }
 
     @Test
-    public void testGetResourceAsStream_Root() throws Exception
+    public void testGetResourceAsStreamRoot() throws Exception
     {
         context.addServlet(ResourceAsStreamServlet.class, "/*");
 
@@ -113,12 +112,12 @@ public class ServletContextResourcesTest
         req1.append("Connection: close\r\n");
         req1.append("\r\n");
 
-        String response = connector.getResponses(req1.toString());
+        String response = connector.getResponse(req1.toString());
         assertThat("Response", response, containsString("Resource '/': <null>"));
     }
 
     @Test
-    public void testGetResourceAsStream_Content() throws Exception
+    public void testGetResourceAsStreamContent() throws Exception
     {
         context.addServlet(ResourceAsStreamServlet.class, "/*");
 
@@ -128,7 +127,7 @@ public class ServletContextResourcesTest
         req1.append("Connection: close\r\n");
         req1.append("\r\n");
 
-        String response = connector.getResponses(req1.toString());
+        String response = connector.getResponse(req1.toString());
         assertThat("Response", response, containsString("Resource '/content.txt': content goes here"));
     }
 }

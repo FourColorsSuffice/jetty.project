@@ -1,5 +1,7 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
-Enables JDBC peristent/distributed session storage.
+Enables JDBC persistent/distributed session storage.
 
 [tags]
 session
@@ -8,6 +10,7 @@ session
 session-store
 
 [depend]
+jdbc
 sessions
 sessions/jdbc/${db-connection-type}
 
@@ -24,6 +27,10 @@ db-connection-type?=datasource
 
 #jetty.session.gracePeriod.seconds=3600
 #jetty.session.savePeriod.seconds=0
+
+#jetty.session.jdbc.blobType=
+#jetty.session.jdbc.longType=
+#jetty.session.jdbc.stringType=
 
 ## Connection type:Datasource
 db-connection-type=datasource
@@ -48,7 +55,14 @@ db-connection-type=datasource
 #jetty.session.jdbc.schema.maxIntervalColumn=maxInterval
 #jetty.session.jdbc.schema.mapColumn=map
 #jetty.session.jdbc.schema.table=JettySessions
-
-
-
+# Optional name of the schema used to identify where the session table is defined in the database: 
+#  "" - empty string, no schema name 
+#  "INFERRED" - special string meaning infer from the current db connection
+#  name - a string defined by the user
+#jetty.session.jdbc.schema.schemaName
+# Optional name of the catalog used to identify where the session table is defined in the database: 
+#  "" - empty string, no catalog name
+#  "INFERRED" - special string meaning infer from the current db connection
+#  name - a string defined by the user
+#jetty.session.jdbc.schema.catalogName
 

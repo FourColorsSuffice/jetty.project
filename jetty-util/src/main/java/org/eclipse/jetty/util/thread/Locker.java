@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,55 +22,61 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Convenience Lock Wrapper.
- * 
+ * <p>Convenience auto closeable {@link java.util.concurrent.locks.ReentrantLock} wrapper.</p>
+ *
  * <pre>
- * try(Locker.Lock lock = locker.lock())
+ * try (Locker.Lock lock = locker.lock())
  * {
- *   // something 
+ *   // something
  * }
  * </pre>
  */
 public class Locker
 {
-    private static final Lock LOCKED = new Lock();
     private final ReentrantLock _lock = new ReentrantLock();
-    private final Lock _unlock = new UnLock();
+    private final Lock _unlock = new Lock();
 
-    public Locker()
-    {
-    }
-
+    /**
+     * <p>Acquires the lock.</p>
+     *
+     * @return the lock to unlock
+     */
     public Lock lock()
     {
-        if (_lock.isHeldByCurrentThread())
-            throw new IllegalStateException("Locker is not reentrant");
-        _lock.lock();
-        return _unlock;
-    }
-    
-    public Lock lockIfNotHeld ()
-    {
-        if (_lock.isHeldByCurrentThread())
-            return LOCKED;
         _lock.lock();
         return _unlock;
     }
 
+    /**
+     * @return the lock to unlock
+     * @deprecated use {@link #lock()} instead
+     */
+    @Deprecated
+    public Lock lockIfNotHeld()
+    {
+        return lock();
+    }
+
+    /**
+     * @return whether this lock has been acquired
+     */
     public boolean isLocked()
     {
         return _lock.isLocked();
     }
-    
-    public static class Lock implements AutoCloseable
+
+    /**
+     * @return a {@link Condition} associated with this lock
+     */
+    public Condition newCondition()
     {
-        @Override
-        public void close()
-        {
-        }
+        return _lock.newCondition();
     }
-    
-    public class UnLock extends Lock
+
+    /**
+     * <p>The unlocker object that unlocks when it is closed.</p>
+     */
+    public class Lock implements AutoCloseable
     {
         @Override
         public void close()
@@ -78,9 +84,9 @@ public class Locker
             _lock.unlock();
         }
     }
-    
-    public Condition newCondition()
+
+    @Deprecated
+    public class UnLock extends Lock
     {
-        return _lock.newCondition();
     }
 }

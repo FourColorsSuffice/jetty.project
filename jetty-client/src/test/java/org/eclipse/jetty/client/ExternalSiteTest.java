@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,37 +26,36 @@ import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.http.HttpScheme;
-import org.eclipse.jetty.toolchain.test.TestTracker;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 
-@Ignore
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+@Disabled
 public class ExternalSiteTest
 {
-    @Rule
-    public final TestTracker tracker = new TestTracker();
-
     private HttpClient client;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
-        client = new HttpClient(new SslContextFactory());
+        client = new HttpClient(new SslContextFactory.Client());
         client.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         client.stop();
     }
 
+    @Tag("external")
     @Test
     public void testExternalSite() throws Exception
     {
@@ -67,37 +66,31 @@ public class ExternalSiteTest
         assumeCanConnectTo(host, port);
 
         final CountDownLatch latch1 = new CountDownLatch(1);
-        client.newRequest(host, port).send(new Response.CompleteListener()
+        client.newRequest(host, port).send(result ->
         {
-            @Override
-            public void onComplete(Result result)
-            {
-                if (!result.isFailed() && result.getResponse().getStatus() == 200)
-                    latch1.countDown();
-            }
+            assertTrue(result.isSucceeded());
+            assertEquals(200, result.getResponse().getStatus());
+            latch1.countDown();
         });
-        Assert.assertTrue(latch1.await(10, TimeUnit.SECONDS));
+        assertTrue(latch1.await(15, TimeUnit.SECONDS));
 
         // Try again the same URI, but without specifying the port
         final CountDownLatch latch2 = new CountDownLatch(1);
-        client.newRequest("http://" + host).send(new Response.CompleteListener()
+        client.newRequest("http://" + host).send(result ->
         {
-            @Override
-            public void onComplete(Result result)
-            {
-                Assert.assertTrue(result.isSucceeded());
-                Assert.assertEquals(200, result.getResponse().getStatus());
-                latch2.countDown();
-            }
+            assertTrue(result.isSucceeded());
+            assertEquals(200, result.getResponse().getStatus());
+            latch2.countDown();
         });
-        Assert.assertTrue(latch2.await(10, TimeUnit.SECONDS));
+        assertTrue(latch2.await(15, TimeUnit.SECONDS));
     }
 
+    @Tag("external")
     @Test
     public void testExternalSSLSite() throws Exception
     {
         client.stop();
-        client = new HttpClient(new SslContextFactory());
+        client = new HttpClient(new SslContextFactory.Client());
         client.start();
 
         String host = "api-3t.paypal.com";
@@ -107,18 +100,16 @@ public class ExternalSiteTest
         assumeCanConnectTo(host, port);
 
         final CountDownLatch latch = new CountDownLatch(1);
-        client.newRequest(host, port).scheme("https").path("/nvp").send(new Response.CompleteListener()
+        client.newRequest(host, port).scheme("https").path("/nvp").send(result ->
         {
-            @Override
-            public void onComplete(Result result)
-            {
-                if (result.isSucceeded() && result.getResponse().getStatus() == 200)
-                    latch.countDown();
-            }
+            assertTrue(result.isSucceeded());
+            assertEquals(200, result.getResponse().getStatus());
+            latch.countDown();
         });
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(15, TimeUnit.SECONDS));
     }
 
+    @Tag("external")
     @Test
     public void testExternalSiteWrongProtocol() throws Exception
     {
@@ -132,33 +123,27 @@ public class ExternalSiteTest
         {
             final CountDownLatch latch = new CountDownLatch(3);
             client.newRequest(host, port)
-                    .onResponseFailure(new Response.FailureListener()
+                .onResponseFailure((response, failure) -> latch.countDown())
+                .send(new Response.Listener.Adapter()
+                {
+                    @Override
+                    public void onFailure(Response response, Throwable failure)
                     {
-                        @Override
-                        public void onFailure(Response response, Throwable failure)
-                        {
-                            latch.countDown();
-                        }
-                    })
-                    .send(new Response.Listener.Adapter()
-                    {
-                        @Override
-                        public void onFailure(Response response, Throwable failure)
-                        {
-                            latch.countDown();
-                        }
+                        latch.countDown();
+                    }
 
-                        @Override
-                        public void onComplete(Result result)
-                        {
-                            Assert.assertTrue(result.isFailed());
-                            latch.countDown();
-                        }
-                    });
-            Assert.assertTrue(latch.await(10, TimeUnit.SECONDS));
+                    @Override
+                    public void onComplete(Result result)
+                    {
+                        assertTrue(result.isFailed());
+                        latch.countDown();
+                    }
+                });
+            assertTrue(latch.await(15, TimeUnit.SECONDS));
         }
     }
 
+    @Tag("external")
     @Test
     public void testExternalSiteRedirect() throws Exception
     {
@@ -169,10 +154,11 @@ public class ExternalSiteTest
         assumeCanConnectTo(host, port);
 
         ContentResponse response = client.newRequest(host, port)
-                .scheme(HttpScheme.HTTPS.asString())
-                .path("/twitter")
-                .send();
-        Assert.assertEquals(200, response.getStatus());
+            .scheme(HttpScheme.HTTPS.asString())
+            .path("/twitter")
+            .timeout(15, TimeUnit.SECONDS)
+            .send();
+        assertEquals(200, response.getStatus());
     }
 
     protected void assumeCanConnectTo(String host, int port)
@@ -183,7 +169,7 @@ public class ExternalSiteTest
         }
         catch (Throwable x)
         {
-            Assume.assumeNoException(x);
+            assumeTrue(false, "Unable to connect");
         }
     }
 }

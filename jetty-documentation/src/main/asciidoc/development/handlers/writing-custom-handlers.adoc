@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,13 +14,14 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[writing-custom-handlers]]
 === Writing Custom Handlers
 
 The Handler is the Jetty component that deals with received requests.
 
-Many users of Jetty never need to write a Jetty Handler, but instead use the link:{JXURL}/org/eclipse/jetty/servlet/package-summary.html[Servlet API.]
+Many users of Jetty never need to write a Jetty Handler, but instead use the link:{JDURL}/org/eclipse/jetty/servlet/package-summary.html[Servlet API.]
 You can reuse the existing Jetty handlers for context, security, sessions and servlets without the need for extension.
 However, some users might have special requirements or footprint concerns that prohibit the use of the full servlet API.
 For them implementing a Jetty handler is a straight forward way to provide dynamic web content with a minimum of fuss.
@@ -34,7 +36,7 @@ Classes that implement this interface are used to coordinate requests, filter re
 
 The core API of the Handler interface is:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
     throws IOException, ServletException
@@ -67,7 +69,7 @@ More often than not, access to the Jetty implementations of these classes is req
 However, as the request and response may be wrapped by handlers, filters and servlets, it is not possible to pass the implementation directly.
 The following mantra retrieves the core implementation objects from under any wrappers:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 Request base_request = request instanceof Request ? (Request)request : HttpConnection.getCurrentConnection().getHttpChannel().getRequest();
 Response base_response = response instanceof Response ? (Response)response : HttpConnection.getCurrentConnection().getHttpChannel().getResponse();
@@ -105,7 +107,7 @@ The link:{JDURL}/org/eclipse/jetty/embedded/OneHandler.html[`OneHandler`] embedd
 
 You can use the standard servlet response API, which will typically set some status, content headers and then write out the content:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
  response.setContentType("text/html");
  response.setStatus(HttpServletResponse.SC_OK);
@@ -114,7 +116,7 @@ You can use the standard servlet response API, which will typically set some sta
 
 It is also very important that a handler indicate that it has completed handling the request and that the request should not be passed to other handlers:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
  Request base_request = (request instanceof Request) ? (Request)request:HttpConnection.getCurrentConnection().getHttpChannel().getRequest();
  base_request.setHandled(true);
@@ -139,7 +141,7 @@ You can also update the context of the request:
 
 Typically Jetty passes a modified request to another handler and undoes modifications in a finally block afterwards:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
  try
  {
@@ -168,7 +170,26 @@ This is typically used to pass a request to a link:{JDURL}/org/eclipse/jetty/ser
 * link:{JDURL}/org/eclipse/jetty/server/handler/HandlerList.html[`HandlerList`] - A list of handlers that are called in turn until the request state is set as handled.
 * link:{JDURL}/org/eclipse/jetty/server/handler/ContextHandlerCollection.html[`ContextHandlerCollection`] - A collection of Handlers, of which one is selected by best match for the context path.
 
+[[injecting-handlers]]
+==== Injecting Handlers
+
+The `Handler` needs to be added to the server classpath as described in xref:startup-classpath[].
+Then it can be added to the server, either by overriding some existing XML configuration files such as `jetty.xml` as shown below, or by defining a custom module as described in xref:custom-modules[].
+
+[source, xml]
+----
+<?xml version="1.0"?>
+<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
+<Configure id="Server" class="org.eclipse.jetty.server.Server">
+    <Call name="setHandler">
+        <Arg>
+            <New id="myCustomJettyHandler" class="com.my.handler.CustomJettyHandler" />
+        </Arg>
+    </Call>
+</Configure>
+----
+
 [[more-about-handlers]]
 ==== More About Handlers
 
-See the link:{JXURL}/[latest Jetty Source XRef] and the link:{JDURL}/[latest Jetty JavaDoc] for detailed information on each Jetty handler.
+See the link:{JDURL}/[latest Jetty JavaDoc] for detailed information on each Jetty handler.

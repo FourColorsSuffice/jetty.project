@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,7 +25,6 @@ import java.net.HttpURLConnection;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
-
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.remote.JMXConnector;
@@ -40,18 +39,18 @@ import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
-import static org.junit.Assert.assertThat;
 
-@Ignore
+@Disabled
 public class JmxIT
 {
     private Server _server;
@@ -60,7 +59,7 @@ public class JmxIT
     private int _httpPort;
     private JMXServiceURL _jmxURL;
 
-    @Before
+    @BeforeEach
     public void connectToMBeanServer() throws Exception
     {
         startJetty();
@@ -71,7 +70,7 @@ public class JmxIT
         _mbsc = _jmxc.getMBeanServerConnection();
     }
 
-    @After
+    @AfterEach
     public void disconnectFromMBeanServer() throws Exception
     {
         _jmxc.close();
@@ -91,11 +90,11 @@ public class JmxIT
         context.setWar(war.getCanonicalPath());
         context.setContextPath("/jmx-webapp");
         Configuration.ClassList classlist = Configuration.ClassList
-                .setServerDefault(_server);
+            .setServerDefault(_server);
         classlist.addBefore("org.eclipse.jetty.webapp.JettyWebXmlConfiguration",
-                "org.eclipse.jetty.annotations.AnnotationConfiguration");
+            "org.eclipse.jetty.annotations.AnnotationConfiguration");
         context.setAttribute("org.eclipse.jetty.server.webapp.ContainerIncludeJarPattern",
-                ".*/javax.servlet-[^/]*\\.jar$|.*/servlet-api-[^/]*\\.jar$");
+            ".*/javax.servlet-[^/]*\\.jar$|.*/servlet-api-[^/]*\\.jar$");
         _server.setHandler(context);
 
         MBeanContainer mbContainer = new MBeanContainer(ManagementFactory.getPlatformMBeanServer());

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,16 +19,20 @@
 package org.eclipse.jetty.util.resource;
 
 import java.io.File;
+import java.io.IOError;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.channels.FileChannel;
+import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.DirectoryIteratorException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
@@ -39,6 +43,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.URIUtil;
@@ -51,13 +56,14 @@ import org.eclipse.jetty.util.log.Logger;
 public class PathResource extends Resource
 {
     private static final Logger LOG = Log.getLogger(PathResource.class);
-    private final static LinkOption NO_FOLLOW_LINKS[] = new LinkOption[] { LinkOption.NOFOLLOW_LINKS };
-    private final static LinkOption FOLLOW_LINKS[] = new LinkOption[] {};
-    
+    private static final LinkOption[] NO_FOLLOW_LINKS = new LinkOption[]{LinkOption.NOFOLLOW_LINKS};
+    private static final LinkOption[] FOLLOW_LINKS = new LinkOption[]{};
+
     private final Path path;
     private final Path alias;
     private final URI uri;
-    
+    private final boolean belongsToDefaultFileSystem;
+
     private final Path checkAliasPath()
     {
         Path abs = path;
@@ -71,7 +77,7 @@ public class PathResource extends Resource
          * alias reference Path.
          */
 
-        if(!URIUtil.equalsIgnoreEncodings(uri,path.toUri()))
+        if (!URIUtil.equalsIgnoreEncodings(uri, path.toUri()))
         {
             try
             {
@@ -98,56 +104,10 @@ public class PathResource extends Resource
             if (Files.exists(path))
             {
                 Path real = abs.toRealPath(FOLLOW_LINKS);
-                
-                /*
-                 * If the real path is not the same as the absolute path
-                 * then we know that the real path is the alias for the
-                 * provided path.
-                 *
-                 * For OS's that are case insensitive, this should
-                 * return the real (on-disk / case correct) version
-                 * of the path.
-                 *
-                 * We have to be careful on Windows and OSX.
-                 * 
-                 * Assume we have the following scenario
-                 *   Path a = new File("foo").toPath();
-                 *   Files.createFile(a);
-                 *   Path b = new File("FOO").toPath();
-                 * 
-                 * There now exists a file called "foo" on disk.
-                 * Using Windows or OSX, with a Path reference of
-                 * "FOO", "Foo", "fOO", etc.. means the following
-                 * 
-                 *                        |  OSX    |  Windows   |  Linux
-                 * -----------------------+---------+------------+---------
-                 * Files.exists(a)        |  True   |  True      |  True
-                 * Files.exists(b)        |  True   |  True      |  False
-                 * Files.isSameFile(a,b)  |  True   |  True      |  False
-                 * a.equals(b)            |  False  |  True      |  False
-                 * 
-                 * See the javadoc for Path.equals() for details about this FileSystem
-                 * behavior difference
-                 * 
-                 * We also cannot rely on a.compareTo(b) as this is roughly equivalent
-                 * in implementation to a.equals(b)
-                 */
-                
-                int absCount = abs.getNameCount();
-                int realCount = real.getNameCount();
-                if (absCount != realCount)
+
+                if (!isSameName(abs, real))
                 {
-                    // different number of segments
                     return real;
-                }
-                
-                // compare each segment of path, backwards
-                for (int i = realCount-1; i >= 0; i--)
-                {
-                    if (!abs.getName(i).toString().equals(real.getName(i).toString()))
-                    {
-                        return real;
-                    }
                 }
             }
         }
@@ -157,9 +117,85 @@ public class PathResource extends Resource
         }
         catch (Exception e)
         {
-            LOG.warn("bad alias ({} {}) for {}", e.getClass().getName(), e.getMessage(),path);
+            LOG.warn("bad alias ({} {}) for {}", e.getClass().getName(), e.getMessage(), path);
         }
         return null;
+    }
+
+    /**
+     * Test if the paths are the same name.
+     *
+     * <p>
+     * If the real path is not the same as the absolute path
+     * then we know that the real path is the alias for the
+     * provided path.
+     * </p>
+     *
+     * <p>
+     * For OS's that are case insensitive, this should
+     * return the real (on-disk / case correct) version
+     * of the path.
+     * </p>
+     *
+     * <p>
+     * We have to be careful on Windows and OSX.
+     * </p>
+     *
+     * <p>
+     * Assume we have the following scenario:
+     * </p>
+     *
+     * <pre>
+     *   Path a = new File("foo").toPath();
+     *   Files.createFile(a);
+     *   Path b = new File("FOO").toPath();
+     * </pre>
+     *
+     * <p>
+     * There now exists a file called {@code foo} on disk.
+     * Using Windows or OSX, with a Path reference of
+     * {@code FOO}, {@code Foo}, {@code fOO}, etc.. means the following
+     * </p>
+     *
+     * <pre>
+     *                        |  OSX    |  Windows   |  Linux
+     * -----------------------+---------+------------+---------
+     * Files.exists(a)        |  True   |  True      |  True
+     * Files.exists(b)        |  True   |  True      |  False
+     * Files.isSameFile(a,b)  |  True   |  True      |  False
+     * a.equals(b)            |  False  |  True      |  False
+     * </pre>
+     *
+     * <p>
+     * See the javadoc for Path.equals() for details about this FileSystem
+     * behavior difference
+     * </p>
+     *
+     * <p>
+     * We also cannot rely on a.compareTo(b) as this is roughly equivalent
+     * in implementation to a.equals(b)
+     * </p>
+     */
+    public static boolean isSameName(Path pathA, Path pathB)
+    {
+        int aCount = pathA.getNameCount();
+        int bCount = pathB.getNameCount();
+        if (aCount != bCount)
+        {
+            // different number of segments
+            return false;
+        }
+
+        // compare each segment of path, backwards
+        for (int i = bCount; i-- > 0; )
+        {
+            if (!pathA.getName(i).toString().equals(pathB.getName(i).toString()))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -176,7 +212,7 @@ public class PathResource extends Resource
      * <pre>
      * new PathResource(file.toPath());
      * </pre>
-
+     *
      * @param file the file to use
      */
     public PathResource(File file)
@@ -191,10 +227,27 @@ public class PathResource extends Resource
      */
     public PathResource(Path path)
     {
-        this.path = path.toAbsolutePath();
+        Path absPath = path;
+        try
+        {
+            absPath = path.toRealPath(NO_FOLLOW_LINKS);
+        }
+        catch (IOError | IOException e)
+        {
+            // Not able to resolve real/canonical path from provided path
+            // This could be due to a glob reference, or a reference
+            // to a path that doesn't exist (yet)
+            if (LOG.isDebugEnabled())
+                LOG.debug("Unable to get real/canonical path for {}", path, e);
+        }
+
+        // cleanup any lingering relative path nonsense (like "/./" and "/../")
+        this.path = absPath.normalize();
+
         assertValidPath(path);
         this.uri = this.path.toUri();
         this.alias = checkAliasPath();
+        this.belongsToDefaultFileSystem = this.path.getFileSystem() == FileSystems.getDefault();
     }
 
     /**
@@ -204,17 +257,18 @@ public class PathResource extends Resource
      * @param parent the parent path resource
      * @param childPath the child sub path
      */
-    private PathResource(PathResource parent, String childPath) throws MalformedURLException
+    private PathResource(PathResource parent, String childPath)
     {
         // Calculate the URI and the path separately, so that any aliasing done by
-        // FileSystem.getPath(path,childPath) is visiable as a difference to the URI
+        // FileSystem.getPath(path,childPath) is visible as a difference to the URI
         // obtained via URIUtil.addDecodedPath(uri,childPath)
 
         this.path = parent.path.getFileSystem().getPath(parent.path.toString(), childPath);
-        if (isDirectory() &&!childPath.endsWith("/"))
-            childPath+="/";
-        this.uri = URIUtil.addPath(parent.uri,childPath);
+        if (isDirectory() && !childPath.endsWith("/"))
+            childPath += "/";
+        this.uri = URIUtil.addPath(parent.uri, childPath);
         this.alias = checkAliasPath();
+        this.belongsToDefaultFileSystem = this.path.getFileSystem() == FileSystems.getDefault();
     }
 
     /**
@@ -242,10 +296,6 @@ public class PathResource extends Resource
         {
             path = Paths.get(uri);
         }
-        catch (InvalidPathException e)
-        {
-            throw e;
-        }
         catch (IllegalArgumentException e)
         {
             throw e;
@@ -253,12 +303,13 @@ public class PathResource extends Resource
         catch (Exception e)
         {
             LOG.ignore(e);
-            throw new IOException("Unable to build Path from: " + uri,e);
+            throw new IOException("Unable to build Path from: " + uri, e);
         }
 
         this.path = path.toAbsolutePath();
         this.uri = path.toUri();
         this.alias = checkAliasPath();
+        this.belongsToDefaultFileSystem = this.path.getFileSystem() == FileSystems.getDefault();
     }
 
     /**
@@ -286,7 +337,31 @@ public class PathResource extends Resource
     }
 
     @Override
-    public Resource addPath(final String subpath) throws IOException, MalformedURLException
+    public boolean isSame(Resource resource)
+    {
+        try
+        {
+            if (resource instanceof PathResource)
+            {
+                Path path = ((PathResource)resource).getPath();
+                return Files.isSameFile(getPath(), path);
+            }
+            if (resource instanceof FileResource)
+            {
+                Path path = ((FileResource)resource).getFile().toPath();
+                return Files.isSameFile(getPath(), path);
+            }
+        }
+        catch (IOException e)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("ignored", e);
+        }
+        return false;
+    }
+
+    @Override
+    public Resource addPath(final String subpath) throws IOException
     {
         String cpath = URIUtil.canonicalPath(subpath);
 
@@ -309,7 +384,7 @@ public class PathResource extends Resource
         // TODO merged from 9.2, check if necessary
         String str = path.toString();
         int idx = StringUtil.indexOfControlChars(str);
-        if(idx >= 0)
+        if (idx >= 0)
         {
             throw new InvalidPathException(str, "Invalid Character at index " + idx);
         }
@@ -353,27 +428,23 @@ public class PathResource extends Resource
         PathResource other = (PathResource)obj;
         if (path == null)
         {
-            if (other.path != null)
-            {
-                return false;
-            }
+            return other.path == null;
         }
-        else if (!path.equals(other.path))
-        {
-            return false;
-        }
-        return true;
+        else
+            return path.equals(other.path);
     }
 
     @Override
     public boolean exists()
     {
-        return Files.exists(path,NO_FOLLOW_LINKS);
+        return Files.exists(path, NO_FOLLOW_LINKS);
     }
 
     @Override
     public File getFile() throws IOException
     {
+        if (!belongsToDefaultFileSystem)
+            return null;
         return path.toFile();
     }
 
@@ -388,14 +459,7 @@ public class PathResource extends Resource
     @Override
     public InputStream getInputStream() throws IOException
     {
-        /* Mimic behavior from old FileResource class and its
-         * usage of java.io.FileInputStream(File) which will trigger
-         * an IOException on construction if the path is a directory
-         */
-        if (Files.isDirectory(path))
-            throw new IOException(path + " is a directory");
-
-        return Files.newInputStream(path,StandardOpenOption.READ);
+        return Files.newInputStream(path, StandardOpenOption.READ);
     }
 
     @Override
@@ -407,7 +471,12 @@ public class PathResource extends Resource
     @Override
     public ReadableByteChannel getReadableByteChannel() throws IOException
     {
-        return FileChannel.open(path,StandardOpenOption.READ);
+        return newSeekableByteChannel();
+    }
+
+    public SeekableByteChannel newSeekableByteChannel() throws IOException
+    {
+        return Files.newByteChannel(path, StandardOpenOption.READ);
     }
 
     @Override
@@ -434,7 +503,7 @@ public class PathResource extends Resource
     {
         final int prime = 31;
         int result = 1;
-        result = (prime * result) + ((path == null)?0:path.hashCode());
+        result = (prime * result) + ((path == null) ? 0 : path.hashCode());
         return result;
     }
 
@@ -448,7 +517,7 @@ public class PathResource extends Resource
     @Override
     public boolean isDirectory()
     {
-        return Files.isDirectory(path,FOLLOW_LINKS);
+        return Files.isDirectory(path, FOLLOW_LINKS);
     }
 
     @Override
@@ -456,7 +525,7 @@ public class PathResource extends Resource
     {
         try
         {
-            FileTime ft = Files.getLastModifiedTime(path,FOLLOW_LINKS);
+            FileTime ft = Files.getLastModifiedTime(path, FOLLOW_LINKS);
             return ft.toMillis();
         }
         catch (IOException e)
@@ -483,14 +552,14 @@ public class PathResource extends Resource
     @Override
     public boolean isAlias()
     {
-        return this.alias!=null;
+        return this.alias != null;
     }
 
     /**
      * The Alias as a Path.
      * <p>
-     *     Note: this cannot return the alias as a DIFFERENT path in 100% of situations,
-     *     due to Java's internal Path/File normalization.
+     * Note: this cannot return the alias as a DIFFERENT path in 100% of situations,
+     * due to Java's internal Path/File normalization.
      * </p>
      *
      * @return the alias as a path.
@@ -503,7 +572,7 @@ public class PathResource extends Resource
     @Override
     public URI getAlias()
     {
-        return this.alias==null?null:this.alias.toUri();
+        return this.alias == null ? null : this.alias.toUri();
     }
 
     @Override
@@ -526,11 +595,7 @@ public class PathResource extends Resource
             int size = entries.size();
             return entries.toArray(new String[size]);
         }
-        catch (DirectoryIteratorException e)
-        {
-            LOG.debug(e);
-        }
-        catch (IOException e)
+        catch (DirectoryIteratorException | IOException e)
         {
             LOG.debug(e);
         }
@@ -545,8 +610,8 @@ public class PathResource extends Resource
             PathResource destRes = (PathResource)dest;
             try
             {
-                Path result = Files.move(path,destRes.path);
-                return Files.exists(result,NO_FOLLOW_LINKS);
+                Path result = Files.move(path, destRes.path);
+                return Files.exists(result, NO_FOLLOW_LINKS);
             }
             catch (IOException e)
             {
@@ -565,11 +630,99 @@ public class PathResource extends Resource
     {
         if (isDirectory())
         {
-            IO.copyDir(this.path.toFile(),destination);
+            IO.copyDir(this.path.toFile(), destination);
         }
         else
         {
-            Files.copy(this.path,destination.toPath());
+            Files.copy(this.path, destination.toPath());
+        }
+    }
+
+    /**
+     * @param outputStream the output stream to write to
+     * @param start First byte to write
+     * @param count Bytes to write or -1 for all of them.
+     * @throws IOException if unable to copy the Resource to the output
+     */
+    @Override
+    public void writeTo(OutputStream outputStream, long start, long count)
+        throws IOException
+    {
+        long length = count;
+
+        if (count < 0)
+        {
+            length = Files.size(path) - start;
+        }
+
+        try (SeekableByteChannel channel = Files.newByteChannel(path, StandardOpenOption.READ))
+        {
+            ByteBuffer buffer = BufferUtil.allocate(IO.bufferSize);
+            skipTo(channel, buffer, start);
+
+            // copy from channel to output stream
+            long readTotal = 0;
+            while (readTotal < length)
+            {
+                BufferUtil.clearToFill(buffer);
+                int size = (int)Math.min(IO.bufferSize, length - readTotal);
+                buffer.limit(size);
+                int readLen = channel.read(buffer);
+                BufferUtil.flipToFlush(buffer, 0);
+                BufferUtil.writeTo(buffer, outputStream);
+                readTotal += readLen;
+            }
+        }
+    }
+
+    private void skipTo(SeekableByteChannel channel, ByteBuffer buffer, long skipTo) throws IOException
+    {
+        try
+        {
+            if (channel.position() != skipTo)
+            {
+                channel.position(skipTo);
+            }
+        }
+        catch (UnsupportedOperationException e)
+        {
+            final int NO_PROGRESS_LIMIT = 3;
+
+            if (skipTo > 0)
+            {
+                long pos = 0;
+                long readLen;
+                int noProgressLoopLimit = NO_PROGRESS_LIMIT;
+                // loop till we reach desired point, break out on lack of progress.
+                while (noProgressLoopLimit > 0 && pos < skipTo)
+                {
+                    BufferUtil.clearToFill(buffer);
+                    int len = (int)Math.min(IO.bufferSize, (skipTo - pos));
+                    buffer.limit(len);
+                    readLen = channel.read(buffer);
+                    if (readLen == 0)
+                    {
+                        noProgressLoopLimit--;
+                    }
+                    else if (readLen > 0)
+                    {
+                        pos += readLen;
+                        noProgressLoopLimit = NO_PROGRESS_LIMIT;
+                    }
+                    else
+                    {
+                        // negative values means the stream was closed or reached EOF
+                        // either way, we've hit a state where we can no longer
+                        // fulfill the requested range write.
+                        throw new IOException("EOF reached before SeekableByteChannel skip destination");
+                    }
+                }
+
+                if (noProgressLoopLimit <= 0)
+                {
+                    throw new IOException("No progress made to reach SeekableByteChannel skip position " + skipTo);
+                }
+            }
         }
     }
 

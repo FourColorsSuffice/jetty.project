@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -40,7 +40,7 @@ import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.util.Fields;
 
 /**
- * <p>{@link Request} represents a HTTP request, and offers a fluent interface to customize
+ * <p>{@link Request} represents an HTTP request, and offers a fluent interface to customize
  * various attributes such as the path, the headers, the content, etc.</p>
  * <p>You can create {@link Request} objects via {@link HttpClient#newRequest(String)} and
  * you can send them using either {@link #send()} for a blocking semantic, or
@@ -51,25 +51,43 @@ import org.eclipse.jetty.util.Fields;
 public interface Request
 {
     /**
-     * @return the scheme of this request, such as "http" or "https"
+     * @return the URI scheme of this request, such as "http" or "https"
      */
     String getScheme();
 
     /**
-     * @param scheme the scheme of this request, such as "http" or "https"
+     * @param scheme the URI scheme of this request, such as "http" or "https"
      * @return this request object
      */
     Request scheme(String scheme);
 
     /**
-     * @return the host of this request, such as "127.0.0.1" or "google.com"
+     * @return the URI host of this request, such as "127.0.0.1" or "google.com"
      */
     String getHost();
 
     /**
-     * @return the port of this request such as 80 or 443
+     * @param host the URI host of this request, such as "127.0.0.1" or "google.com"
+     * @return this request object
+     */
+    default Request host(String host)
+    {
+        return this;
+    }
+
+    /**
+     * @return the URI port of this request such as 80 or 443
      */
     int getPort();
+
+    /**
+     * @param port the URI port of this request such as 80 or 443
+     * @return this request object
+     */
+    default Request port(int port)
+    {
+        return this;
+    }
 
     /**
      * @return the method of this request, such as GET or POST, as a String
@@ -89,26 +107,26 @@ public interface Request
     Request method(String method);
 
     /**
-     * @return the path of this request, such as "/" or "/path" - without the query
+     * @return the URI path of this request, such as "/" or "/path" - without the query
      * @see #getQuery()
      */
     String getPath();
 
     /**
-     * Specifies the path - and possibly the query - of this request.
+     * Specifies the URI path - and possibly the query - of this request.
      * If the query part is specified, parameter values must be properly
      * {@link URLEncoder#encode(String, String) UTF-8 URL encoded}.
      * For example, if the value for parameter "currency" is the euro symbol &euro; then the
      * query string for this parameter must be "currency=%E2%82%AC".
      * For transparent encoding of parameter values, use {@link #param(String, String)}.
      *
-     * @param path the path of this request, such as "/" or "/path?param=1"
+     * @param path the URI path of this request, such as "/" or "/path?param=1"
      * @return this request object
      */
     Request path(String path);
 
     /**
-     * @return the query string of this request such as "param=1"
+     * @return the URI query string of this request such as "param=1"
      * @see #getPath()
      * @see #getParams()
      */
@@ -131,12 +149,12 @@ public interface Request
     Request version(HttpVersion version);
 
     /**
-     * @return the query parameters of this request
+     * @return the URI query parameters of this request
      */
     Fields getParams();
 
     /**
-     * Adds a query parameter with the given name and value.
+     * Adds a URI query parameter with the given name and value.
      * The value is {@link URLEncoder#encode(String, String) UTF-8 URL encoded}.
      *
      * @param name the name of the query parameter
@@ -179,6 +197,28 @@ public interface Request
      * @return this request object
      */
     Request cookie(HttpCookie cookie);
+
+    /**
+     * <p>Tags this request with the given metadata tag.</p>
+     * <p>Each different tag will create a different destination,
+     * even if the destination origin is the same.</p>
+     * <p>This is particularly useful in proxies, where requests
+     * for the same origin but from different clients may be tagged
+     * with client's metadata (e.g. the client remote address).</p>
+     * <p>The tag metadata class must correctly implement
+     * {@link Object#hashCode()} and {@link Object#equals(Object)}
+     * so that it can be used, along with the origin, to identify
+     * a destination.</p>
+     *
+     * @param tag the metadata to tag the request with
+     * @return this request object
+     */
+    Request tag(Object tag);
+
+    /**
+     * @return the metadata this request has been tagged with
+     */
+    Object getTag();
 
     /**
      * @param name the name of the attribute
@@ -243,7 +283,7 @@ public interface Request
 
     /**
      * @param accepts the media types that are acceptable in the response, such as
-     *                "text/plain;q=0.5" or "text/html" (corresponds to the {@code Accept} header)
+     * "text/plain;q=0.5" or "text/html" (corresponds to the {@code Accept} header)
      * @return this request object
      */
     Request accept(String... accepts);
@@ -261,12 +301,14 @@ public interface Request
     Request idleTimeout(long timeout, TimeUnit unit);
 
     /**
-     * @return the total timeout for this request, in milliseconds
+     * @return the total timeout for this request, in milliseconds;
+     * zero or negative if the timeout is disabled
      */
     long getTimeout();
 
     /**
-     * @param timeout the total timeout for the request/response conversation
+     * @param timeout the total timeout for the request/response conversation;
+     * use zero or a negative value to disable the timeout
      * @param unit the timeout unit
      * @return this request object
      */
@@ -285,8 +327,8 @@ public interface Request
 
     /**
      * @param listenerClass the class of the listener, or null for all listeners classes
-     * @return the listeners for request events of the given class
      * @param <T> the type of listener class
+     * @return the listeners for request events of the given class
      */
     <T extends RequestListener> List<T> getRequestListeners(Class<T> listenerClass);
 
@@ -369,6 +411,12 @@ public interface Request
     Request onResponseContentAsync(Response.AsyncContentListener listener);
 
     /**
+     * @param listener an asynchronous listener for response content events
+     * @return this request object
+     */
+    Request onResponseContentDemanded(Response.DemandedContentListener listener);
+
+    /**
      * @param listener a listener for response success event
      * @return this request object
      */
@@ -435,27 +483,27 @@ public interface Request
     /**
      * Common, empty, super-interface for request listeners.
      */
-    public interface RequestListener extends EventListener
+    interface RequestListener extends EventListener
     {
     }
 
     /**
      * Listener for the request queued event.
      */
-    public interface QueuedListener extends RequestListener
+    interface QueuedListener extends RequestListener
     {
         /**
          * Callback method invoked when the request is queued, waiting to be sent
          *
          * @param request the request being queued
          */
-        public void onQueued(Request request);
+        void onQueued(Request request);
     }
 
     /**
      * Listener for the request begin event.
      */
-    public interface BeginListener extends RequestListener
+    interface BeginListener extends RequestListener
     {
         /**
          * Callback method invoked when the request begins being processed in order to be sent.
@@ -463,121 +511,126 @@ public interface Request
          *
          * @param request the request that begins being processed
          */
-        public void onBegin(Request request);
+        void onBegin(Request request);
     }
 
     /**
      * Listener for the request headers event.
      */
-    public interface HeadersListener extends RequestListener
+    interface HeadersListener extends RequestListener
     {
         /**
          * Callback method invoked when the request headers (and perhaps small content) are ready to be sent.
          * The request has been converted into bytes, but not yet sent to the server, and further modifications
          * to the request may have no effect.
+         *
          * @param request the request that is about to be committed
          */
-        public void onHeaders(Request request);
+        void onHeaders(Request request);
     }
 
     /**
      * Listener for the request committed event.
      */
-    public interface CommitListener extends RequestListener
+    interface CommitListener extends RequestListener
     {
         /**
          * Callback method invoked when the request headers (and perhaps small content) have been sent.
          * The request is now committed, and in transit to the server, and further modifications to the
          * request may have no effect.
+         *
          * @param request the request that has been committed
          */
-        public void onCommit(Request request);
+        void onCommit(Request request);
     }
 
     /**
      * Listener for the request content event.
      */
-    public interface ContentListener extends RequestListener
+    interface ContentListener extends RequestListener
     {
         /**
          * Callback method invoked when a chunk of request content has been sent successfully.
          * Changes to bytes in the given buffer have no effect, as the content has already been sent.
+         *
          * @param request the request that has been committed
          * @param content the content
          */
-        public void onContent(Request request, ByteBuffer content);
+        void onContent(Request request, ByteBuffer content);
     }
 
     /**
      * Listener for the request succeeded event.
      */
-    public interface SuccessListener extends RequestListener
+    interface SuccessListener extends RequestListener
     {
         /**
          * Callback method invoked when the request has been successfully sent.
          *
          * @param request the request sent
          */
-        public void onSuccess(Request request);
+        void onSuccess(Request request);
     }
 
     /**
      * Listener for the request failed event.
      */
-    public interface FailureListener extends RequestListener
+    interface FailureListener extends RequestListener
     {
         /**
          * Callback method invoked when the request has failed to be sent
+         *
          * @param request the request that failed
          * @param failure the failure
          */
-        public void onFailure(Request request, Throwable failure);
+        void onFailure(Request request, Throwable failure);
     }
 
     /**
      * Listener for all request events.
      */
-    public interface Listener extends QueuedListener, BeginListener, HeadersListener, CommitListener, ContentListener, SuccessListener, FailureListener
+    interface Listener extends QueuedListener, BeginListener, HeadersListener, CommitListener, ContentListener, SuccessListener, FailureListener
     {
+        @Override
+        public default void onQueued(Request request)
+        {
+        }
+
+        @Override
+        public default void onBegin(Request request)
+        {
+        }
+
+        @Override
+        public default void onHeaders(Request request)
+        {
+        }
+
+        @Override
+        public default void onCommit(Request request)
+        {
+        }
+
+        @Override
+        public default void onContent(Request request, ByteBuffer content)
+        {
+        }
+
+        @Override
+        public default void onSuccess(Request request)
+        {
+        }
+
+        @Override
+        public default void onFailure(Request request, Throwable failure)
+        {
+        }
+
         /**
          * An empty implementation of {@link Listener}
          */
-        public static class Adapter implements Listener
+        class Adapter implements Listener
         {
-            @Override
-            public void onQueued(Request request)
-            {
-            }
-
-            @Override
-            public void onBegin(Request request)
-            {
-            }
-
-            @Override
-            public void onHeaders(Request request)
-            {
-            }
-
-            @Override
-            public void onCommit(Request request)
-            {
-            }
-
-            @Override
-            public void onContent(Request request, ByteBuffer content)
-            {
-            }
-
-            @Override
-            public void onSuccess(Request request)
-            {
-            }
-
-            @Override
-            public void onFailure(Request request, Throwable failure)
-            {
-            }
         }
     }
 }

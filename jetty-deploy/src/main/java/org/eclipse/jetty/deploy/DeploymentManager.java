@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -39,6 +40,7 @@ import org.eclipse.jetty.deploy.graph.Path;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.ContextHandlerCollection;
 import org.eclipse.jetty.util.AttributesMap;
+import org.eclipse.jetty.util.MultiException;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.annotation.ManagedOperation;
@@ -47,6 +49,8 @@ import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.resource.Resource;
+import org.eclipse.jetty.util.thread.Locker;
+import org.eclipse.jetty.util.thread.Locker.Lock;
 import org.eclipse.jetty.xml.XmlConfiguration;
 
 /**
@@ -75,7 +79,7 @@ public class DeploymentManager extends ContainerLifeCycle
     {
         /**
          * Version of the app.
-         * 
+         *
          * Note: Auto-increments on each {@link DeploymentManager#addApp(App)}
          */
         private int version;
@@ -118,10 +122,12 @@ public class DeploymentManager extends ContainerLifeCycle
         void setLifeCycleNode(Node node)
         {
             this.lifecyleNode = node;
-            this.stateTimestamps.put(node,Long.valueOf(System.currentTimeMillis()));
+            this.stateTimestamps.put(node, Long.valueOf(System.currentTimeMillis()));
         }
     }
-
+    
+    private MultiException _onStartupErrors;
+    private Locker _errorLocker = new Locker();
     private final List<AppProvider> _providers = new ArrayList<AppProvider>();
     private final AppLifeCycle _lifecycle = new AppLifeCycle();
     private final Queue<AppEntry> _apps = new ConcurrentLinkedQueue<AppEntry>();
@@ -132,13 +138,14 @@ public class DeploymentManager extends ContainerLifeCycle
 
     /**
      * Receive an app for processing.
-     * 
+     *
      * Most commonly used by the various {@link AppProvider} implementations.
+     *
      * @param app the app
      */
     public void addApp(App app)
     {
-        LOG.debug("Deployable added: {}",app.getOriginId());
+        LOG.debug("Deployable added: {}", app.getOriginId());
         AppEntry entry = new AppEntry();
         entry.app = app;
         entry.setLifeCycleNode(_lifecycle.getNodeByName("undeployed"));
@@ -147,40 +154,42 @@ public class DeploymentManager extends ContainerLifeCycle
         if (isRunning() && _defaultLifeCycleGoal != null)
         {
             // Immediately attempt to go to default lifecycle state
-            this.requestAppGoal(entry,_defaultLifeCycleGoal);
+            this.requestAppGoal(entry, _defaultLifeCycleGoal);
         }
     }
 
-    /* ------------------------------------------------------------ */
-    /** Set the AppProviders.
-     * The providers passed are added via {@link #addBean(Object)} so that 
+    /**
+     * Set the AppProviders.
+     * The providers passed are added via {@link #addBean(Object)} so that
      * their lifecycles may be managed as a {@link ContainerLifeCycle}.
+     *
      * @param providers the app provider list
      */
     public void setAppProviders(Collection<AppProvider> providers)
     {
         if (isRunning())
             throw new IllegalStateException();
-        
+
         _providers.clear();
         removeBeans();
-        for (AppProvider provider:providers)
+        for (AppProvider provider : providers)
+        {
             if (_providers.add(provider))
                 addBean(provider);
+        }
     }
 
-    @ManagedAttribute("Application Providers")
     public Collection<AppProvider> getAppProviders()
     {
         return Collections.unmodifiableList(_providers);
     }
-    
+
     public void addAppProvider(AppProvider provider)
     {
         if (isRunning())
             throw new IllegalStateException();
         _providers.add(provider);
-        addBean(provider);        
+        addBean(provider);
     }
 
     public void setLifeCycleBindings(Collection<AppLifeCycle.Binding> bindings)
@@ -188,16 +197,20 @@ public class DeploymentManager extends ContainerLifeCycle
         if (isRunning())
             throw new IllegalStateException();
         for (AppLifeCycle.Binding b : _lifecycle.getBindings())
+        {
             _lifecycle.removeBinding(b);
+        }
         for (AppLifeCycle.Binding b : bindings)
+        {
             _lifecycle.addBinding(b);
+        }
     }
 
     public Collection<AppLifeCycle.Binding> getLifeCycleBindings()
     {
         return Collections.unmodifiableSet(_lifecycle.getBindings());
     }
-    
+
     public void addLifeCycleBinding(AppLifeCycle.Binding binding)
     {
         _lifecycle.addBinding(binding);
@@ -205,7 +218,7 @@ public class DeploymentManager extends ContainerLifeCycle
 
     /**
      * Convenience method to allow for insertion of nodes into the lifecycle.
-     * 
+     *
      * @param existingFromNodeName the existing node start
      * @param existingToNodeName the existing node end
      * @param insertedNodeName the new node to create between the existing nodes
@@ -214,16 +227,16 @@ public class DeploymentManager extends ContainerLifeCycle
     {
         Node fromNode = _lifecycle.getNodeByName(existingFromNodeName);
         Node toNode = _lifecycle.getNodeByName(existingToNodeName);
-        Edge edge = new Edge(fromNode,toNode);
-        _lifecycle.insertNode(edge,insertedNodeName);
+        Edge edge = new Edge(fromNode, toNode);
+        _lifecycle.insertNode(edge, insertedNodeName);
     }
 
     @Override
     protected void doStart() throws Exception
     {
-        if (getContexts()==null)
+        if (getContexts() == null)
             throw new IllegalStateException("No Contexts");
-        
+
         if (_useStandardBindings)
         {
             LOG.debug("DeploymentManager using standard bindings");
@@ -238,6 +251,13 @@ public class DeploymentManager extends ContainerLifeCycle
         {
             startAppProvider(provider);
         }
+
+        try (Lock lock = _errorLocker.lock())
+        {
+            if (_onStartupErrors != null)
+                _onStartupErrors.ifExceptionThrow();
+        }
+
         super.doStart();
     }
 
@@ -253,7 +273,7 @@ public class DeploymentManager extends ContainerLifeCycle
             }
             catch (Exception e)
             {
-                LOG.warn("Unable to start AppProvider",e);
+                LOG.warn("Unable to start AppProvider", e);
             }
         }
         super.doStop();
@@ -275,7 +295,7 @@ public class DeploymentManager extends ContainerLifeCycle
         }
         return null;
     }
-    
+
     public App getAppByOriginId(String originId)
     {
         AppEntry entry = findAppByOriginId(originId);
@@ -288,13 +308,12 @@ public class DeploymentManager extends ContainerLifeCycle
 
     public Collection<AppEntry> getAppEntries()
     {
-        return _apps;
+        return Collections.unmodifiableCollection(_apps);
     }
 
-    @ManagedAttribute("Deployed Apps")
     public Collection<App> getApps()
     {
-        List<App> ret = new ArrayList<App>();
+        List<App> ret = new ArrayList<>();
         for (AppEntry entry : _apps)
         {
             ret.add(entry.app);
@@ -304,17 +323,18 @@ public class DeploymentManager extends ContainerLifeCycle
 
     /**
      * Get Set of {@link App}s by {@link Node}
-     * 
-     * @param node
-     *            the node to look for.
+     *
+     * @param node the node to look for.
      * @return the collection of apps for the node
      */
     public Collection<App> getApps(Node node)
     {
-        List<App> ret = new ArrayList<App>();
+        Objects.requireNonNull(node);
+
+        List<App> ret = new ArrayList<>();
         for (AppEntry entry : _apps)
         {
-            if (entry.lifecyleNode == node)
+            if (node.equals(entry.lifecyleNode))
             {
                 ret.add(entry.app);
             }
@@ -356,7 +376,7 @@ public class DeploymentManager extends ContainerLifeCycle
 
     /**
      * Get a contextAttribute that will be set for every Context deployed by this provider.
-     * 
+     *
      * @param name context attribute name
      * @return the context attribute value
      */
@@ -397,9 +417,8 @@ public class DeploymentManager extends ContainerLifeCycle
 
     /**
      * Remove the app from the tracking of the DeploymentManager
-     * 
-     * @param app
-     *            if the app is Unavailable remove it from the deployment manager.
+     *
+     * @param app if the app is Unavailable remove it from the deployment manager.
      */
     public void removeApp(App app)
     {
@@ -409,32 +428,32 @@ public class DeploymentManager extends ContainerLifeCycle
             AppEntry entry = it.next();
             if (entry.app.equals(app))
             {
-                if (! AppLifeCycle.UNDEPLOYED.equals(entry.lifecyleNode.getName()))
-                    requestAppGoal(entry.app,AppLifeCycle.UNDEPLOYED);
+                if (!AppLifeCycle.UNDEPLOYED.equals(entry.lifecyleNode.getName()))
+                    requestAppGoal(entry.app, AppLifeCycle.UNDEPLOYED);
                 it.remove();
-                LOG.debug("Deployable removed: {}",entry.app);
+                LOG.debug("Deployable removed: {}", entry.app);
             }
         }
     }
 
     public void removeAppProvider(AppProvider provider)
     {
-        if(_providers.remove(provider))
+        if (_providers.remove(provider))
             removeBean(provider);
-        
+
         try
         {
             provider.stop();
         }
         catch (Exception e)
         {
-            LOG.warn("Unable to stop Provider",e);
+            LOG.warn("Unable to stop Provider", e);
         }
     }
 
     /**
      * Remove a contextAttribute that will be set for every Context deployed by this provider.
-     * 
+     *
      * @param name the context attribute name
      */
     public void removeContextAttribute(String name)
@@ -445,11 +464,9 @@ public class DeploymentManager extends ContainerLifeCycle
     /**
      * Move an {@link App} through the {@link AppLifeCycle} to the desired {@link Node}, executing each lifecycle step
      * in the process to reach the desired state.
-     * 
-     * @param app
-     *            the app to move through the process
-     * @param nodeName
-     *            the name of the node to attain
+     *
+     * @param app the app to move through the process
+     * @param nodeName the name of the node to attain
      */
     public void requestAppGoal(App app, String nodeName)
     {
@@ -458,18 +475,16 @@ public class DeploymentManager extends ContainerLifeCycle
         {
             throw new IllegalStateException("App not being tracked by Deployment Manager: " + app);
         }
-        
-        requestAppGoal(appentry,nodeName);
+
+        requestAppGoal(appentry, nodeName);
     }
 
     /**
      * Move an {@link App} through the {@link AppLifeCycle} to the desired {@link Node}, executing each lifecycle step
      * in the process to reach the desired state.
-     * 
-     * @param appentry
-     *            the internal appentry to move through the process
-     * @param nodeName
-     *            the name of the node to attain
+     *
+     * @param appentry the internal appentry to move through the process
+     * @param nodeName the name of the node to attain
      */
     private void requestAppGoal(AppEntry appentry, String nodeName)
     {
@@ -479,7 +494,7 @@ public class DeploymentManager extends ContainerLifeCycle
             throw new IllegalStateException("Node not present in Deployment Manager: " + nodeName);
         }
         // Compute lifecycle steps
-        Path path = _lifecycle.getPath(appentry.lifecyleNode,destinationNode);
+        Path path = _lifecycle.getPath(appentry.lifecyleNode, destinationNode);
         if (path.isEmpty())
         {
             // nothing to do. already there.
@@ -498,28 +513,54 @@ public class DeploymentManager extends ContainerLifeCycle
                 while (it.hasNext())
                 {
                     Node node = it.next();
-                    LOG.debug("Executing Node {}",node);
-                    _lifecycle.runBindings(node,appentry.app,this);
+                    LOG.debug("Executing Node {}", node);
+                    _lifecycle.runBindings(node, appentry.app, this);
                     appentry.setLifeCycleNode(node);
                 }
             }
         }
         catch (Throwable t)
         {
-            LOG.warn("Unable to reach node goal: " + nodeName,t);
+            LOG.warn("Unable to reach node goal: " + nodeName, t);
+            // migrate to FAILED node
+            Node failed = _lifecycle.getNodeByName(AppLifeCycle.FAILED);
+            appentry.setLifeCycleNode(failed);
+            try
+            {
+                _lifecycle.runBindings(failed, appentry.app, this);
+            }
+            catch (Throwable ignore)
+            {
+                // The runBindings failed for 'failed' node
+                LOG.ignore(ignore);
+            }
+
+            if (isStarting())
+            {
+                addOnStartupError(t);
+            }
+        }
+    }
+
+    private void addOnStartupError(Throwable cause)
+    {
+        try (Lock lock = _errorLocker.lock())
+        {
+            if (_onStartupErrors == null)
+                _onStartupErrors = new MultiException();
+            
+            _onStartupErrors.add(cause);
         }
     }
 
     /**
      * Move an {@link App} through the {@link AppLifeCycle} to the desired {@link Node}, executing each lifecycle step
      * in the process to reach the desired state.
-     * 
-     * @param appId
-     *            the id of the app to move through the process
-     * @param nodeName
-     *            the name of the node to attain
+     *
+     * @param appId the id of the app to move through the process
+     * @param nodeName the name of the node to attain
      */
-    @ManagedOperation(value="request the app to be moved to the specified lifecycle node", impact="ACTION")
+    @ManagedOperation(value = "request the app to be moved to the specified lifecycle node", impact = "ACTION")
     public void requestAppGoal(@Name("appId") String appId, @Name("nodeName") String nodeName)
     {
         AppEntry appentry = findAppByOriginId(appId);
@@ -527,18 +568,18 @@ public class DeploymentManager extends ContainerLifeCycle
         {
             throw new IllegalStateException("App not being tracked by Deployment Manager: " + appId);
         }
-        requestAppGoal(appentry,nodeName);
+        requestAppGoal(appentry, nodeName);
     }
 
     /**
      * Set a contextAttribute that will be set for every Context deployed by this provider.
-     * 
+     *
      * @param name the context attribute name
      * @param value the context attribute value
      */
     public void setContextAttribute(String name, Object value)
     {
-        _contextAttributes.setAttribute(name,value);
+        _contextAttributes.setAttribute(name, value);
     }
 
     public void setContextAttributes(AttributesMap contextAttributes)
@@ -565,7 +606,7 @@ public class DeploymentManager extends ContainerLifeCycle
         }
         catch (Exception e)
         {
-            LOG.warn("Unable to start AppProvider",e);
+            LOG.warn("Unable to start AppProvider", e);
         }
     }
 
@@ -574,7 +615,7 @@ public class DeploymentManager extends ContainerLifeCycle
         LOG.debug("Undeploy All");
         for (AppEntry appentry : _apps)
         {
-            requestAppGoal(appentry,"undeployed");
+            requestAppGoal(appentry, "undeployed");
         }
     }
 
@@ -592,9 +633,8 @@ public class DeploymentManager extends ContainerLifeCycle
     {
         return _lifecycle.getNodes();
     }
-    
-    @ManagedOperation(value="list apps that are located at specified App LifeCycle nodes", impact="ACTION")
-    public Collection<App> getApps(@Name("nodeName") String nodeName)
+
+    public Collection<App> getApps(String nodeName)
     {
         return getApps(_lifecycle.getNodeByName(nodeName));
     }
@@ -602,23 +642,6 @@ public class DeploymentManager extends ContainerLifeCycle
     public void scope(XmlConfiguration xmlc, Resource webapp)
         throws IOException
     {
-        xmlc.getIdMap().put("Server", getServer());
-        Resource home = Resource.newResource(System.getProperty("jetty.home","."));
-        xmlc.getProperties().put("jetty.home",home.toString());
-        xmlc.getProperties().put("jetty.home.uri",normalizeURI(home.getURI().toString()));
-    
-        Resource base = Resource.newResource(System.getProperty("jetty.base",home.toString()));
-        xmlc.getProperties().put("jetty.base",base.toString());
-        xmlc.getProperties().put("jetty.base.uri",normalizeURI(base.getURI().toString()));
-        
-        xmlc.getProperties().put("jetty.webapp",webapp.toString());
-        xmlc.getProperties().put("jetty.webapps",webapp.getFile().toPath().getParent().toString());
-    }
-    
-    private String normalizeURI(String uri)
-    {
-        if (uri.endsWith("/"))
-            return uri.substring(0,uri.length()-1);
-        return uri;
+        xmlc.setJettyStandardIdsAndProperties(getServer(), webapp);
     }
 }

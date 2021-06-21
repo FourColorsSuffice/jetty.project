@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
-
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
@@ -41,12 +40,12 @@ import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.LocalConnector;
 import org.eclipse.jetty.server.Server;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertThat;
 
 public class ComplianceViolations2616Test
 {
@@ -65,10 +64,10 @@ public class ComplianceViolations2616Test
         {
             if (request instanceof HttpServletRequest)
             {
-                List<String> violations = (List<String>) request.getAttribute("org.eclipse.jetty.http.compliance.violations");
+                List<String> violations = (List<String>)request.getAttribute("org.eclipse.jetty.http.compliance.violations");
                 if (violations != null)
                 {
-                    HttpServletResponse httpResponse = (HttpServletResponse) response;
+                    HttpServletResponse httpResponse = (HttpServletResponse)response;
                     int i = 0;
                     for (String violation : violations)
                     {
@@ -102,7 +101,7 @@ public class ComplianceViolations2616Test
         }
     }
 
-    @BeforeClass
+    @BeforeAll
     public static void startServer() throws Exception
     {
         server = new Server();
@@ -110,7 +109,7 @@ public class ComplianceViolations2616Test
         HttpConfiguration config = new HttpConfiguration();
         config.setSendServerVersion(false);
 
-        HttpConnectionFactory httpConnectionFactory = new HttpConnectionFactory(config, HttpCompliance.RFC2616);
+        HttpConnectionFactory httpConnectionFactory = new HttpConnectionFactory(config, HttpCompliance.RFC2616_LEGACY);
         httpConnectionFactory.setRecordHttpComplianceViolations(true);
         connector = new LocalConnector(server, null, null, null, -1, httpConnectionFactory);
 
@@ -127,7 +126,7 @@ public class ComplianceViolations2616Test
         server.start();
     }
 
-    @AfterClass
+    @AfterAll
     public static void stopServer() throws Exception
     {
         server.stop();
@@ -135,7 +134,7 @@ public class ComplianceViolations2616Test
     }
 
     @Test
-    public void testNoColonHeader_Middle() throws Exception
+    public void testNoColonHeaderMiddle() throws Exception
     {
         StringBuffer req1 = new StringBuffer();
         req1.append("GET /dump/ HTTP/1.1\r\n");
@@ -145,15 +144,14 @@ public class ComplianceViolations2616Test
         req1.append("Connection: close\r\n");
         req1.append("\r\n");
 
-        String response = connector.getResponses(req1.toString());
+        String response = connector.getResponse(req1.toString());
         assertThat("Response status", response, containsString("HTTP/1.1 200 OK"));
-        assertThat("Response headers", response, containsString("X-Http-Violation-0: RFC2616<RFC7230: name only header"));
-
+        assertThat("Response headers", response, containsString("X-Http-Violation-0: Fields must have a Colon"));
         assertThat("Response body", response, containsString("[Name] = []"));
     }
 
     @Test
-    public void testNoColonHeader_End() throws Exception
+    public void testNoColonHeaderEnd() throws Exception
     {
         StringBuffer req1 = new StringBuffer();
         req1.append("GET /dump/ HTTP/1.1\r\n");
@@ -163,10 +161,9 @@ public class ComplianceViolations2616Test
         req1.append("Name\r\n");
         req1.append("\r\n");
 
-        String response = connector.getResponses(req1.toString());
+        String response = connector.getResponse(req1.toString());
         assertThat("Response status", response, containsString("HTTP/1.1 200"));
-        assertThat("Response headers", response, containsString("X-Http-Violation-0: RFC2616<RFC7230: name only header"));
-
+        assertThat("Response headers", response, containsString("X-Http-Violation-0: Fields must have a Colon"));
         assertThat("Response body", response, containsString("[Name] = []"));
     }
 
@@ -182,10 +179,9 @@ public class ComplianceViolations2616Test
         req1.append("Accept: */*\r\n");
         req1.append("\r\n");
 
-        String response = connector.getResponses(req1.toString());
+        String response = connector.getResponse(req1.toString());
         assertThat("Response status", response, containsString("HTTP/1.1 200"));
-        assertThat("Response headers", response, containsString("X-Http-Violation-0: RFC2616<RFC7230: header folding"));
-
+        assertThat("Response headers", response, containsString("X-Http-Violation-0: No line Folding"));
         assertThat("Response body", response, containsString("[Name] = [Some Value]"));
     }
 }

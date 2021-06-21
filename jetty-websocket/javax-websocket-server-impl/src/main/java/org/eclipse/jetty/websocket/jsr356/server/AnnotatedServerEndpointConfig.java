@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import javax.websocket.Decoder;
 import javax.websocket.DeploymentException;
 import javax.websocket.Encoder;
@@ -48,17 +47,18 @@ public class AnnotatedServerEndpointConfig implements ServerEndpointConfig
 
     public AnnotatedServerEndpointConfig(WebSocketContainerScope containerScope, Class<?> endpointClass, ServerEndpoint anno) throws DeploymentException
     {
-        this(containerScope,endpointClass,anno,null);
+        this(containerScope, endpointClass, anno, null);
     }
 
     public AnnotatedServerEndpointConfig(WebSocketContainerScope containerScope, Class<?> endpointClass, ServerEndpoint anno, ServerEndpointConfig baseConfig) throws DeploymentException
     {
-        ServerEndpointConfig.Configurator configr = null;
+        // A manually declared Configurator (not the one from the annotation)
+        ServerEndpointConfig.Configurator manualConfigurator = null;
 
         // Copy from base config
         if (baseConfig != null)
         {
-            configr = baseConfig.getConfigurator();
+            manualConfigurator = baseConfig.getConfigurator();
         }
 
         // Decoders (favor provided config over annotation)
@@ -111,39 +111,39 @@ public class AnnotatedServerEndpointConfig implements ServerEndpointConfig
         {
             userProperties.putAll(baseConfig.getUserProperties());
         }
-        
-        ServerEndpointConfig.Configurator cfgr;
 
-        if (anno.configurator() == ServerEndpointConfig.Configurator.class)
+        ServerEndpointConfig.Configurator resolvedConfigurator;
+
+        // Use ServerEndpointConfig provided configurator if declared
+        if ((manualConfigurator != null) && !(manualConfigurator instanceof ContainerDefaultConfigurator))
         {
-            if (configr != null)
-            {
-                cfgr = configr;
-            }
-            else
-            {
-                cfgr = new ContainerDefaultConfigurator();
-            }
+            resolvedConfigurator = manualConfigurator;
         }
+        // Use Container Default if annotation based configurator is undeclared
+        else if (anno.configurator() == ServerEndpointConfig.Configurator.class)
+        {
+            resolvedConfigurator = new ContainerDefaultConfigurator();
+        }
+        // Use annotation declared configurator
         else
         {
             try
             {
-                cfgr = anno.configurator().newInstance();
+                resolvedConfigurator = anno.configurator().getConstructor().newInstance();
             }
-            catch (InstantiationException | IllegalAccessException e)
+            catch (Exception e)
             {
                 StringBuilder err = new StringBuilder();
                 err.append("Unable to instantiate ClientEndpoint.configurator() of ");
                 err.append(anno.configurator().getName());
                 err.append(" defined as annotation in ");
                 err.append(anno.getClass().getName());
-                throw new DeploymentException(err.toString(),e);
+                throw new DeploymentException(err.toString(), e);
             }
         }
-        
+
         // Make sure all Configurators obtained are decorated
-        this.configurator = containerScope.getObjectFactory().decorate(cfgr);
+        this.configurator = containerScope.getObjectFactory().decorate(resolvedConfigurator);
     }
 
     @Override

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,17 +26,19 @@ import org.eclipse.jetty.util.Loader;
 
 public class JSONCollectionConvertor implements JSON.Convertor
 {
+    @Override
     public void toJSON(Object obj, JSON.Output out)
     {
         out.addClass(obj.getClass());
         out.add("list", ((Collection)obj).toArray());
     }
 
+    @Override
     public Object fromJSON(Map object)
     {
         try
         {
-            Collection result = (Collection)Loader.loadClass((String)object.get("class")).newInstance();
+            Collection result = (Collection)Loader.loadClass((String)object.get("class")).getDeclaredConstructor().newInstance();
             Collections.addAll(result, (Object[])object.get("list"));
             return result;
         }

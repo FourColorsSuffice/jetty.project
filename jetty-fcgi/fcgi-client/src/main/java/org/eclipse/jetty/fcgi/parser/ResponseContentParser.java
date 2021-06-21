@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -81,7 +81,7 @@ public class ResponseContentParser extends StreamContentParser
         parsers.remove(request);
     }
 
-    private class ResponseParser implements HttpParser.ResponseHandler
+    private static class ResponseParser implements HttpParser.ResponseHandler
     {
         private final HttpFields fields = new HttpFields();
         private ClientParser.Listener listener;
@@ -89,6 +89,7 @@ public class ResponseContentParser extends StreamContentParser
         private final FCGIHttpParser httpParser;
         private State state = State.HEADERS;
         private boolean seenResponseCode;
+        private boolean stalled;
 
         private ResponseParser(ClientParser.Listener listener, int request)
         {
@@ -110,7 +111,11 @@ public class ResponseContentParser extends StreamContentParser
                     case HEADERS:
                     {
                         if (httpParser.parseNext(buffer))
+                        {
                             state = State.CONTENT_MODE;
+                            if (stalled)
+                                return true;
+                        }
                         remaining = buffer.remaining();
                         break;
                     }
@@ -121,8 +126,8 @@ public class ResponseContentParser extends StreamContentParser
                         // and will not parse it even if it is provided,
                         // so we have to parse it raw ourselves here.
                         boolean rawContent = fields.size() == 0 ||
-                                (fields.get(HttpHeader.CONTENT_LENGTH) == null &&
-                                        fields.get(HttpHeader.TRANSFER_ENCODING) == null);
+                            (fields.get(HttpHeader.CONTENT_LENGTH) == null &&
+                                fields.get(HttpHeader.TRANSFER_ENCODING) == null);
                         state = rawContent ? State.RAW_CONTENT : State.HTTP_CONTENT;
                         break;
                     }
@@ -153,7 +158,7 @@ public class ResponseContentParser extends StreamContentParser
         public int getHeaderCacheSize()
         {
             // TODO: configure this
-            return 0;
+            return 1024;
         }
 
         @Override
@@ -233,20 +238,23 @@ public class ResponseContentParser extends StreamContentParser
             if (fields != null)
             {
                 for (HttpField field : fields)
+                {
                     notifyHeader(field);
+                }
             }
         }
 
-        private void notifyHeaders()
+        private boolean notifyHeaders()
         {
             try
             {
-                listener.onHeaders(request);
+                return listener.onHeaders(request);
             }
             catch (Throwable x)
             {
                 if (LOG.isDebugEnabled())
                     LOG.debug("Exception while invoking listener " + listener, x);
+                return false;
             }
         }
 
@@ -259,8 +267,10 @@ public class ResponseContentParser extends StreamContentParser
                 notifyBegin(200, "OK");
                 notifyHeaders(fields);
             }
-            notifyHeaders();
-            // Return from HTTP parsing so that we can parse the content.
+            // Remember whether we have demand.
+            stalled = notifyHeaders();
+            // Always return from HTTP parsing so that we
+            // can parse the content with the FCGI parser.
             return true;
         }
 
@@ -289,7 +299,7 @@ public class ResponseContentParser extends StreamContentParser
         {
             return false;
         }
-        
+
         @Override
         public boolean messageComplete()
         {
@@ -305,9 +315,9 @@ public class ResponseContentParser extends StreamContentParser
         }
 
         @Override
-        public void badMessage(int status, String reason)
+        public void badMessage(BadMessageException failure)
         {
-            fail(new BadMessageException(status, reason));
+            fail(failure);
         }
 
         protected void fail(Throwable failure)

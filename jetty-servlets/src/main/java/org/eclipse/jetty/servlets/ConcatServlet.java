@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,6 @@ package org.eclipse.jetty.servlets;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -62,6 +61,7 @@ import org.eclipse.jetty.util.URIUtil;
  * appropriate. This means that when not in development mode, the servlet must be
  * restarted before changed content will be served.</p>
  */
+@Deprecated
 public class ConcatServlet extends HttpServlet
 {
     private boolean _development;
@@ -126,7 +126,8 @@ public class ConcatServlet extends HttpServlet
                 }
             }
 
-            RequestDispatcher dispatcher = getServletContext().getRequestDispatcher(path);
+            // Use the original string and not the decoded path as the Dispatcher will decode again.
+            RequestDispatcher dispatcher = getServletContext().getRequestDispatcher(part);
             if (dispatcher != null)
                 dispatchers.add(dispatcher);
         }
@@ -135,7 +136,9 @@ public class ConcatServlet extends HttpServlet
             response.setContentType(type);
 
         for (RequestDispatcher dispatcher : dispatchers)
+        {
             dispatcher.include(request, response);
+        }
     }
 
     private boolean startsWith(String path, String prefix)

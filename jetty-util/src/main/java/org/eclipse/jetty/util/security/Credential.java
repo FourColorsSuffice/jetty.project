@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -35,7 +35,7 @@ import org.eclipse.jetty.util.log.Logger;
  * only a credential that can be checked against the password.
  * <p>
  * This class includes an implementation for unix Crypt an MD5 digest.
- * 
+ *
  * @see Password
  */
 public abstract class Credential implements Serializable
@@ -46,10 +46,9 @@ public abstract class Credential implements Serializable
 
     /**
      * Check a credential
-     * 
-     * @param credentials
-     *            The credential to check against. This may either be another Credential object, a Password object or a String which is interpreted by this
-     *            credential.
+     *
+     * @param credentials The credential to check against. This may either be another Credential object, a Password object or a String which is interpreted by this
+     * credential.
      * @return True if the credentials indicated that the shared secret is known to both this Credential and the passed credential.
      */
     public abstract boolean check(Object credentials);
@@ -58,9 +57,8 @@ public abstract class Credential implements Serializable
      * Get a credential from a String. If the credential String starts with a known Credential type (eg "CRYPT:" or "MD5:" ) then a Credential of that type is
      * returned. Otherwise, it tries to find a credential provider whose prefix matches with the start of the credential String. Else the credential is assumed
      * to be a Password.
-     * 
-     * @param credential
-     *            String representation of the credential
+     *
+     * @param credential String representation of the credential
      * @return A Credential or Password instance.
      */
     public static Credential getCredential(String credential)
@@ -86,51 +84,53 @@ public abstract class Credential implements Serializable
     }
 
     /**
-     * <p>Utility method that replaces String.equals() to avoid timing attacks.</p>
+     * <p>Utility method that replaces String.equals() to avoid timing attacks.
+     * The length of the loop executed will always be the length of the unknown credential</p>
      *
-     * @param s1 the first string to compare
-     * @param s2 the second string to compare
+     * @param known the first string to compare (should be known string)
+     * @param unknown the second string to compare (should be the unknown string)
      * @return whether the two strings are equal
      */
-    protected static boolean stringEquals(String s1, String s2)
+    protected static boolean stringEquals(String known, String unknown)
     {
-        if (s1 == s2)
+        @SuppressWarnings("ReferenceEquality")
+        boolean sameObject = (known == unknown);
+        if (sameObject)
             return true;
-        if (s1 == null || s2 == null)
+        if (known == null || unknown == null)
             return false;
         boolean result = true;
-        int l1 = s1.length();
-        int l2 = s2.length();
-        if (l1 != l2)
-            result = false;
-        int l = Math.min(l1, l2);
-        for (int i = 0; i < l; ++i)
-            result &= s1.charAt(i) == s2.charAt(i);
-        return result;
+        int l1 = known.length();
+        int l2 = unknown.length();
+        for (int i = 0; i < l2; ++i)
+        {
+            result &= ((l1 == 0) ? unknown.charAt(l2 - i - 1) : known.charAt(i % l1)) == unknown.charAt(i);
+        }
+        return result && l1 == l2;
     }
 
     /**
-     * <p>Utility method that replaces Arrays.equals() to avoid timing attacks.</p>
+     * <p>Utility method that replaces Arrays.equals() to avoid timing attacks.
+     * The length of the loop executed will always be the length of the unknown credential</p>
      *
-     * @param b1 the first byte array to compare
-     * @param b2 the second byte array to compare
+     * @param known the first byte array to compare (should be known value)
+     * @param unknown the second byte array to compare  (should be unknown value)
      * @return whether the two byte arrays are equal
      */
-    protected static boolean byteEquals(byte[] b1, byte[] b2)
+    protected static boolean byteEquals(byte[] known, byte[] unknown)
     {
-        if (b1 == b2)
+        if (known == unknown)
             return true;
-        if (b1 == null || b2 == null)
+        if (known == null || unknown == null)
             return false;
         boolean result = true;
-        int l1 = b1.length;
-        int l2 = b2.length;
-        if (l1 != l2)
-            result = false;
-        int l = Math.min(l1, l2);
-        for (int i = 0; i < l; ++i)
-            result &= b1[i] == b2[i];
-        return result;
+        int l1 = known.length;
+        int l2 = unknown.length;
+        for (int i = 0; i < l2; ++i)
+        {
+            result &= ((l1 == 0) ? unknown[l2 - i - 1] : known[i % l1]) == unknown[i];
+        }
+        return result && l1 == l2;
     }
 
     /**
@@ -145,7 +145,7 @@ public abstract class Credential implements Serializable
 
         Crypt(String cooked)
         {
-            _cooked = cooked.startsWith(Crypt.__TYPE)?cooked.substring(__TYPE.length()):cooked;
+            _cooked = cooked.startsWith(Crypt.__TYPE) ? cooked.substring(__TYPE.length()) : cooked;
         }
 
         @Override
@@ -155,7 +155,7 @@ public abstract class Credential implements Serializable
                 credentials = new String((char[])credentials);
             if (!(credentials instanceof String) && !(credentials instanceof Password))
                 LOG.warn("Can't check " + credentials.getClass() + " against CRYPT");
-            return stringEquals(_cooked, UnixCrypt.crypt(credentials.toString(),_cooked));
+            return stringEquals(_cooked, UnixCrypt.crypt(credentials.toString(), _cooked));
         }
 
         @Override

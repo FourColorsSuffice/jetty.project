@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,9 +21,9 @@ package org.eclipse.jetty.websocket.common.test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.EventQueue;
 import org.eclipse.jetty.websocket.common.WebSocketFrame;
 
 /**
@@ -37,6 +37,7 @@ public interface IBlockheadClient extends AutoCloseable
 
     public boolean awaitDisconnect(long timeout, TimeUnit unit) throws InterruptedException;
 
+    @Override
     public void close();
 
     public void close(int statusCode, String message);
@@ -55,7 +56,7 @@ public interface IBlockheadClient extends AutoCloseable
 
     public InetSocketAddress getRemoteSocketAddress();
 
-    public EventQueue<WebSocketFrame> readFrames(int expectedFrameCount, int timeoutDuration, TimeUnit timeoutUnit) throws Exception;
+    public LinkedBlockingQueue<WebSocketFrame> getFrameQueue();
 
     public HttpResponse readResponseHeader() throws IOException;
 

@@ -1,9 +1,11 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Enables the ALPN (Application Layer Protocol Negotiation) TLS extension.
 
 [depend]
 ssl
-alpn-impl/alpn-${java.version.platform}
+alpn-impl/alpn-available-${runtime.feature.alpn}
 
 [lib]
 lib/jetty-alpn-client-${jetty.version}.jar
@@ -20,7 +22,4 @@ etc/jetty-alpn.xml
 
 ## Specifies what protocol to use when negotiation fails.
 # jetty.alpn.defaultProtocol=http/1.1
-
-## ALPN debug logging on System.err
-# jetty.alpn.debug=false
 

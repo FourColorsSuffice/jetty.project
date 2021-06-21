@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[dos-filter]]
 === Denial of Service Filter
@@ -23,7 +25,6 @@
 * Classname: `org.eclipse.jetty.servlets.DoSFilter`
 * Maven Artifact: org.eclipse.jetty:jetty-servlets
 * Javadoc: {JDURL}/org/eclipse/jetty/servlets/DoSFilter.html
-* Xref: {JXURL}/org/eclipse/jetty/servlets/DoSFilter.html
 
 [[dos-filter-usage]]
 ==== Usage
@@ -54,7 +55,7 @@ Place the configuration in a webapp's `web.xml` or `jetty-web.xml`.
 The default configuration allows 25 requests per connection at a time, servicing more important requests first, and queuing up the rest.
 This example allow 30 requests at a time:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <filter>
    <filter-name>DoSFilter</filter-name>

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,175 +18,399 @@
 
 package org.eclipse.jetty.util.thread;
 
-import java.util.concurrent.ArrayBlockingQueue;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
-import org.eclipse.jetty.util.component.LifeCycle;
-import org.eclipse.jetty.util.log.Log;
-import org.eclipse.jetty.util.log.Logger;
+import org.eclipse.jetty.util.ProcessorUtils;
+import org.eclipse.jetty.util.annotation.ManagedAttribute;
+import org.eclipse.jetty.util.annotation.ManagedObject;
+import org.eclipse.jetty.util.component.ContainerLifeCycle;
+import org.eclipse.jetty.util.component.Dumpable;
+import org.eclipse.jetty.util.component.DumpableCollection;
 
-/* ------------------------------------------------------------ */
 /**
- * Jetty ThreadPool using java 5 ThreadPoolExecutor
- * This class wraps a {@link ExecutorService} as a {@link ThreadPool} and
- * {@link LifeCycle} interfaces so that it may be used by the Jetty <code>org.eclipse.jetty.server.Server</code>
+ * A {@link org.eclipse.jetty.util.thread.ThreadPool.SizedThreadPool} wrapper around {@link ThreadPoolExecutor}.
  */
-public class ExecutorThreadPool extends AbstractLifeCycle implements ThreadPool, LifeCycle
+@ManagedObject("A thread pool")
+public class ExecutorThreadPool extends ContainerLifeCycle implements ThreadPool.SizedThreadPool, TryExecutor
 {
-    private static final Logger LOG = Log.getLogger(ExecutorThreadPool.class);
-    private final ExecutorService _executor;
+    private final ThreadPoolExecutor _executor;
+    private final ThreadPoolBudget _budget;
+    private final ThreadGroup _group;
+    private String _name = "etp" + hashCode();
+    private int _minThreads;
+    private int _reservedThreads = -1;
+    private TryExecutor _tryExecutor = TryExecutor.NO_TRY;
+    private int _priority = Thread.NORM_PRIORITY;
+    private boolean _daemon;
+    private boolean _detailedDump;
 
-    /* ------------------------------------------------------------ */
-    public ExecutorThreadPool(ExecutorService executor)
-    {
-        _executor = executor;
-    }
-
-    /* ------------------------------------------------------------ */
-    /**
-     * Wraps an {@link ThreadPoolExecutor}.
-     * Max pool size is 256, pool thread timeout after 60 seconds and
-     * an unbounded {@link LinkedBlockingQueue} is used for the job queue;
-     */
     public ExecutorThreadPool()
     {
-        // Using an unbounded queue makes the maxThreads parameter useless
-        // Refer to ThreadPoolExecutor javadocs for details
-        this(new ThreadPoolExecutor(256, 256, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>()));
+        this(200, 8);
     }
 
-    /* ------------------------------------------------------------ */
-    /**
-     * Wraps an {@link ThreadPoolExecutor}.
-     * Max pool size is 256, pool thread timeout after 60 seconds, and core pool size is 32 when queueSize &gt;= 0.
-     * @param queueSize can be -1 for using an unbounded {@link LinkedBlockingQueue}, 0 for using a
-     * {@link SynchronousQueue}, greater than 0 for using a {@link ArrayBlockingQueue} of the given size.
-     */
-    public ExecutorThreadPool(int queueSize)
+    public ExecutorThreadPool(int maxThreads)
     {
-        this(queueSize < 0 ? new ThreadPoolExecutor(256, 256, 60, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>()) :
-                queueSize == 0 ? new ThreadPoolExecutor(32, 256, 60, TimeUnit.SECONDS, new SynchronousQueue<Runnable>()) :
-                        new ThreadPoolExecutor(32, 256, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(queueSize)));
+        this(maxThreads, Math.min(8, maxThreads));
     }
 
-    /* ------------------------------------------------------------ */
-    /**
-     * Wraps an {@link ThreadPoolExecutor} using
-     * an unbounded {@link LinkedBlockingQueue} is used for the jobs queue;
-     * @param corePoolSize must be equal to maximumPoolSize
-     * @param maximumPoolSize the maximum number of threads to allow in the pool
-     * @param keepAliveTime the max time a thread can remain idle, in milliseconds
-     */
-    public ExecutorThreadPool(int corePoolSize, int maximumPoolSize, long keepAliveTime)
+    public ExecutorThreadPool(int maxThreads, int minThreads)
     {
-        this(corePoolSize, maximumPoolSize, keepAliveTime, TimeUnit.MILLISECONDS);
+        this(maxThreads, minThreads, new LinkedBlockingQueue<>());
     }
 
-    /* ------------------------------------------------------------ */
-    /**
-     * Wraps an {@link ThreadPoolExecutor} using
-     * an unbounded {@link LinkedBlockingQueue} is used for the jobs queue.
-     * @param corePoolSize must be equal to maximumPoolSize
-     * @param maximumPoolSize the maximum number of threads to allow in the pool
-     * @param keepAliveTime the max time a thread can remain idle
-     * @param unit the unit for the keepAliveTime
-     */
-    public ExecutorThreadPool(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit)
+    public ExecutorThreadPool(int maxThreads, int minThreads, BlockingQueue<Runnable> queue)
     {
-        this(corePoolSize, maximumPoolSize, keepAliveTime, unit, new LinkedBlockingQueue<Runnable>());
+        this(new ThreadPoolExecutor(maxThreads, maxThreads, 60, TimeUnit.SECONDS, queue), minThreads, -1, null);
     }
 
-    /* ------------------------------------------------------------ */
+    public ExecutorThreadPool(ThreadPoolExecutor executor)
+    {
+        this(executor, -1);
+    }
+
+    public ExecutorThreadPool(ThreadPoolExecutor executor, int reservedThreads)
+    {
+        this(executor, reservedThreads, null);
+    }
+
+    public ExecutorThreadPool(ThreadPoolExecutor executor, int reservedThreads, ThreadGroup group)
+    {
+        this(executor, Math.min(ProcessorUtils.availableProcessors(), executor.getCorePoolSize()), reservedThreads, group);
+    }
+
+    private ExecutorThreadPool(ThreadPoolExecutor executor, int minThreads, int reservedThreads, ThreadGroup group)
+    {
+        int maxThreads = executor.getMaximumPoolSize();
+        if (maxThreads < minThreads)
+        {
+            executor.shutdownNow();
+            throw new IllegalArgumentException("max threads (" + maxThreads + ") cannot be less than min threads (" + minThreads + ")");
+        }
+        _executor = executor;
+        _executor.setThreadFactory(this::newThread);
+        _group = group;
+        _minThreads = minThreads;
+        _reservedThreads = reservedThreads;
+        _budget = new ThreadPoolBudget(this);
+    }
 
     /**
-     * Wraps an {@link ThreadPoolExecutor}
-     * @param corePoolSize the number of threads to keep in the pool, even if they are idle
-     * @param maximumPoolSize the maximum number of threads to allow in the pool
-     * @param keepAliveTime the max time a thread can remain idle
-     * @param unit the unit for the keepAliveTime
-     * @param workQueue the queue to use for holding tasks before they are executed
+     * @return the name of the this thread pool
      */
-    public ExecutorThreadPool(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit, BlockingQueue<Runnable> workQueue)
+    @ManagedAttribute("name of this thread pool")
+    public String getName()
     {
-        this(new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue));
+        return _name;
     }
 
+    /**
+     * @param name the name of this thread pool, used to name threads
+     */
+    public void setName(String name)
+    {
+        if (isRunning())
+            throw new IllegalStateException(getState());
+        _name = name;
+    }
 
-    /* ------------------------------------------------------------ */
     @Override
-    public void execute(Runnable job)
+    @ManagedAttribute("minimum number of threads in the pool")
+    public int getMinThreads()
     {
-        _executor.execute(job);
+        return _minThreads;
     }
 
-    /* ------------------------------------------------------------ */
-    public boolean dispatch(Runnable job)
+    @Override
+    public void setMinThreads(int threads)
     {
-        try
-        {
-            _executor.execute(job);
-            return true;
-        }
-        catch(RejectedExecutionException e)
-        {
-            LOG.warn(e);
-            return false;
-        }
+        _minThreads = threads;
     }
 
-    /* ------------------------------------------------------------ */
-    public int getIdleThreads()
+    @Override
+    @ManagedAttribute("maximum number of threads in the pool")
+    public int getMaxThreads()
     {
-        if (_executor instanceof ThreadPoolExecutor)
-        {
-            final ThreadPoolExecutor tpe = (ThreadPoolExecutor)_executor;
-            return tpe.getPoolSize() - tpe.getActiveCount();
-        }
-        return -1;
+        return _executor.getMaximumPoolSize();
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
+    public void setMaxThreads(int threads)
+    {
+        if (_budget != null)
+            _budget.check(threads);
+        _executor.setCorePoolSize(threads);
+        _executor.setMaximumPoolSize(threads);
+    }
+
+    /**
+     * @return the maximum thread idle time in ms.
+     * @see #setIdleTimeout(int)
+     */
+    @ManagedAttribute("maximum time a thread may be idle in ms")
+    public int getIdleTimeout()
+    {
+        return (int)_executor.getKeepAliveTime(TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * <p>Sets the maximum thread idle time in ms.</p>
+     * <p>Threads that are idle for longer than this
+     * period may be stopped.</p>
+     *
+     * @param idleTimeout the maximum thread idle time in ms.
+     * @see #getIdleTimeout()
+     */
+    public void setIdleTimeout(int idleTimeout)
+    {
+        _executor.setKeepAliveTime(idleTimeout, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * @return number of reserved threads or -1 to indicate that the number is heuristically determined
+     * @see #setReservedThreads(int)
+     */
+    @ManagedAttribute("the number of reserved threads in the pool")
+    public int getReservedThreads()
+    {
+        if (isStarted())
+            return getBean(ReservedThreadExecutor.class).getCapacity();
+        return _reservedThreads;
+    }
+
+    /**
+     * Sets the number of reserved threads.
+     *
+     * @param reservedThreads number of reserved threads or -1 to determine the number heuristically
+     * @see #getReservedThreads()
+     */
+    public void setReservedThreads(int reservedThreads)
+    {
+        if (isRunning())
+            throw new IllegalStateException(getState());
+        _reservedThreads = reservedThreads;
+    }
+
+    public void setThreadsPriority(int priority)
+    {
+        _priority = priority;
+    }
+
+    public int getThreadsPriority()
+    {
+        return _priority;
+    }
+
+    /**
+     * @return whether this thread pool uses daemon threads
+     * @see #setDaemon(boolean)
+     */
+    @ManagedAttribute("whether this thread pool uses daemon threads")
+    public boolean isDaemon()
+    {
+        return _daemon;
+    }
+
+    /**
+     * @param daemon whether this thread pool uses daemon threads
+     * @see Thread#setDaemon(boolean)
+     */
+    public void setDaemon(boolean daemon)
+    {
+        _daemon = daemon;
+    }
+
+    @ManagedAttribute("reports additional details in the dump")
+    public boolean isDetailedDump()
+    {
+        return _detailedDump;
+    }
+
+    public void setDetailedDump(boolean detailedDump)
+    {
+        _detailedDump = detailedDump;
+    }
+
+    @Override
+    @ManagedAttribute("number of threads in the pool")
     public int getThreads()
     {
-        if (_executor instanceof ThreadPoolExecutor)
-        {
-            final ThreadPoolExecutor tpe = (ThreadPoolExecutor)_executor;
-            return tpe.getPoolSize();
-        }
-        return -1;
+        return _executor.getPoolSize();
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
+    @ManagedAttribute("number of idle threads in the pool")
+    public int getIdleThreads()
+    {
+        return _executor.getPoolSize() - _executor.getActiveCount();
+    }
+
+    @Override
+    public void execute(Runnable command)
+    {
+        _executor.execute(command);
+    }
+
+    @Override
+    public boolean tryExecute(Runnable task)
+    {
+        TryExecutor tryExecutor = _tryExecutor;
+        return tryExecutor != null && tryExecutor.tryExecute(task);
+    }
+
+    @Override
+    @ManagedAttribute(value = "thread pool is low on threads", readonly = true)
     public boolean isLowOnThreads()
     {
-        if (_executor instanceof ThreadPoolExecutor)
-        {
-            final ThreadPoolExecutor tpe = (ThreadPoolExecutor)_executor;
-            // getActiveCount() locks the thread pool, so execute it last
-            return tpe.getPoolSize() == tpe.getMaximumPoolSize() &&
-                    tpe.getQueue().size() >= tpe.getPoolSize() - tpe.getActiveCount();
-        }
-        return false;
+        return getThreads() == getMaxThreads() && _executor.getQueue().size() >= getIdleThreads();
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
+    protected void doStart() throws Exception
+    {
+        if (_executor.isShutdown())
+            throw new IllegalStateException("This thread pool is not restartable");
+        for (int i = 0; i < _minThreads; ++i)
+        {
+            _executor.prestartCoreThread();
+        }
+
+        _tryExecutor = new ReservedThreadExecutor(this, _reservedThreads);
+        addBean(_tryExecutor);
+
+        super.doStart();
+    }
+
+    @Override
+    protected void doStop() throws Exception
+    {
+        super.doStop();
+        removeBean(_tryExecutor);
+        _tryExecutor = TryExecutor.NO_TRY;
+        _executor.shutdownNow();
+        _budget.reset();
+    }
+
+    @Override
     public void join() throws InterruptedException
     {
         _executor.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
     }
 
-    /* ------------------------------------------------------------ */
     @Override
-    protected void doStop() throws Exception
+    public ThreadPoolBudget getThreadPoolBudget()
     {
-        super.doStop();
-        _executor.shutdownNow();
+        return _budget;
+    }
+
+    protected Thread newThread(Runnable job)
+    {
+        Thread thread = new Thread(_group, job);
+        thread.setDaemon(isDaemon());
+        thread.setPriority(getThreadsPriority());
+        thread.setName(getName() + "-" + thread.getId());
+        return thread;
+    }
+
+    @Override
+    public void dump(Appendable out, String indent) throws IOException
+    {
+        String prefix = getName() + "-";
+        List<Dumpable> threads = Thread.getAllStackTraces().entrySet().stream()
+            .filter(entry -> entry.getKey().getName().startsWith(prefix))
+            .map(entry ->
+            {
+                Thread thread = entry.getKey();
+                StackTraceElement[] frames = entry.getValue();
+                String knownMethod = null;
+                for (StackTraceElement frame : frames)
+                {
+                    if ("getTask".equals(frame.getMethodName()) && frame.getClassName().endsWith("ThreadPoolExecutor"))
+                    {
+                        knownMethod = "IDLE ";
+                        break;
+                    }
+                    else if ("reservedWait".equals(frame.getMethodName()) && frame.getClassName().endsWith("ReservedThread"))
+                    {
+                        knownMethod = "RESERVED ";
+                        break;
+                    }
+                    else if ("select".equals(frame.getMethodName()) && frame.getClassName().endsWith("SelectorProducer"))
+                    {
+                        knownMethod = "SELECTING ";
+                        break;
+                    }
+                    else if ("accept".equals(frame.getMethodName()) && frame.getClassName().contains("ServerConnector"))
+                    {
+                        knownMethod = "ACCEPTING ";
+                        break;
+                    }
+                }
+                String known = knownMethod == null ? "" : knownMethod;
+                return new Dumpable()
+                {
+                    @Override
+                    public void dump(Appendable out, String indent) throws IOException
+                    {
+                        StringBuilder b = new StringBuilder();
+                        b.append(thread.getId())
+                            .append(" ")
+                            .append(thread.getName())
+                            .append(" p=").append(thread.getPriority())
+                            .append(" ")
+                            .append(known)
+                            .append(thread.getState().toString());
+
+                        if (isDetailedDump())
+                        {
+                            if (known.isEmpty())
+                                Dumpable.dumpObjects(out, indent, b.toString(), (Object[])frames);
+                            else
+                                Dumpable.dumpObject(out, b.toString());
+                        }
+                        else
+                        {
+                            b.append(" @ ").append(frames.length > 0 ? String.valueOf(frames[0]) : "<no_stack_frames>");
+                            Dumpable.dumpObject(out, b.toString());
+                        }
+                    }
+
+                    @Override
+                    public String dump()
+                    {
+                        return null;
+                    }
+                };
+            })
+            .collect(Collectors.toList());
+
+        List<Runnable> jobs = Collections.emptyList();
+        if (isDetailedDump())
+            jobs = new ArrayList<>(_executor.getQueue());
+        dumpObjects(out, indent, threads, new DumpableCollection("jobs", jobs));
+    }
+
+    @Override
+    public String toString()
+    {
+        return String.format("%s[%s]@%x{%s,%d<=%d<=%d,i=%d,q=%d,%s}",
+            getClass().getSimpleName(),
+            getName(),
+            hashCode(),
+            getState(),
+            getMinThreads(),
+            getThreads(),
+            getMaxThreads(),
+            getIdleThreads(),
+            _executor.getQueue().size(),
+            _tryExecutor);
     }
 }

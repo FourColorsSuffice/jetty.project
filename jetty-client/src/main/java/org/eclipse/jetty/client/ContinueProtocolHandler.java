@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,6 +26,7 @@ import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.client.util.BufferingResponseListener;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpHeaderValue;
+import org.eclipse.jetty.http.HttpStatus;
 
 /**
  * <p>A protocol handler that handles the 100 response code.</p>
@@ -51,10 +52,10 @@ public class ContinueProtocolHandler implements ProtocolHandler
     @Override
     public boolean accept(Request request, Response response)
     {
+        boolean is100 = response.getStatus() == HttpStatus.CONTINUE_100;
         boolean expect100 = request.getHeaders().contains(HttpHeader.EXPECT, HttpHeaderValue.CONTINUE.asString());
-        HttpConversation conversation = ((HttpRequest)request).getConversation();
-        boolean handled100 = conversation.getAttribute(ATTRIBUTE) != null;
-        return expect100 && !handled100;
+        boolean handled100 = request.getAttributes().containsKey(ATTRIBUTE);
+        return (is100 || expect100) && !handled100;
     }
 
     @Override
@@ -79,34 +80,28 @@ public class ContinueProtocolHandler implements ProtocolHandler
             Request request = response.getRequest();
             HttpConversation conversation = ((HttpRequest)request).getConversation();
             // Mark the 100 Continue response as handled
-            conversation.setAttribute(ATTRIBUTE, Boolean.TRUE);
+            request.attribute(ATTRIBUTE, Boolean.TRUE);
 
             // Reset the conversation listeners, since we are going to receive another response code
             conversation.updateResponseListeners(null);
 
             HttpExchange exchange = conversation.getExchanges().peekLast();
-            assert exchange.getResponse() == response;
-            switch (response.getStatus())
+            if (response.getStatus() == HttpStatus.CONTINUE_100)
             {
-                case 100:
-                {
-                    // All good, continue
-                    exchange.resetResponse();
-                    exchange.proceed(null);
-                    onContinue(request);
-                    break;
-                }
-                default:
-                {
-                    // Server either does not support 100 Continue,
-                    // or it does and wants to refuse the request content,
-                    // or we got some other HTTP status code like a redirect.
-                    List<Response.ResponseListener> listeners = exchange.getResponseListeners();
-                    HttpContentResponse contentResponse = new HttpContentResponse(response, getContent(), getMediaType(), getEncoding());
-                    notifier.forwardSuccess(listeners, contentResponse);
-                    exchange.proceed(new HttpRequestException("Expectation failed", request));
-                    break;
-                }
+                // All good, continue.
+                exchange.resetResponse();
+                exchange.proceed(null);
+                onContinue(request);
+            }
+            else
+            {
+                // Server either does not support 100 Continue,
+                // or it does and wants to refuse the request content,
+                // or we got some other HTTP status code like a redirect.
+                List<Response.ResponseListener> listeners = exchange.getResponseListeners();
+                HttpContentResponse contentResponse = new HttpContentResponse(response, getContent(), getMediaType(), getEncoding());
+                notifier.forwardSuccess(listeners, contentResponse);
+                exchange.proceed(new HttpRequestException("Expectation failed", request));
             }
         }
 

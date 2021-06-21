@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,8 +23,6 @@ import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,25 +37,25 @@ import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
-import org.eclipse.jetty.util.ssl.SslContextFactory;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ArgumentsSource;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ClientConnectionCloseTest extends AbstractHttpClientServerTest
 {
-    public ClientConnectionCloseTest(SslContextFactory sslContextFactory)
-    {
-        super(sslContextFactory);
-    }
-
-    @Test
-    public void test_ClientConnectionClose_ServerConnectionClose_ClientClosesAfterExchange() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testClientConnectionCloseServerConnectionCloseClientClosesAfterExchange(Scenario scenario) throws Exception
     {
         byte[] data = new byte[128 * 1024];
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
 
@@ -87,32 +85,33 @@ public class ClientConnectionCloseTest extends AbstractHttpClientServerTest
         String host = "localhost";
         int port = connector.getLocalPort();
 
-        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scheme, host, port);
+        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scenario.getScheme(), host, port);
         DuplexConnectionPool connectionPool = (DuplexConnectionPool)destination.getConnectionPool();
 
         ContentResponse response = client.newRequest(host, port)
-                .scheme(scheme)
-                .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
-                .content(new StringContentProvider("0"))
-                .onRequestSuccess(request ->
-                {
-                    HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
-                    Assert.assertFalse(connection.getEndPoint().isOutputShutdown());
-                })
-                .send();
+            .scheme(scenario.getScheme())
+            .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
+            .content(new StringContentProvider("0"))
+            .onRequestSuccess(request ->
+            {
+                HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
+                assertFalse(connection.getEndPoint().isOutputShutdown());
+            })
+            .send();
 
-        Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
-        Assert.assertArrayEquals(data, response.getContent());
-        Assert.assertEquals(0, connectionPool.getConnectionCount());
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+        assertArrayEquals(data, response.getContent());
+        assertEquals(0, connectionPool.getConnectionCount());
     }
 
-    @Test
-    public void test_ClientConnectionClose_ServerDoesNotRespond_ClientIdleTimeout() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testClientConnectionCloseServerDoesNotRespondClientIdleTimeout(Scenario scenario) throws Exception
     {
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
             {
                 baseRequest.setHandled(true);
                 request.startAsync();
@@ -123,38 +122,39 @@ public class ClientConnectionCloseTest extends AbstractHttpClientServerTest
         String host = "localhost";
         int port = connector.getLocalPort();
 
-        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scheme, host, port);
+        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scenario.getScheme(), host, port);
         DuplexConnectionPool connectionPool = (DuplexConnectionPool)destination.getConnectionPool();
 
         CountDownLatch resultLatch = new CountDownLatch(1);
         long idleTimeout = 1000;
         client.newRequest(host, port)
-                .scheme(scheme)
-                .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
-                .idleTimeout(idleTimeout, TimeUnit.MILLISECONDS)
-                .onRequestSuccess(request ->
-                {
-                    HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
-                    Assert.assertFalse(connection.getEndPoint().isOutputShutdown());
-                })
-                .send(result ->
-                {
-                    if (result.isFailed())
-                        resultLatch.countDown();
-                });
+            .scheme(scenario.getScheme())
+            .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
+            .idleTimeout(idleTimeout, TimeUnit.MILLISECONDS)
+            .onRequestSuccess(request ->
+            {
+                HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
+                assertFalse(connection.getEndPoint().isOutputShutdown());
+            })
+            .send(result ->
+            {
+                if (result.isFailed())
+                    resultLatch.countDown();
+            });
 
-        Assert.assertTrue(resultLatch.await(2 * idleTimeout, TimeUnit.MILLISECONDS));
-        Assert.assertEquals(0, connectionPool.getConnectionCount());
+        assertTrue(resultLatch.await(2 * idleTimeout, TimeUnit.MILLISECONDS));
+        assertEquals(0, connectionPool.getConnectionCount());
     }
 
-    @Test
-    public void test_ClientConnectionClose_ServerPartialResponse_ClientIdleTimeout() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testClientConnectionCloseServerPartialResponseClientIdleTimeout(Scenario scenario) throws Exception
     {
         long idleTimeout = 1000;
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
 
@@ -183,40 +183,41 @@ public class ClientConnectionCloseTest extends AbstractHttpClientServerTest
         String host = "localhost";
         int port = connector.getLocalPort();
 
-        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scheme, host, port);
+        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scenario.getScheme(), host, port);
         DuplexConnectionPool connectionPool = (DuplexConnectionPool)destination.getConnectionPool();
 
         DeferredContentProvider content = new DeferredContentProvider(ByteBuffer.allocate(8));
         CountDownLatch resultLatch = new CountDownLatch(1);
         client.newRequest(host, port)
-                .scheme(scheme)
-                .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
-                .content(content)
-                .idleTimeout(idleTimeout, TimeUnit.MILLISECONDS)
-                .onRequestSuccess(request ->
-                {
-                    HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
-                    Assert.assertFalse(connection.getEndPoint().isOutputShutdown());
-                })
-                .send(result ->
-                {
-                    if (result.isFailed())
-                        resultLatch.countDown();
-                });
+            .scheme(scenario.getScheme())
+            .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
+            .content(content)
+            .idleTimeout(idleTimeout, TimeUnit.MILLISECONDS)
+            .onRequestSuccess(request ->
+            {
+                HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
+                assertFalse(connection.getEndPoint().isOutputShutdown());
+            })
+            .send(result ->
+            {
+                if (result.isFailed())
+                    resultLatch.countDown();
+            });
         content.offer(ByteBuffer.allocate(8));
         content.close();
 
-        Assert.assertTrue(resultLatch.await(2 * idleTimeout, TimeUnit.MILLISECONDS));
-        Assert.assertEquals(0, connectionPool.getConnectionCount());
+        assertTrue(resultLatch.await(2 * idleTimeout, TimeUnit.MILLISECONDS));
+        assertEquals(0, connectionPool.getConnectionCount());
     }
 
-    @Test
-    public void test_ClientConnectionClose_ServerNoConnectionClose_ClientCloses() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(ScenarioProvider.class)
+    public void testClientConnectionCloseServerNoConnectionCloseClientCloses(Scenario scenario) throws Exception
     {
-        start(new AbstractHandler()
+        start(scenario, new AbstractHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
                 response.setContentLength(0);
@@ -237,21 +238,21 @@ public class ClientConnectionCloseTest extends AbstractHttpClientServerTest
         String host = "localhost";
         int port = connector.getLocalPort();
 
-        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scheme, host, port);
+        HttpDestinationOverHTTP destination = (HttpDestinationOverHTTP)client.getDestination(scenario.getScheme(), host, port);
         DuplexConnectionPool connectionPool = (DuplexConnectionPool)destination.getConnectionPool();
 
         ContentResponse response = client.newRequest(host, port)
-                .scheme(scheme)
-                .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
-                .onRequestSuccess(request ->
-                {
-                    HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
-                    Assert.assertFalse(connection.getEndPoint().isOutputShutdown());
-                })
-                .onResponseHeaders(r -> r.getHeaders().remove(HttpHeader.CONNECTION))
-                .send();
+            .scheme(scenario.getScheme())
+            .header(HttpHeader.CONNECTION, HttpHeaderValue.CLOSE.asString())
+            .onRequestSuccess(request ->
+            {
+                HttpConnectionOverHTTP connection = (HttpConnectionOverHTTP)connectionPool.getActiveConnections().iterator().next();
+                assertFalse(connection.getEndPoint().isOutputShutdown());
+            })
+            .onResponseHeaders(r -> r.getHeaders().remove(HttpHeader.CONNECTION))
+            .send();
 
-        Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
-        Assert.assertEquals(0, connectionPool.getConnectionCount());
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+        assertEquals(0, connectionPool.getConnectionCount());
     }
 }

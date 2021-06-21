@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,9 +18,6 @@
 
 package org.eclipse.jetty.websocket.common.test;
 
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.lessThan;
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,7 +30,10 @@ import org.eclipse.jetty.websocket.api.WriteCallback;
 import org.eclipse.jetty.websocket.api.extensions.Frame;
 import org.eclipse.jetty.websocket.api.extensions.OutgoingFrames;
 import org.eclipse.jetty.websocket.common.Generator;
-import org.junit.Assert;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThan;
 
 /**
  * Capture outgoing network bytes.
@@ -51,10 +51,10 @@ public class OutgoingNetworkBytesCapture implements OutgoingFrames
 
     public void assertBytes(int idx, String expectedHex)
     {
-        Assert.assertThat("Capture index does not exist",idx,lessThan(captured.size()));
+        assertThat("Capture index does not exist", idx, lessThan(captured.size()));
         ByteBuffer buf = captured.get(idx);
         String actualHex = TypeUtil.toHexString(BufferUtil.toArray(buf)).toUpperCase(Locale.ENGLISH);
-        Assert.assertThat("captured[" + idx + "]",actualHex,is(expectedHex.toUpperCase(Locale.ENGLISH)));
+        assertThat("captured[" + idx + "]", actualHex, is(expectedHex.toUpperCase(Locale.ENGLISH)));
     }
 
     public List<ByteBuffer> getCaptured()
@@ -66,8 +66,8 @@ public class OutgoingNetworkBytesCapture implements OutgoingFrames
     public void outgoingFrame(Frame frame, WriteCallback callback, BatchMode batchMode)
     {
         ByteBuffer buf = ByteBuffer.allocate(Generator.MAX_HEADER_LENGTH + frame.getPayloadLength());
-        generator.generateWholeFrame(frame,buf);
-        BufferUtil.flipToFlush(buf,0);
+        generator.generateWholeFrame(frame, buf);
+        BufferUtil.flipToFlush(buf, 0);
         captured.add(buf);
         if (callback != null)
         {

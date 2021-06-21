@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http2.generator.DataGenerator;
 import org.eclipse.jetty.http2.generator.HeaderGenerator;
@@ -29,8 +30,10 @@ import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.MappedByteBufferPool;
 import org.eclipse.jetty.util.BufferUtil;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DataGenerateParseTest
 {
@@ -60,29 +63,29 @@ public class DataGenerateParseTest
     private void testGenerateParseContent(ByteBuffer content)
     {
         List<DataFrame> frames = testGenerateParse(content);
-        Assert.assertEquals(1, frames.size());
+        assertEquals(1, frames.size());
         DataFrame frame = frames.get(0);
-        Assert.assertTrue(frame.getStreamId() != 0);
-        Assert.assertTrue(frame.isEndStream());
-        Assert.assertEquals(content, frame.getData());
+        assertTrue(frame.getStreamId() != 0);
+        assertTrue(frame.isEndStream());
+        assertEquals(content, frame.getData());
     }
 
     @Test
-    public  void testGenerateParseLargeContent()
+    public void testGenerateParseLargeContent()
     {
         ByteBuffer content = ByteBuffer.wrap(largeContent);
         List<DataFrame> frames = testGenerateParse(content);
-        Assert.assertEquals(8, frames.size());
+        assertEquals(8, frames.size());
         ByteBuffer aggregate = ByteBuffer.allocate(content.remaining());
         for (int i = 1; i <= frames.size(); ++i)
         {
             DataFrame frame = frames.get(i - 1);
-            Assert.assertTrue(frame.getStreamId() != 0);
-            Assert.assertEquals(i == frames.size(), frame.isEndStream());
+            assertTrue(frame.getStreamId() != 0);
+            assertEquals(i == frames.size(), frame.isEndStream());
             aggregate.put(frame.getData());
         }
         aggregate.flip();
-        Assert.assertEquals(content, aggregate);
+        assertEquals(content, aggregate);
     }
 
     private List<DataFrame> testGenerateParse(ByteBuffer data)
@@ -98,6 +101,7 @@ public class DataGenerateParseTest
                 frames.add(frame);
             }
         }, 4096, 8192);
+        parser.init(UnaryOperator.identity());
 
         // Iterate a few times to be sure generator and parser are properly reset.
         for (int i = 0; i < 2; ++i)
@@ -137,6 +141,7 @@ public class DataGenerateParseTest
                 frames.add(frame);
             }
         }, 4096, 8192);
+        parser.init(UnaryOperator.identity());
 
         // Iterate a few times to be sure generator and parser are properly reset.
         for (int i = 0; i < 2; ++i)
@@ -162,7 +167,7 @@ public class DataGenerateParseTest
                 }
             }
 
-            Assert.assertEquals(largeContent.length, frames.size());
+            assertEquals(largeContent.length, frames.size());
         }
     }
 }

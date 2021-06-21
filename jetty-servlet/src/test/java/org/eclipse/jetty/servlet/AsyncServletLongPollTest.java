@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -34,16 +33,14 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.toolchain.test.TestTracker;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class AsyncServletLongPollTest
 {
-    @Rule
-    public TestTracker tracker = new TestTracker();
     private Server server;
     private ServerConnector connector;
     private ServletContextHandler context;
@@ -63,7 +60,7 @@ public class AsyncServletLongPollTest
         server.start();
     }
 
-    @After
+    @AfterEach
     public void destroy() throws Exception
     {
         server.stop();
@@ -118,45 +115,45 @@ public class AsyncServletLongPollTest
         {
             int wait = 1000;
             String request1 = "GET " + uri + "?suspend=" + wait + " HTTP/1.1\r\n" +
-                    "Host: localhost:" + connector.getLocalPort() + "\r\n" +
-                    "\r\n";
+                "Host: localhost:" + connector.getLocalPort() + "\r\n" +
+                "\r\n";
             OutputStream output1 = socket1.getOutputStream();
             output1.write(request1.getBytes(StandardCharsets.UTF_8));
             output1.flush();
 
-            Assert.assertTrue(asyncLatch.await(5, TimeUnit.SECONDS));
+            assertTrue(asyncLatch.await(5, TimeUnit.SECONDS));
 
             int error = 408;
             try (Socket socket2 = new Socket("localhost", connector.getLocalPort()))
             {
                 String request2 = "DELETE " + uri + "?error=" + error + " HTTP/1.1\r\n" +
-                        "Host: localhost:" + connector.getLocalPort() + "\r\n" +
-                        "\r\n";
+                    "Host: localhost:" + connector.getLocalPort() + "\r\n" +
+                    "\r\n";
                 OutputStream output2 = socket2.getOutputStream();
                 output2.write(request2.getBytes(StandardCharsets.UTF_8));
                 output2.flush();
 
                 HttpTester.Input input2 = HttpTester.from(socket2.getInputStream());
                 HttpTester.Response response2 = HttpTester.parseResponse(input2);
-                Assert.assertEquals(200, response2.getStatus());
+                assertEquals(200, response2.getStatus());
             }
 
             socket1.setSoTimeout(2 * wait);
-            
+
             HttpTester.Input input1 = HttpTester.from(socket1.getInputStream());
             HttpTester.Response response1 = HttpTester.parseResponse(input1);
-            Assert.assertEquals(error, response1.getStatus());
+            assertEquals(error, response1.getStatus());
 
             // Now try to make another request on the first connection
             // to verify that we set correctly the read interest (#409842)
             String request3 = "GET " + uri + " HTTP/1.1\r\n" +
-                    "Host: localhost:" + connector.getLocalPort() + "\r\n" +
-                    "\r\n";
+                "Host: localhost:" + connector.getLocalPort() + "\r\n" +
+                "\r\n";
             output1.write(request3.getBytes(StandardCharsets.UTF_8));
             output1.flush();
 
             HttpTester.Response response3 = HttpTester.parseResponse(input1);
-            Assert.assertEquals(200, response3.getStatus());
+            assertEquals(200, response3.getStatus());
         }
     }
 }

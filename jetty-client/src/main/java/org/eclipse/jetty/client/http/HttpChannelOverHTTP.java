@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,6 +19,7 @@
 package org.eclipse.jetty.client.http;
 
 import java.util.Locale;
+import java.util.concurrent.atomic.LongAdder;
 
 import org.eclipse.jetty.client.HttpChannel;
 import org.eclipse.jetty.client.HttpExchange;
@@ -39,6 +40,7 @@ public class HttpChannelOverHTTP extends HttpChannel
     private final HttpConnectionOverHTTP connection;
     private final HttpSenderOverHTTP sender;
     private final HttpReceiverOverHTTP receiver;
+    private final LongAdder outMessages = new LongAdder();
 
     public HttpChannelOverHTTP(HttpConnectionOverHTTP connection)
     {
@@ -76,11 +78,10 @@ public class HttpChannelOverHTTP extends HttpChannel
     }
 
     @Override
-    public void send()
+    public void send(HttpExchange exchange)
     {
-        HttpExchange exchange = getHttpExchange();
-        if (exchange != null)
-            sender.send(exchange);
+        outMessages.increment();
+        sender.send(exchange);
     }
 
     @Override
@@ -96,28 +97,28 @@ public class HttpChannelOverHTTP extends HttpChannel
             return result;
 
         HttpResponse response = exchange.getResponse();
-        
-        if ((response.getVersion() == HttpVersion.HTTP_1_1) && 
+
+        if ((response.getVersion() == HttpVersion.HTTP_1_1) &&
             (response.getStatus() == HttpStatus.SWITCHING_PROTOCOLS_101))
         {
-            String connection = response.getHeaders().get(HttpHeader.CONNECTION);
-            if ((connection == null) || !connection.toLowerCase(Locale.US).contains("upgrade"))
+            String nextConnection = response.getHeaders().get(HttpHeader.CONNECTION);
+            if ((nextConnection == null) || !nextConnection.toLowerCase(Locale.US).contains("upgrade"))
             {
-                return new Result(result,new HttpResponseException("101 Switching Protocols without Connection: Upgrade not supported",response));
+                return new Result(result, new HttpResponseException("101 Switching Protocols without Connection: Upgrade not supported", response));
             }
-            
+
             // Upgrade Response
             HttpRequest request = exchange.getRequest();
-            if (request instanceof HttpConnectionUpgrader)
+            HttpConnectionUpgrader upgrader = (HttpConnectionUpgrader)request.getConversation().getAttribute(HttpConnectionUpgrader.class.getName());
+            if (upgrader != null)
             {
-                HttpConnectionUpgrader listener = (HttpConnectionUpgrader)request;
                 try
                 {
-                    listener.upgrade(response,getHttpConnection());
+                    upgrader.upgrade(response, getHttpConnection());
                 }
                 catch (Throwable x)
                 {
-                    return new Result(result,x);
+                    return new Result(result, x);
                 }
             }
         }
@@ -180,13 +181,22 @@ public class HttpChannelOverHTTP extends HttpChannel
         }
     }
 
+    protected long getMessagesIn()
+    {
+        return receiver.getMessagesIn();
+    }
+
+    protected long getMessagesOut()
+    {
+        return outMessages.longValue();
+    }
+
     @Override
     public String toString()
     {
         return String.format("%s[send=%s,recv=%s]",
-                super.toString(),
-                sender,
-                receiver);
+            super.toString(),
+            sender,
+            receiver);
     }
-
 }

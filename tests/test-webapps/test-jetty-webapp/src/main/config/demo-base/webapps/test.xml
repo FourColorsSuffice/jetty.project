@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
 
 <!-- ==================================================================
 Configure and deploy the test web application in $(jetty.home)/webapps/test
@@ -71,9 +70,7 @@ detected.
 
   <!-- disable cookies
   <Get name="sessionHandler">
-     <Get name="sessionManager">
-        <Set name="usingCookies" type="boolean">false</Set>
-     </Get>
+    <Set name="usingCookies" type="boolean">false</Set>
   </Get>
   -->
 

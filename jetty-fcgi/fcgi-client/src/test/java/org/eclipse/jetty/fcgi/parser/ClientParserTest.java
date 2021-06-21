@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,8 +29,11 @@ import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.MappedByteBufferPool;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ClientParserTest
 {
@@ -56,7 +59,9 @@ public class ClientParserTest
         final int[] primes = new int[]{2, 3, 5};
         int value = 1;
         for (int prime : primes)
+        {
             value *= prime;
+        }
 
         final AtomicInteger params = new AtomicInteger(1);
         ClientParser parser = new ClientParser(new ClientParser.Listener.Adapter()
@@ -64,19 +69,19 @@ public class ClientParserTest
             @Override
             public void onBegin(int request, int code, String reason)
             {
-                Assert.assertEquals(statusCode, code);
-                Assert.assertEquals(statusMessage, reason);
+                assertEquals(statusCode, code);
+                assertEquals(statusMessage, reason);
                 params.set(params.get() * primes[0]);
             }
 
             @Override
             public void onHeader(int request, HttpField field)
             {
-                Assert.assertEquals(id, request);
+                assertEquals(id, request);
                 switch (field.getName())
                 {
                     case contentTypeName:
-                        Assert.assertEquals(contentTypeValue, field.getValue());
+                        assertEquals(contentTypeValue, field.getValue());
                         params.set(params.get() * primes[1]);
                         break;
                     default:
@@ -85,20 +90,21 @@ public class ClientParserTest
             }
 
             @Override
-            public void onHeaders(int request)
+            public boolean onHeaders(int request)
             {
-                Assert.assertEquals(id, request);
+                assertEquals(id, request);
                 params.set(params.get() * primes[2]);
+                return false;
             }
         });
 
         for (ByteBuffer buffer : result.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
 
-        Assert.assertEquals(value, params.get());
+        assertEquals(value, params.get());
     }
 
     @Test
@@ -119,7 +125,7 @@ public class ClientParserTest
             @Override
             public boolean onContent(int request, FCGI.StreamType stream, ByteBuffer buffer)
             {
-                Assert.assertEquals(id, request);
+                assertEquals(id, request);
                 verifier.addAndGet(2);
                 return false;
             }
@@ -127,7 +133,7 @@ public class ClientParserTest
             @Override
             public void onEnd(int request)
             {
-                Assert.assertEquals(id, request);
+                assertEquals(id, request);
                 verifier.addAndGet(3);
             }
         });
@@ -135,15 +141,15 @@ public class ClientParserTest
         for (ByteBuffer buffer : result1.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
         for (ByteBuffer buffer : result2.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
 
-        Assert.assertEquals(3, verifier.get());
+        assertEquals(3, verifier.get());
     }
 
     @Test
@@ -171,8 +177,8 @@ public class ClientParserTest
             @Override
             public boolean onContent(int request, FCGI.StreamType stream, ByteBuffer buffer)
             {
-                Assert.assertEquals(id, request);
-                Assert.assertEquals(contentLength, buffer.remaining());
+                assertEquals(id, request);
+                assertEquals(contentLength, buffer.remaining());
                 verifier.addAndGet(2);
                 return false;
             }
@@ -180,7 +186,7 @@ public class ClientParserTest
             @Override
             public void onEnd(int request)
             {
-                Assert.assertEquals(id, request);
+                assertEquals(id, request);
                 verifier.addAndGet(3);
             }
         });
@@ -188,15 +194,15 @@ public class ClientParserTest
         for (ByteBuffer buffer : result1.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
         for (ByteBuffer buffer : result2.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
 
-        Assert.assertEquals(5, verifier.get());
+        assertEquals(5, verifier.get());
     }
 
     @Test
@@ -225,7 +231,7 @@ public class ClientParserTest
             @Override
             public boolean onContent(int request, FCGI.StreamType stream, ByteBuffer buffer)
             {
-                Assert.assertEquals(id, request);
+                assertEquals(id, request);
                 totalLength.addAndGet(buffer.remaining());
                 return false;
             }
@@ -233,8 +239,8 @@ public class ClientParserTest
             @Override
             public void onEnd(int request)
             {
-                Assert.assertEquals(id, request);
-                Assert.assertEquals(contentLength, totalLength.get());
+                assertEquals(id, request);
+                assertEquals(contentLength, totalLength.get());
                 verifier.set(true);
             }
         });
@@ -242,14 +248,14 @@ public class ClientParserTest
         for (ByteBuffer buffer : result1.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
         for (ByteBuffer buffer : result2.getByteBuffers())
         {
             parser.parse(buffer);
-            Assert.assertFalse(buffer.hasRemaining());
+            assertFalse(buffer.hasRemaining());
         }
 
-        Assert.assertTrue(verifier.get());
+        assertTrue(verifier.get());
     }
 }

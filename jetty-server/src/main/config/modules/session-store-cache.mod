@@ -1,3 +1,5 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Enables caching of SessionData in front of a SessionDataStore.
 
@@ -24,4 +26,4 @@ session-data-cache=xmemcached
 #jetty.session.memcached.host=localhost
 #jetty.session.memcached.port=11211
 #jetty.session.memcached.expirySec=
-
+#jetty.session.memcached.heartbeats=true

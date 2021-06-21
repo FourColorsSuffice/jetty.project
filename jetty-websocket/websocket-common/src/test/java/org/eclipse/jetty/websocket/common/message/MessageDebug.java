@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,12 +20,13 @@ package org.eclipse.jetty.websocket.common.message;
 
 import java.nio.ByteBuffer;
 
+// @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
 public class MessageDebug
 {
     public static String toDetailHint(byte[] data, int offset, int len)
     {
         StringBuilder buf = new StringBuilder();
-        ByteBuffer buffer = ByteBuffer.wrap(data,offset,len);
+        ByteBuffer buffer = ByteBuffer.wrap(data, offset, len);
 
         buf.append("byte[").append(data.length);
         buf.append("](o=").append(offset);

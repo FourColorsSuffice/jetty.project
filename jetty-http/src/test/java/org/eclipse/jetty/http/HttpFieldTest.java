@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,24 +18,25 @@
 
 package org.eclipse.jetty.http;
 
-import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-
 import java.nio.ByteBuffer;
 
 import org.eclipse.jetty.util.BufferUtil;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HttpFieldTest
 {
-
     @Test
-    public void testContainsSimple() throws Exception
+    public void testContainsSimple()
     {
-        HttpField field = new HttpField("name","SomeValue");
+        HttpField field = new HttpField("name", "SomeValue");
         assertTrue(field.contains("somevalue"));
         assertTrue(field.contains("sOmEvAlUe"));
         assertTrue(field.contains("SomeValue"));
@@ -47,29 +48,29 @@ public class HttpFieldTest
         assertFalse(field.contains(""));
         assertFalse(field.contains(null));
     }
-    
+
     @Test
-    public void testCaseInsensitiveHashcode_KnownField() throws Exception
+    public void testCaseInsensitiveHashcodeKnownField()
     {
-        HttpField fieldFoo1 = new HttpField("Cookie","foo");
-        HttpField fieldFoo2 = new HttpField("cookie","foo");
-        
-        assertThat("Field hashcodes are case insensitive", fieldFoo1.hashCode(), is(fieldFoo2.hashCode()));
-    }
-    
-    @Test
-    public void testCaseInsensitiveHashcode_UnknownField() throws Exception
-    {
-        HttpField fieldFoo1 = new HttpField("X-Foo","bar");
-        HttpField fieldFoo2 = new HttpField("x-foo","bar");
-        
+        HttpField fieldFoo1 = new HttpField("Cookie", "foo");
+        HttpField fieldFoo2 = new HttpField("cookie", "foo");
+
         assertThat("Field hashcodes are case insensitive", fieldFoo1.hashCode(), is(fieldFoo2.hashCode()));
     }
 
     @Test
-    public void testContainsList() throws Exception
+    public void testCaseInsensitiveHashcodeUnknownField()
     {
-        HttpField field = new HttpField("name",",aaa,Bbb,CCC, ddd , e e, \"\\\"f,f\\\"\", ");
+        HttpField fieldFoo1 = new HttpField("X-Foo", "bar");
+        HttpField fieldFoo2 = new HttpField("x-foo", "bar");
+
+        assertThat("Field hashcodes are case insensitive", fieldFoo1.hashCode(), is(fieldFoo2.hashCode()));
+    }
+
+    @Test
+    public void testContainsList()
+    {
+        HttpField field = new HttpField("name", ",aaa,Bbb,CCC, ddd , e e, \"\\\"f,f\\\"\", ");
         assertTrue(field.contains("aaa"));
         assertTrue(field.contains("bbb"));
         assertTrue(field.contains("ccc"));
@@ -88,97 +89,109 @@ public class HttpFieldTest
         assertFalse(field.contains("cc"));
         assertFalse(field.contains(null));
     }
-    
 
     @Test
-    public void testQualityContainsList() throws Exception
+    public void testQualityContainsList()
     {
         HttpField field;
-        
-        field = new HttpField("name","yes");
+
+        field = new HttpField("name", "yes");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
 
-        field = new HttpField("name",",yes,");
+        field = new HttpField("name", ",yes,");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
-        
-        field = new HttpField("name","other,yes,other");
+
+        field = new HttpField("name", "other,yes,other");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
-        
-        field = new HttpField("name","other,  yes  ,other");
+
+        field = new HttpField("name", "other,  yes  ,other");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
-        
-        field = new HttpField("name","other,  y s  ,other");
+
+        field = new HttpField("name", "other,  y s  ,other");
         assertTrue(field.contains("y s"));
         assertFalse(field.contains("no"));
 
-        field = new HttpField("name","other,  \"yes\"  ,other");
-        assertTrue(field.contains("yes"));
-        assertFalse(field.contains("no"));
-        
-        field = new HttpField("name","other,  \"\\\"yes\\\"\"  ,other");
-        assertTrue(field.contains("\"yes\""));
-        assertFalse(field.contains("no"));
-        
-        field = new HttpField("name",";no,yes,;no");
+        field = new HttpField("name", "other,  \"yes\"  ,other");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
 
-        field = new HttpField("name","no;q=0,yes;q=1,no; q = 0");
+        field = new HttpField("name", "other,  \"\\\"yes\\\"\"  ,other");
+        assertTrue(field.contains("\"yes\""));
+        assertFalse(field.contains("no"));
+
+        field = new HttpField("name", ";no,yes,;no");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
-        
-        field = new HttpField("name","no;q=0.0000,yes;q=0.0001,no; q = 0.00000");
+
+        field = new HttpField("name", "no;q=0,yes;q=1,no; q = 0");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
-        
-        field = new HttpField("name","no;q=0.0000,Yes;Q=0.0001,no; Q = 0.00000");
+
+        field = new HttpField("name", "no;q=0.0000,yes;q=0.0001,no; q = 0.00000");
         assertTrue(field.contains("yes"));
         assertFalse(field.contains("no"));
-       
+
+        field = new HttpField("name", "no;q=0.0000,Yes;Q=0.0001,no; Q = 0.00000");
+        assertTrue(field.contains("yes"));
+        assertFalse(field.contains("no"));
     }
-    
+
     @Test
     public void testValues()
     {
-        String[] values = new HttpField("name","value").getValues();
-        assertEquals(1,values.length);
-        assertEquals("value",values[0]);
-        
+        String[] values = new HttpField("name", "value").getValues();
+        assertEquals(1, values.length);
+        assertEquals("value", values[0]);
 
-        values = new HttpField("name","a,b,c").getValues();
-        assertEquals(3,values.length);
-        assertEquals("a",values[0]);
-        assertEquals("b",values[1]);
-        assertEquals("c",values[2]);
+        values = new HttpField("name", "a,b,c").getValues();
+        assertEquals(3, values.length);
+        assertEquals("a", values[0]);
+        assertEquals("b", values[1]);
+        assertEquals("c", values[2]);
 
-        values = new HttpField("name","a,\"x,y,z\",c").getValues();
-        assertEquals(3,values.length);
-        assertEquals("a",values[0]);
-        assertEquals("x,y,z",values[1]);
-        assertEquals("c",values[2]);
-        
-        values = new HttpField("name","a,\"x,\\\"p,q\\\",z\",c").getValues();
-        assertEquals(3,values.length);
-        assertEquals("a",values[0]);
-        assertEquals("x,\"p,q\",z",values[1]);
-        assertEquals("c",values[2]);
-        
+        values = new HttpField("name", "a,\"x,y,z\",c").getValues();
+        assertEquals(3, values.length);
+        assertEquals("a", values[0]);
+        assertEquals("x,y,z", values[1]);
+        assertEquals("c", values[2]);
+
+        values = new HttpField("name", "a,\"x,\\\"p,q\\\",z\",c").getValues();
+        assertEquals(3, values.length);
+        assertEquals("a", values[0]);
+        assertEquals("x,\"p,q\",z", values[1]);
+        assertEquals("c", values[2]);
     }
-    
+
+    @Test
+    public void testFieldNameNull()
+    {
+        assertThrows(NullPointerException.class, () -> new HttpField((String)null, null));
+    }
+
     @Test
     public void testCachedField()
     {
-        PreEncodedHttpField field = new PreEncodedHttpField(HttpHeader.ACCEPT,"something");
+        PreEncodedHttpField field = new PreEncodedHttpField(HttpHeader.ACCEPT, "something");
         ByteBuffer buf = BufferUtil.allocate(256);
         BufferUtil.clearToFill(buf);
-        field.putTo(buf,HttpVersion.HTTP_1_0);
-        BufferUtil.flipToFlush(buf,0);
-        String s=BufferUtil.toString(buf);
-        
-        assertEquals("Accept: something\r\n",s);
+        field.putTo(buf, HttpVersion.HTTP_1_0);
+        BufferUtil.flipToFlush(buf, 0);
+        String s = BufferUtil.toString(buf);
+
+        assertEquals("Accept: something\r\n", s);
+    }
+
+    @Test
+    public void testCachedFieldWithHeaderName()
+    {
+        PreEncodedHttpField field = new PreEncodedHttpField("X-My-Custom-Header", "something");
+
+        assertNull(field.getHeader());
+        assertEquals("X-My-Custom-Header", field.getName());
+        assertEquals("something", field.getValue());
     }
 }

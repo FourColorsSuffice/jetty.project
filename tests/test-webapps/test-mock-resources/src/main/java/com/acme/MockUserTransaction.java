@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -27,56 +27,59 @@ import javax.transaction.UserTransaction;
 
 /**
  * MockUserTransaction
- *
- *
  */
 public class MockUserTransaction implements UserTransaction
 {
 
-    /** 
+    /**
      * @see javax.transaction.UserTransaction#begin()
      */
+    @Override
     public void begin() throws NotSupportedException, SystemException
     {
     }
 
-    /** 
+    /**
      * @see javax.transaction.UserTransaction#commit()
      */
+    @Override
     public void commit() throws HeuristicMixedException,
-            HeuristicRollbackException, IllegalStateException,
-            RollbackException, SecurityException, SystemException
+        HeuristicRollbackException, IllegalStateException,
+        RollbackException, SecurityException, SystemException
     {
     }
 
-    /** 
+    /**
      * @see javax.transaction.UserTransaction#getStatus()
      */
+    @Override
     public int getStatus() throws SystemException
     {
         return 0;
     }
 
-    /** 
+    /**
      * @see javax.transaction.UserTransaction#rollback()
      */
+    @Override
     public void rollback() throws IllegalStateException, SecurityException,
-            SystemException
+        SystemException
     {
     }
 
-    /** 
+    /**
      * @see javax.transaction.UserTransaction#setRollbackOnly()
      */
+    @Override
     public void setRollbackOnly() throws IllegalStateException, SystemException
     {
     }
 
-    /** 
+    /**
      * @see javax.transaction.UserTransaction#setTransactionTimeout(int)
      */
+    @Override
     public void setTransactionTimeout(int arg0) throws SystemException
     {
     }
-
 }

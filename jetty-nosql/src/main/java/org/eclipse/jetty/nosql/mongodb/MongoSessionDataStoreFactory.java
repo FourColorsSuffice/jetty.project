@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,25 +16,19 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.nosql.mongodb;
 
 import java.net.UnknownHostException;
 
+import com.mongodb.Mongo;
+import com.mongodb.MongoURI;
 import org.eclipse.jetty.server.session.AbstractSessionDataStoreFactory;
+import org.eclipse.jetty.server.session.SessionDataStore;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.util.StringUtil;
-import org.eclipse.jetty.server.session.SessionDataStore;
-
-
-import com.mongodb.Mongo;
-import com.mongodb.MongoException;
-import com.mongodb.MongoURI;
 
 /**
  * MongoSessionDataStoreFactory
- *
- *
  */
 public class MongoSessionDataStoreFactory extends AbstractSessionDataStoreFactory
 {
@@ -101,7 +95,7 @@ public class MongoSessionDataStoreFactory extends AbstractSessionDataStoreFactor
     }
 
     /**
-     * @param  connectionString the connection string to set. This has priority over dbHost and port
+     * @param connectionString the connection string to set. This has priority over dbHost and port
      */
     public void setConnectionString(String connectionString)
     {
@@ -124,10 +118,8 @@ public class MongoSessionDataStoreFactory extends AbstractSessionDataStoreFactor
         _collectionName = collectionName;
     }
 
-
     /**
-     * @throws MongoException
-     * @throws UnknownHostException
+     * @throws Exception {@link UnknownHostException} if any issue while resolving MongoDB Host
      * @see org.eclipse.jetty.server.session.SessionDataStoreFactory#getSessionDataStore(org.eclipse.jetty.server.session.SessionHandler)
      */
     @Override
@@ -149,5 +141,4 @@ public class MongoSessionDataStoreFactory extends AbstractSessionDataStoreFactor
         store.setDBCollection(mongo.getDB(getDbName()).getCollection(getCollectionName()));
         return store;
     }
-
 }

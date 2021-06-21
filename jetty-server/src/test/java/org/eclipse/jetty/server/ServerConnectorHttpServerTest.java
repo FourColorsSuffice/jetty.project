@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,20 +18,17 @@
 
 package org.eclipse.jetty.server;
 
-import org.eclipse.jetty.toolchain.test.AdvancedRunner;
-import org.junit.Before;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.BeforeEach;
 
 /**
  * HttpServer Tester.
  */
-@RunWith(AdvancedRunner.class)
 public class ServerConnectorHttpServerTest extends HttpServerTestBase
 {
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         // Run this test with 0 acceptors. Other tests already check the acceptors >0
-        startServer(new ServerConnector(_server,0,1));
+        startServer(new ServerConnector(_server, 0, 1));
     }
 }

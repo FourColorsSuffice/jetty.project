@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -33,6 +33,7 @@ public class Derived extends Base implements Signature
     SuperManaged superManagedInstance = new SuperManaged();
 
     @ManagedAttribute(value = "The full name of something", name = "fname", setter = "setFullName")
+    @Override
     public String getFullName()
     {
         return fname;
@@ -44,6 +45,7 @@ public class Derived extends Base implements Signature
     }
 
     @ManagedOperation("publish something")
+    @Override
     public void publish()
     {
         System.err.println("publish");
@@ -76,5 +78,4 @@ public class Derived extends Base implements Signature
     {
         return superManagedInstance;
     }
-
 }

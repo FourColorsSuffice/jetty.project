@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -43,25 +43,26 @@ public class LoggerLog extends AbstractLogger
         {
             _logger = logger;
             Class<?> lc = logger.getClass();
-            _debugMT = lc.getMethod("debug", new Class[]{String.class, Throwable.class});
-            _debugMAA = lc.getMethod("debug", new Class[]{String.class, Object[].class});
-            _infoMT = lc.getMethod("info", new Class[]{String.class, Throwable.class});
-            _infoMAA = lc.getMethod("info", new Class[]{String.class, Object[].class});
-            _warnMT = lc.getMethod("warn", new Class[]{String.class, Throwable.class});
-            _warnMAA = lc.getMethod("warn", new Class[]{String.class, Object[].class});
-            Method _isDebugEnabled = lc.getMethod("isDebugEnabled");
-            _setDebugEnabledE = lc.getMethod("setDebugEnabled", new Class[]{Boolean.TYPE});
-            _getLoggerN = lc.getMethod("getLogger", new Class[]{String.class});
+            _debugMT = lc.getMethod("debug", String.class, Throwable.class);
+            _debugMAA = lc.getMethod("debug", String.class, Object[].class);
+            _infoMT = lc.getMethod("info", String.class, Throwable.class);
+            _infoMAA = lc.getMethod("info", String.class, Object[].class);
+            _warnMT = lc.getMethod("warn", String.class, Throwable.class);
+            _warnMAA = lc.getMethod("warn", String.class, Object[].class);
+            Method isDebugEnabled = lc.getMethod("isDebugEnabled");
+            _setDebugEnabledE = lc.getMethod("setDebugEnabled", Boolean.TYPE);
+            _getLoggerN = lc.getMethod("getLogger", String.class);
             _getName = lc.getMethod("getName");
 
-            _debug = (Boolean)_isDebugEnabled.invoke(_logger);
+            _debug = (Boolean)isDebugEnabled.invoke(_logger);
         }
-        catch(Exception x)
+        catch (Exception x)
         {
             throw new IllegalStateException(x);
         }
     }
 
+    @Override
     public String getName()
     {
         try
@@ -75,6 +76,7 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public void warn(String msg, Object... args)
     {
         try
@@ -87,11 +89,13 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public void warn(Throwable thrown)
     {
         warn("", thrown);
     }
 
+    @Override
     public void warn(String msg, Throwable thrown)
     {
         try
@@ -104,6 +108,7 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public void info(String msg, Object... args)
     {
         try
@@ -116,11 +121,13 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public void info(Throwable thrown)
     {
         info("", thrown);
     }
 
+    @Override
     public void info(String msg, Throwable thrown)
     {
         try
@@ -133,11 +140,13 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public boolean isDebugEnabled()
     {
         return _debug;
     }
 
+    @Override
     public void setDebugEnabled(boolean enabled)
     {
         try
@@ -151,7 +160,7 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
-    
+    @Override
     public void debug(String msg, Object... args)
     {
         if (!_debug)
@@ -167,11 +176,13 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public void debug(Throwable thrown)
     {
         debug("", thrown);
     }
 
+    @Override
     public void debug(String msg, Throwable th)
     {
         if (!_debug)
@@ -187,6 +198,7 @@ public class LoggerLog extends AbstractLogger
         }
     }
 
+    @Override
     public void debug(String msg, long value)
     {
         if (!_debug)
@@ -194,14 +206,15 @@ public class LoggerLog extends AbstractLogger
 
         try
         {
-            _debugMAA.invoke(_logger, new Object[]{new Long(value)});
+            _debugMAA.invoke(_logger, new Long(value));
         }
         catch (Exception e)
         {
             e.printStackTrace();
         }
     }
-    
+
+    @Override
     public void ignore(Throwable ignored)
     {
         if (Log.isIgnored())
@@ -213,11 +226,12 @@ public class LoggerLog extends AbstractLogger
     /**
      * Create a Child Logger of this Logger.
      */
+    @Override
     protected Logger newLogger(String fullname)
     {
         try
         {
-            Object logger=_getLoggerN.invoke(_logger, fullname);
+            Object logger = _getLoggerN.invoke(_logger, fullname);
             return new LoggerLog(logger);
         }
         catch (Exception e)

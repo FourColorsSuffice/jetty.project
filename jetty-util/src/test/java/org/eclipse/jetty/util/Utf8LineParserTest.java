@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,15 +18,15 @@
 
 package org.eclipse.jetty.util;
 
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.lessThan;
-
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThan;
 
 public class Utf8LineParserTest
 {
@@ -37,14 +37,14 @@ public class Utf8LineParserTest
 
     private void assertEquals(List<String> expected, List<String> actual)
     {
-        Assert.assertThat("Expected Line Count",actual.size(),is(expected.size()));
+        assertThat("Expected Line Count", actual.size(), is(expected.size()));
         int len = expected.size();
         for (int i = 0; i < len; i++)
         {
             String expectedLine = expected.get(i);
             String actualLine = actual.get(i);
 
-            Assert.assertThat("Line[" + i + "]",actualLine,is(expectedLine));
+            assertThat("Line[" + i + "]", actualLine, is(expectedLine));
         }
     }
 
@@ -55,13 +55,13 @@ public class Utf8LineParserTest
     public void testBasicParse()
     {
         ByteBuffer buf = ByteBuffer.allocate(64);
-        appendUtf8(buf,"Hello World\n");
-        BufferUtil.flipToFlush(buf,0);
+        appendUtf8(buf, "Hello World\n");
+        BufferUtil.flipToFlush(buf, 0);
 
         Utf8LineParser utfparser = new Utf8LineParser();
 
         String line = utfparser.parse(buf);
-        Assert.assertThat("Line",line,is("Hello World"));
+        assertThat("Line", line, is("Hello World"));
     }
 
     /**
@@ -71,13 +71,13 @@ public class Utf8LineParserTest
     public void testHttpLineParse()
     {
         ByteBuffer buf = ByteBuffer.allocate(64);
-        appendUtf8(buf,"Hello World\r\n");
-        BufferUtil.flipToFlush(buf,0);
+        appendUtf8(buf, "Hello World\r\n");
+        BufferUtil.flipToFlush(buf, 0);
 
         Utf8LineParser utfparser = new Utf8LineParser();
 
         String line = utfparser.parse(buf);
-        Assert.assertThat("Line",line,is("Hello World"));
+        assertThat("Line", line, is("Hello World"));
     }
 
     /**
@@ -100,10 +100,10 @@ public class Utf8LineParserTest
         ByteBuffer buf = ByteBuffer.allocate(512);
         for (String line : expected)
         {
-            appendUtf8(buf,line + "\r\n");
+            appendUtf8(buf, line + "\r\n");
         }
 
-        BufferUtil.flipToFlush(buf,0);
+        BufferUtil.flipToFlush(buf, 0);
 
         // Parse Buffer
         Utf8LineParser utfparser = new Utf8LineParser();
@@ -124,11 +124,11 @@ public class Utf8LineParserTest
                 done = true;
             }
             count++;
-            Assert.assertThat("Parse Count is excessive (bug in code!)",count,lessThan(excessive));
+            assertThat("Parse Count is excessive (bug in code!)", count, lessThan(excessive));
         }
 
         // Validate Results
-        assertEquals(expected,actual);
+        assertEquals(expected, actual);
     }
 
     /**
@@ -158,10 +158,10 @@ public class Utf8LineParserTest
         ByteBuffer buf = ByteBuffer.allocate(512);
         for (String line : expected)
         {
-            appendUtf8(buf,line + "\r\n");
+            appendUtf8(buf, line + "\r\n");
         }
 
-        BufferUtil.flipToFlush(buf,0);
+        BufferUtil.flipToFlush(buf, 0);
 
         // Parse Buffer
         Utf8LineParser utfparser = new Utf8LineParser();
@@ -182,10 +182,10 @@ public class Utf8LineParserTest
                 done = true;
             }
             count++;
-            Assert.assertThat("Parse Count is excessive (bug in code!)",count,lessThan(excessive));
+            assertThat("Parse Count is excessive (bug in code!)", count, lessThan(excessive));
         }
 
         // Validate Results
-        assertEquals(expected,actual);
+        assertEquals(expected, actual);
     }
 }

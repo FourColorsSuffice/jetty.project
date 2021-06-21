@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,7 @@ package org.eclipse.jetty.jaas;
 import java.io.Serializable;
 import java.security.Principal;
 
-/** 
+/**
  * JAASPrincipal
  * <p>
  * Impl class of Principal interface.
@@ -29,33 +29,37 @@ import java.security.Principal;
 public class JAASPrincipal implements Principal, Serializable
 {
     private static final long serialVersionUID = -5538962177019315479L;
-    
-    private String _name = null;
-    
+
+    private final String _name;
+
     public JAASPrincipal(String userName)
     {
         this._name = userName;
     }
 
-    public boolean equals (Object p)
+    @Override
+    public boolean equals(Object p)
     {
-        if (! (p instanceof JAASPrincipal))
+        if (!(p instanceof JAASPrincipal))
             return false;
 
         return getName().equals(((JAASPrincipal)p).getName());
     }
 
-    public int hashCode ()
+    @Override
+    public int hashCode()
     {
         return getName().hashCode();
     }
 
-    public String getName ()
+    @Override
+    public String getName()
     {
         return this._name;
     }
 
-    public String toString ()
+    @Override
+    public String toString()
     {
         return getName();
     }

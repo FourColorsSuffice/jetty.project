@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,31 +22,37 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
+import org.eclipse.jetty.util.BufferUtil;
+import org.eclipse.jetty.util.log.Log;
+import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.websocket.api.BatchMode;
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
 import org.eclipse.jetty.websocket.api.annotations.WebSocket;
 import org.eclipse.jetty.websocket.api.extensions.Frame;
 import org.eclipse.jetty.websocket.common.CloseInfo;
-import org.eclipse.jetty.websocket.common.message.MessageAppender;
 import org.eclipse.jetty.websocket.common.message.MessageInputStream;
 import org.eclipse.jetty.websocket.common.message.MessageReader;
+import org.eclipse.jetty.websocket.common.message.NullMessage;
 import org.eclipse.jetty.websocket.common.message.SimpleBinaryMessage;
 import org.eclipse.jetty.websocket.common.message.SimpleTextMessage;
+import org.eclipse.jetty.websocket.common.util.TextUtil;
 
 /**
  * Handler for Annotated User WebSocket objects.
  */
 public class JettyAnnotatedEventDriver extends AbstractEventDriver
 {
+    private static final Logger LOG = Log.getLogger(JettyAnnotatedEventDriver.class);
     private final JettyAnnotatedMetadata events;
     private boolean hasCloseBeenCalled = false;
-    private BatchMode batchMode;
+    private final BatchMode batchMode;
 
     public JettyAnnotatedEventDriver(WebSocketPolicy policy, Object websocket, JettyAnnotatedMetadata events)
     {
-        super(policy,websocket);
-        this.events = events;
+        super(policy, websocket);
+        this.events = Objects.requireNonNull(events, "JettyAnnotatedMetadata may not be null");
 
         WebSocket anno = websocket.getClass().getAnnotation(WebSocket.class);
         // Setup the policy
@@ -67,8 +73,13 @@ public class JettyAnnotatedEventDriver extends AbstractEventDriver
             this.policy.setIdleTimeout(anno.maxIdleTime());
         }
         this.batchMode = anno.batchMode();
+
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("ctor / object={}, policy={}, batchMode={}, events={}", websocket, policy, batchMode, events);
+        }
     }
-    
+
     @Override
     public BatchMode getBatchMode()
     {
@@ -78,33 +89,36 @@ public class JettyAnnotatedEventDriver extends AbstractEventDriver
     @Override
     public void onBinaryFrame(ByteBuffer buffer, boolean fin) throws IOException
     {
-        if (events.onBinary == null)
+        if (LOG.isDebugEnabled())
         {
-            // not interested in binary events
-            return;
+            LOG.debug("onBinaryFrame({}, {}) - events.onBinary={}, activeMessage={}",
+                BufferUtil.toDetailString(buffer), fin, events.onBinary, activeMessage);
         }
 
         if (activeMessage == null)
         {
-            if (events.onBinary.isStreaming())
+            if (events.onBinary == null)
             {
-                activeMessage = new MessageInputStream();
-                final MessageAppender msg = activeMessage;
-                dispatch(new Runnable()
+                // not interested in binary events
+                activeMessage = NullMessage.INSTANCE;
+            }
+            else if (events.onBinary.isStreaming())
+            {
+                MessageInputStream inputStream = new MessageInputStream(session);
+                activeMessage = inputStream;
+                dispatch(() ->
                 {
-                    @Override
-                    public void run()
+                    try
                     {
-                        try
-                        {
-                            events.onBinary.call(websocket,session,msg);
-                        }
-                        catch (Throwable t)
-                        {
-                            // dispatched calls need to be reported
-                            onError(t);
-                        }
+                        events.onBinary.call(websocket, session, inputStream);
                     }
+                    catch (Throwable t)
+                    {
+                        session.close(t);
+                        return;
+                    }
+
+                    inputStream.handlerComplete();
                 });
             }
             else
@@ -113,15 +127,20 @@ public class JettyAnnotatedEventDriver extends AbstractEventDriver
             }
         }
 
-        appendMessage(buffer,fin);
+        appendMessage(buffer, fin);
     }
 
     @Override
     public void onBinaryMessage(byte[] data)
     {
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onBinaryMessage([{}]) - events.onBinary={}", data.length, events.onBinary);
+        }
+
         if (events.onBinary != null)
         {
-            events.onBinary.call(websocket,session,data,0,data.length);
+            events.onBinary.call(websocket, session, data, 0, data.length);
         }
     }
 
@@ -134,87 +153,129 @@ public class JettyAnnotatedEventDriver extends AbstractEventDriver
             return;
         }
         hasCloseBeenCalled = true;
+
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onClose({}) - events.onClose={}", close, events.onClose);
+        }
+
         if (events.onClose != null)
         {
-            events.onClose.call(websocket,session,close.getStatusCode(),close.getReason());
+            events.onClose.call(websocket, session, close.getStatusCode(), close.getReason());
         }
     }
 
     @Override
     public void onConnect()
     {
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onConnect() - events.onConnect={}", events.onConnect);
+        }
+
         if (events.onConnect != null)
         {
-            events.onConnect.call(websocket,session);
+            events.onConnect.call(websocket, session);
         }
     }
 
     @Override
     public void onError(Throwable cause)
     {
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onError({}) - events.onError={}", cause.getClass().getName(), events.onError);
+        }
+
         if (events.onError != null)
         {
-            events.onError.call(websocket,session,cause);
+            events.onError.call(websocket, session, cause);
+        }
+        else
+        {
+            LOG.warn("Unable to report throwable to websocket (no @OnWebSocketError handler declared): " + websocket.getClass().getName(), cause);
         }
     }
 
     @Override
     public void onFrame(Frame frame)
     {
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onFrame({}) - events.onFrame={}", frame, events.onFrame);
+        }
+
         if (events.onFrame != null)
         {
-            events.onFrame.call(websocket,session,frame);
+            events.onFrame.call(websocket, session, frame);
         }
     }
 
     @Override
     public void onInputStream(InputStream stream)
     {
+        Objects.requireNonNull(stream, "InputStream may not be null");
+
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onInputStream({}) - events.onBinary={}", stream.getClass().getName(), events.onBinary);
+        }
+
         if (events.onBinary != null)
         {
-            events.onBinary.call(websocket,session,stream);
+            events.onBinary.call(websocket, session, stream);
         }
     }
 
     @Override
     public void onReader(Reader reader)
     {
+        Objects.requireNonNull(reader, "Reader may not be null");
+
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onReader({}) - events.onText={}", reader.getClass().getName(), events.onText);
+        }
+
         if (events.onText != null)
         {
-            events.onText.call(websocket,session,reader);
+            events.onText.call(websocket, session, reader);
         }
     }
 
     @Override
     public void onTextFrame(ByteBuffer buffer, boolean fin) throws IOException
     {
-        if (events.onText == null)
+        if (LOG.isDebugEnabled())
         {
-            // not interested in text events
-            return;
+            LOG.debug("onTextFrame({}, {}) - events.onText={}, activeMessage={}",
+                BufferUtil.toDetailString(buffer), fin, events.onText, activeMessage);
         }
 
         if (activeMessage == null)
         {
-            if (events.onText.isStreaming())
+            if (events.onText == null)
             {
-                activeMessage = new MessageReader(new MessageInputStream());
-                final MessageAppender msg = activeMessage;
-                dispatch(new Runnable()
+                // not interested in text events
+                activeMessage = NullMessage.INSTANCE;
+            }
+            else if (events.onText.isStreaming())
+            {
+                MessageReader reader = new MessageReader(session);
+                activeMessage = reader;
+                dispatch(() ->
                 {
-                    @Override
-                    public void run()
+                    try
                     {
-                        try
-                        {
-                            events.onText.call(websocket,session,msg);
-                        }
-                        catch (Throwable t)
-                        {
-                            // dispatched calls need to be reported
-                            onError(t);
-                        }
+                        events.onText.call(websocket, session, reader);
                     }
+                    catch (Throwable t)
+                    {
+                        session.close(t);
+                        return;
+                    }
+
+                    reader.handlerComplete();
                 });
             }
             else
@@ -223,15 +284,21 @@ public class JettyAnnotatedEventDriver extends AbstractEventDriver
             }
         }
 
-        appendMessage(buffer,fin);
+        appendMessage(buffer, fin);
     }
 
     @Override
     public void onTextMessage(String message)
     {
+        if (LOG.isDebugEnabled())
+        {
+            LOG.debug("onTextMessage([{}] \"{}\") - events.onText={}",
+                message.length(), TextUtil.maxStringLength(60, message), events.onText);
+        }
+
         if (events.onText != null)
         {
-            events.onText.call(websocket,session,message);
+            events.onText.call(websocket, session, message);
         }
     }
 

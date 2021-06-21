@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -28,17 +28,14 @@ import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.toolchain.test.TestTracker;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.junit.After;
-import org.junit.Rule;
+import org.junit.jupiter.api.AfterEach;
 
 public class AbstractTest
 {
-    @Rule
-    public TestTracker tracker = new TestTracker();
     protected Server server;
     protected ServerConnector connector;
+    protected HTTP2Client http2Client;
     protected HttpClient client;
 
     protected void start(ServerSessionListener listener) throws Exception
@@ -67,15 +64,16 @@ public class AbstractTest
         server.addConnector(connector);
     }
 
-    protected void prepareClient() throws Exception
+    protected void prepareClient()
     {
-        client = new HttpClient(new HttpClientTransportOverHTTP2(new HTTP2Client()), null);
+        http2Client = new HTTP2Client();
+        client = new HttpClient(new HttpClientTransportOverHTTP2(http2Client), null);
         QueuedThreadPool clientExecutor = new QueuedThreadPool();
         clientExecutor.setName("client");
-        client.setExecutor(clientExecutor);
+        this.client.setExecutor(clientExecutor);
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         if (client != null)

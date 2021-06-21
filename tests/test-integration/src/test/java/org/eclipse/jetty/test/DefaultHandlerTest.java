@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,9 +18,6 @@
 
 package org.eclipse.jetty.test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -28,6 +25,7 @@ import java.net.Socket;
 import java.net.URL;
 import java.net.URLConnection;
 
+import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpTester;
@@ -35,11 +33,16 @@ import org.eclipse.jetty.test.support.TestableJettyServer;
 import org.eclipse.jetty.test.support.rawhttp.HttpSocketImpl;
 import org.eclipse.jetty.test.support.rawhttp.HttpTesting;
 import org.eclipse.jetty.util.IO;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.eclipse.jetty.http.HttpFieldsMatchers.containsHeaderValue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Tests against the facilities within the TestSuite to ensure that the various
@@ -47,11 +50,10 @@ import org.junit.Test;
  */
 public class DefaultHandlerTest
 {
-    private boolean debug = false;
     private static TestableJettyServer server;
     private int serverPort;
 
-    @BeforeClass
+    @BeforeAll
     public static void setUpServer() throws Exception
     {
         server = new TestableJettyServer();
@@ -62,20 +64,21 @@ public class DefaultHandlerTest
         server.load();
         server.start();
     }
-    
-    @Before
-    public void testInit() {
+
+    @BeforeEach
+    public void testInit()
+    {
         serverPort = server.getServerPort();
     }
 
-    @AfterClass
+    @AfterAll
     public static void tearDownServer() throws Exception
     {
         server.stop();
     }
 
     @Test
-    public void testGET_URL() throws Exception
+    public void testGetURL() throws Exception
     {
         URL url = new URL("http://localhost:" + serverPort + "/tests/alpha.txt");
         URLConnection conn = url.openConnection();
@@ -85,12 +88,12 @@ public class DefaultHandlerTest
 
         String response = IO.toString(in);
         String expected = "ABCDEFGHIJKLMNOPQRSTUVWXYZ\n";
-        
-        Assert.assertEquals("Response",expected,response);
+
+        assertEquals(expected, response, "Response");
     }
 
     @Test
-    public void testGET_Raw() throws Exception
+    public void testGetRaw() throws Exception
     {
         StringBuffer rawRequest = new StringBuffer();
         rawRequest.append("GET /tests/alpha.txt HTTP/1.1\r\n");
@@ -98,87 +101,37 @@ public class DefaultHandlerTest
         rawRequest.append("Connection: close\r\n");
         rawRequest.append("\r\n");
 
-        Socket sock = new Socket(InetAddress.getLocalHost(),serverPort);
+        Socket sock = new Socket(InetAddress.getLocalHost(), serverPort);
         sock.setSoTimeout(5000); // 5 second timeout;
 
-        DEBUG("--raw-request--\n" + rawRequest);
         InputStream in = new ByteArrayInputStream(rawRequest.toString().getBytes());
 
         // Send request
-        IO.copy(in,sock.getOutputStream());
+        IO.copy(in, sock.getOutputStream());
 
         // Collect response
         String rawResponse = IO.toString(sock.getInputStream());
-        DEBUG("--raw-response--\n" + rawResponse);
-        
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
 
-        assertEquals(HttpStatus.OK_200, response.getStatus());
-
-        assertTrue(response.getContent().contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"));
+        assertThat(response.toString(), response.getStatus(), is(HttpStatus.OK_200));
+        assertThat(response.getContent(), containsString("ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"));
     }
 
-    /*
     @Test
-    public void testMultiGET_Raw() throws Exception
-    {
-        StringBuffer rawRequests = new StringBuffer();
-        rawRequests.append("GET /tests/alpha.txt HTTP/1.1\r\n");
-        rawRequests.append("Host: localhost\r\n");
-        rawRequests.append("\r\n");
-        rawRequests.append("GET /tests/R1.txt HTTP/1.1\r\n");
-        rawRequests.append("Host: localhost\r\n");
-        rawRequests.append("\r\n");
-        rawRequests.append("GET /tests/R1.txt HTTP/1.1\r\n");
-        rawRequests.append("Host: localhost\r\n");
-        rawRequests.append("Connection: close\r\n");
-        rawRequests.append("\r\n");
-
-        HttpTesting http = new HttpTesting(new HttpSocketImpl(),serverPort);
-      
-
-        List<HttpTester.Response> responses = http.requests(rawRequests);
-
-        HttpTester.Response response = responses.get(0);
-        assertEquals(HttpStatus.OK_200, response.getStatus());
-        assertTrue(response.getContent().contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"));
-
-        response = responses.get(1);
-        assertEquals(HttpStatus.OK_200, response.getStatus()); 
-        assertTrue(response.getContent().contains("Host=Default\nResource=R1\n"));
-
-        response = responses.get(2);
-        assertEquals(HttpStatus.OK_200, response.getStatus()); 
-        assertTrue(response.getContent().contains("Host=Default\nResource=R1\n"));
-    }
-    */
-    
-    
-    
-
-    @Test
-    public void testGET_HttpTesting() throws Exception
+    public void testGetHttpTesting() throws Exception
     {
         HttpTester.Request request = HttpTester.newRequest();
         request.setMethod("GET");
         request.setURI("/tests/alpha.txt");
-        request.put("Host","localhost");
-        request.put("Connection","close");
+        request.put("Host", "localhost");
+        request.put("Connection", "close");
         // request.setContent(null);
 
-        HttpTesting testing = new HttpTesting(new HttpSocketImpl(),serverPort);
+        HttpTesting testing = new HttpTesting(new HttpSocketImpl(), serverPort);
         HttpTester.Response response = testing.request(request);
 
-        assertEquals(HttpStatus.OK_200, response.getStatus());
-        assertEquals("text/plain", response.get("Content-Type"));
-        assertTrue(response.getContent().contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"));
-    }
-
-    private void DEBUG(String msg)
-    {
-        if (debug)
-        {
-            System.out.println(msg);
-        }
+        assertThat(response.toString(), response.getStatus(), is(HttpStatus.OK_200));
+        assertThat(response, containsHeaderValue(HttpHeader.CONTENT_TYPE, "text/plain"));
+        assertThat(response.getContent(), containsString("ABCDEFGHIJKLMNOPQRSTUVWXYZ\n"));
     }
 }

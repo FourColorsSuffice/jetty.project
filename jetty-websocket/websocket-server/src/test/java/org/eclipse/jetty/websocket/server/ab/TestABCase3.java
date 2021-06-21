@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import org.eclipse.jetty.toolchain.test.AdvancedRunner;
 import org.eclipse.jetty.util.log.StacklessLogging;
 import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.common.CloseInfo;
@@ -32,29 +31,27 @@ import org.eclipse.jetty.websocket.common.frames.BinaryFrame;
 import org.eclipse.jetty.websocket.common.frames.PingFrame;
 import org.eclipse.jetty.websocket.common.frames.TextFrame;
 import org.eclipse.jetty.websocket.common.test.Fuzzer;
-import org.junit.Ignore;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 
 /**
  * Test various RSV violations
  */
-@Ignore
-@RunWith(AdvancedRunner.class)
 public class TestABCase3 extends AbstractABCase
 {
     /**
      * Send small text frame, with RSV1 == true, with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_1() throws Exception
+    public void testCase31() throws Exception
     {
         WebSocketFrame send = new TextFrame().setPayload("small").setRsv1(true); // intentionally bad
 
         WebSocketFrame expect = new CloseInfo(StatusCode.PROTOCOL).asFrame();
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -65,10 +62,11 @@ public class TestABCase3 extends AbstractABCase
 
     /**
      * Send small text frame, send again with RSV2 == true, then ping, with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_2() throws Exception
+    public void testCase32() throws Exception
     {
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new TextFrame().setPayload("small"));
@@ -79,7 +77,8 @@ public class TestABCase3 extends AbstractABCase
         expect.add(new TextFrame().setPayload("small")); // echo on good frame
         expect.add(new CloseInfo(StatusCode.PROTOCOL).asFrame());
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -90,10 +89,11 @@ public class TestABCase3 extends AbstractABCase
 
     /**
      * Send small text frame, send again with (RSV1 & RSV2), then ping, with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_3() throws Exception
+    public void testCase33() throws Exception
     {
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new TextFrame().setPayload("small"));
@@ -104,7 +104,8 @@ public class TestABCase3 extends AbstractABCase
         expect.add(new TextFrame().setPayload("small")); // echo on good frame
         expect.add(new CloseInfo(StatusCode.PROTOCOL).asFrame());
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.PER_FRAME);
@@ -115,10 +116,11 @@ public class TestABCase3 extends AbstractABCase
 
     /**
      * Send small text frame, send again with (RSV3), then ping, with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_4() throws Exception
+    public void testCase34() throws Exception
     {
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new TextFrame().setPayload("small"));
@@ -129,7 +131,8 @@ public class TestABCase3 extends AbstractABCase
         expect.add(new TextFrame().setPayload("small")); // echo on good frame
         expect.add(new CloseInfo(StatusCode.PROTOCOL).asFrame());
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.SLOW);
@@ -141,13 +144,14 @@ public class TestABCase3 extends AbstractABCase
 
     /**
      * Send binary frame with (RSV3 & RSV1), with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_5() throws Exception
+    public void testCase35() throws Exception
     {
-        byte payload[] = new byte[8];
-        Arrays.fill(payload,(byte)0xFF);
+        byte[] payload = new byte[8];
+        Arrays.fill(payload, (byte)0xFF);
 
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new BinaryFrame().setPayload(payload).setRsv3(true).setRsv1(true)); // intentionally bad
@@ -155,7 +159,8 @@ public class TestABCase3 extends AbstractABCase
         List<WebSocketFrame> expect = new ArrayList<>();
         expect.add(new CloseInfo(StatusCode.PROTOCOL).asFrame());
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -166,13 +171,14 @@ public class TestABCase3 extends AbstractABCase
 
     /**
      * Send ping frame with (RSV3 & RSV2), with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_6() throws Exception
+    public void testCase36() throws Exception
     {
-        byte payload[] = new byte[8];
-        Arrays.fill(payload,(byte)0xFF);
+        byte[] payload = new byte[8];
+        Arrays.fill(payload, (byte)0xFF);
 
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new PingFrame().setPayload(payload).setRsv3(true).setRsv2(true)); // intentionally bad
@@ -180,7 +186,8 @@ public class TestABCase3 extends AbstractABCase
         List<WebSocketFrame> expect = new ArrayList<>();
         expect.add(new CloseInfo(StatusCode.PROTOCOL).asFrame());
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -191,13 +198,14 @@ public class TestABCase3 extends AbstractABCase
 
     /**
      * Send close frame with (RSV3 & RSV2 & RSV1), with no extensions defined.
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase3_7() throws Exception
+    public void testCase37() throws Exception
     {
-        byte payload[] = new byte[8];
-        Arrays.fill(payload,(byte)0xFF);
+        byte[] payload = new byte[8];
+        Arrays.fill(payload, (byte)0xFF);
 
         List<WebSocketFrame> send = new ArrayList<>();
         WebSocketFrame frame = new CloseInfo(StatusCode.NORMAL).asFrame();
@@ -209,7 +217,8 @@ public class TestABCase3 extends AbstractABCase
         List<WebSocketFrame> expect = new ArrayList<>();
         expect.add(new CloseInfo(StatusCode.PROTOCOL).asFrame());
 
-        try (Fuzzer fuzzer = new Fuzzer(this); StacklessLogging logging = new StacklessLogging(Parser.class))
+        try (Fuzzer fuzzer = new Fuzzer(this);
+             StacklessLogging logging = new StacklessLogging(Parser.class))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);

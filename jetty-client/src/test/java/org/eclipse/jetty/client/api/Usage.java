@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -41,15 +41,19 @@ import org.eclipse.jetty.client.util.OutputStreamContentProvider;
 import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.util.FuturePromise;
-import org.junit.Assert;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
-@Ignore
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@Disabled
+// @checkstyle-disable-check : AvoidEscapedUnicodeCharactersCheck
 public class Usage
 {
     @Test
-    public void testGETBlocking_ShortAPI() throws Exception
+    public void testGETBlockingShortAPI() throws Exception
     {
         HttpClient client = new HttpClient();
         client.start();
@@ -58,7 +62,7 @@ public class Usage
         ContentResponse response = client.GET("http://localhost:8080/foo");
 
         // Verify response status code
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
 
         // Access headers
         response.getHeaders().get("Content-Length");
@@ -72,18 +76,18 @@ public class Usage
 
         // Address must be provided, it's the only thing non defaultable
         Request request = client.newRequest("localhost", 8080)
-                .scheme("https")
-                .method(HttpMethod.GET)
-                .path("/uri")
-                .version(HttpVersion.HTTP_1_1)
-                .param("a", "b")
-                .header("X-Header", "Y-value")
-                .agent("Jetty HTTP Client")
-                .idleTimeout(5000, TimeUnit.MILLISECONDS)
-                .timeout(20, TimeUnit.SECONDS);
+            .scheme("https")
+            .method(HttpMethod.GET)
+            .path("/uri")
+            .version(HttpVersion.HTTP_1_1)
+            .param("a", "b")
+            .header("X-Header", "Y-value")
+            .agent("Jetty HTTP Client")
+            .idleTimeout(5000, TimeUnit.MILLISECONDS)
+            .timeout(20, TimeUnit.SECONDS);
 
         ContentResponse response = request.send();
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -96,28 +100,28 @@ public class Usage
         final CountDownLatch latch = new CountDownLatch(1);
 
         client.newRequest("localhost", 8080)
-                // Send asynchronously
-                .send(new Response.CompleteListener()
-        {
-            @Override
-            public void onComplete(Result result)
+            // Send asynchronously
+            .send(new Response.CompleteListener()
             {
-                if (result.isSucceeded())
+                @Override
+                public void onComplete(Result result)
                 {
-                    responseRef.set(result.getResponse());
-                    latch.countDown();
+                    if (result.isSucceeded())
+                    {
+                        responseRef.set(result.getResponse());
+                        latch.countDown();
+                    }
                 }
-            }
-        });
+            });
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
         Response response = responseRef.get();
-        Assert.assertNotNull(response);
-        Assert.assertEquals(200, response.getStatus());
+        assertNotNull(response);
+        assertEquals(200, response.getStatus());
     }
 
     @Test
-    public void testPOSTWithParams_ShortAPI() throws Exception
+    public void testPOSTWithParamsShortAPI() throws Exception
     {
         HttpClient client = new HttpClient();
         client.start();
@@ -133,15 +137,15 @@ public class Usage
         client.start();
 
         Response response = client.newRequest("localhost", 8080)
-                // Add a request listener
-                .listener(new Request.Listener.Adapter()
+            // Add a request listener
+            .listener(new Request.Listener.Adapter()
+            {
+                @Override
+                public void onSuccess(Request request)
                 {
-                    @Override
-                    public void onSuccess(Request request)
-                    {
-                    }
-                }).send();
-        Assert.assertEquals(200, response.getStatus());
+                }
+            }).send();
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -163,8 +167,8 @@ public class Usage
             // Wait for the response on the listener
             Response response = listener.get(5, TimeUnit.SECONDS);
 
-            Assert.assertNotNull(response);
-            Assert.assertEquals(200, response.getStatus());
+            assertNotNull(response);
+            assertEquals(200, response.getStatus());
         }
     }
 
@@ -177,7 +181,7 @@ public class Usage
         // One liner to upload files
         Response response = client.newRequest("localhost", 8080).file(Paths.get("file_to_upload.txt")).send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -192,7 +196,7 @@ public class Usage
         // Send a request for the cookie's domain
         Response response = client.newRequest("host", 8080).send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -209,7 +213,7 @@ public class Usage
         // One liner to send the request
         ContentResponse response = client.newRequest(uri).timeout(5, TimeUnit.SECONDS).send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -222,12 +226,12 @@ public class Usage
         client.setFollowRedirects(false);
 
         ContentResponse response = client.newRequest("localhost", 8080)
-                // Follow redirects for this request only
-                .followRedirects(true)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            // Follow redirects for this request only
+            .followRedirects(true)
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -273,11 +277,11 @@ public class Usage
         InputStream input = new ByteArrayInputStream("content".getBytes(StandardCharsets.UTF_8));
 
         ContentResponse response = client.newRequest("localhost", 8080)
-                // Provide the content as InputStream
-                .content(new InputStreamContentProvider(input))
-                .send();
+            // Provide the content as InputStream
+            .content(new InputStreamContentProvider(input))
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -290,15 +294,15 @@ public class Usage
         try (OutputStream output = content.getOutputStream())
         {
             client.newRequest("localhost", 8080)
-                    .content(content)
-                    .send(new Response.CompleteListener()
+                .content(content)
+                .send(new Response.CompleteListener()
+                {
+                    @Override
+                    public void onComplete(Result result)
                     {
-                        @Override
-                        public void onComplete(Result result)
-                        {
-                            Assert.assertEquals(200, result.getResponse().getStatus());
-                        }
-                    });
+                        assertEquals(200, result.getResponse().getStatus());
+                    }
+                });
 
             output.write(new byte[1024]);
             output.write(new byte[512]);
@@ -319,16 +323,16 @@ public class Usage
         final AtomicBoolean sendContent = new AtomicBoolean(true);
         DeferredContentProvider async = new DeferredContentProvider(ByteBuffer.wrap(new byte[]{0, 1, 2}));
         client.newRequest("localhost", 8080)
-                .content(async)
-                .send(new Response.Listener.Adapter()
+            .content(async)
+            .send(new Response.Listener.Adapter()
+            {
+                @Override
+                public void onBegin(Response response)
                 {
-                    @Override
-                    public void onBegin(Response response)
-                    {
-                        if (response.getStatus() == 404)
-                            sendContent.set(false);
-                    }
-                });
+                    if (response.getStatus() == 404)
+                        sendContent.set(false);
+                }
+            });
 
         Thread.sleep(100);
 

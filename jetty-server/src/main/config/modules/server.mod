@@ -1,3 +1,5 @@
+# DO NOT EDIT - See: https://www.eclipse.org/jetty/documentation/current/startup-modules.html
+
 [description]
 Enables the core Jetty server on the classpath.
 
@@ -6,6 +8,10 @@ jvm
 ext
 resources
 logging
+
+[depend]
+threadpool
+bytebufferpool
 
 [lib]
 lib/servlet-api-3.1.jar
@@ -19,17 +25,10 @@ lib/jetty-io-${jetty.version}.jar
 [xml]
 etc/jetty.xml
 
+[jpms]
+patch-module: servlet.api=lib/jetty-schemas-3.1.jar
+
 [ini-template]
-### ThreadPool configuration
-## Minimum number of threads
-# jetty.threadPool.minThreads=10
-
-## Maximum number of threads
-# jetty.threadPool.maxThreads=200
-
-## Thread idle timeout (in milliseconds)
-# jetty.threadPool.idleTimeout=60000
-
 ### Common HTTP configuration
 ## Scheme to use to build URIs for secure redirects
 # jetty.httpConfig.secureScheme=https
@@ -56,7 +55,7 @@ etc/jetty.xml
 # jetty.httpConfig.sendDateHeader=false
 
 ## Max per-connection header cache size (in nodes)
-# jetty.httpConfig.headerCacheSize=512
+# jetty.httpConfig.headerCacheSize=1024
 
 ## Whether, for requests with content, delay dispatch until some content has arrived
 # jetty.httpConfig.delayDispatchUntilContent=true
@@ -64,11 +63,17 @@ etc/jetty.xml
 ## Maximum number of error dispatches to prevent looping
 # jetty.httpConfig.maxErrorDispatches=10
 
-## Maximum time to block in total for a blocking IO operation (default -1 is to use idleTimeout on progress)
-# jetty.httpConfig.blockingTimeout=-1
+## Cookie compliance mode for parsing request Cookie headers: RFC2965, RFC6265
+# jetty.httpConfig.requestCookieCompliance=RFC6265
 
-## Cookie compliance mode of: RFC2965, RFC6265
-# jetty.httpConfig.cookieCompliance=RFC6265
+## Cookie compliance mode for generating response Set-Cookie: RFC2965, RFC6265
+# jetty.httpConfig.responseCookieCompliance=RFC6265
+
+## multipart/form-data compliance mode of: LEGACY(slow), RFC7578(fast)
+# jetty.httpConfig.multiPartFormDataCompliance=LEGACY
+
+## Relative Redirect Locations allowed
+# jetty.httpConfig.relativeRedirectAllowed=false
 
 ### Server configuration
 ## Whether ctrl+c on the console gracefully stops the Jetty server
@@ -83,9 +88,7 @@ etc/jetty.xml
 ## Dump the state of the Jetty server, components, and webapps before shutdown
 # jetty.server.dumpBeforeStop=false
 
-## The name to uniquely identify this server instance
-#jetty.defaultSessionIdManager.workerName=node1
-
-## How frequently sessions are inspected
-#jetty.sessionInspectionInterval.seconds=60
-
+## Scheduler Configuration
+# jetty.scheduler.name=
+# jetty.scheduler.deamon=false
+# jetty.scheduler.threads=-1

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -31,7 +31,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -44,6 +43,7 @@ import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpMethod;
+import org.eclipse.jetty.http.HttpScheme;
 import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.PushBuilder;
@@ -105,10 +105,12 @@ public class PushCacheFilter implements Filter
         String ports = config.getInitParameter("ports");
         if (ports != null)
             for (String p : StringUtil.csvSplit(ports))
+            {
                 _ports.add(Integer.parseInt(p));
+            }
 
         _useQueryInKey = Boolean.parseBoolean(config.getInitParameter("useQueryInKey"));
-        
+
         // Expose for JMX.
         config.getServletContext().setAttribute(config.getFilterName(), this);
 
@@ -123,8 +125,8 @@ public class PushCacheFilter implements Filter
         Request jettyRequest = Request.getBaseRequest(request);
 
         if (HttpVersion.fromString(request.getProtocol()).getVersion() < 20 ||
-                !HttpMethod.GET.is(request.getMethod()) ||
-                !jettyRequest.isPushSupported())
+            !HttpMethod.GET.is(request.getMethod()) ||
+            !jettyRequest.isPushSupported())
         {
             chain.doFilter(req, resp);
             return;
@@ -175,16 +177,22 @@ public class PushCacheFilter implements Filter
             String host = referrerURI.getHost();
             int port = referrerURI.getPort();
             if (port <= 0)
-                port = request.isSecure() ? 443 : 80;
+            {
+                String scheme = referrerURI.getScheme();
+                if (scheme != null)
+                    port = HttpScheme.HTTPS.is(scheme) ? 443 : 80;
+                else
+                    port = request.isSecure() ? 443 : 80;
+            }
 
-            boolean referredFromHere = _hosts.size() > 0 ? _hosts.contains(host) : host.equals(request.getServerName());
-            referredFromHere &= _ports.size() > 0 ? _ports.contains(port) : port == request.getServerPort();
+            boolean referredFromHere = !_hosts.isEmpty() ? _hosts.contains(host) : host.equals(request.getServerName());
+            referredFromHere &= !_ports.isEmpty() ? _ports.contains(port) : port == request.getServerPort();
 
             if (referredFromHere)
             {
                 if (HttpMethod.GET.is(request.getMethod()))
                 {
-                    String referrerPath = _useQueryInKey?referrerURI.getPathQuery():referrerURI.getPath();
+                    String referrerPath = _useQueryInKey ? referrerURI.getPathQuery() : referrerURI.getPath();
                     if (referrerPath == null)
                         referrerPath = "/";
                     if (referrerPath.startsWith(request.getContextPath() + "/"))

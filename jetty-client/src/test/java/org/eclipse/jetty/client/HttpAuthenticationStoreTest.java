@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,8 +25,9 @@ import org.eclipse.jetty.client.api.AuthenticationStore;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.util.BasicAuthentication;
 import org.eclipse.jetty.client.util.DigestAuthentication;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class HttpAuthenticationStoreTest
 {
@@ -41,7 +42,7 @@ public class HttpAuthenticationStoreTest
         store.addAuthentication(new BasicAuthentication(uri1, realm, "user", "password"));
 
         Authentication result = store.findAuthentication("Basic", uri2, realm);
-        Assert.assertNotNull(result);
+        assertNotNull(result);
 
         store.clearAuthentications();
 
@@ -50,7 +51,7 @@ public class HttpAuthenticationStoreTest
         uri2 = URI.create("https://server:443/path");
         store.addAuthentication(new DigestAuthentication(uri1, realm, "user", "password"));
         result = store.findAuthentication("Digest", uri2, realm);
-        Assert.assertNotNull(result);
+        assertNotNull(result);
     }
 
     @Test
@@ -74,7 +75,7 @@ public class HttpAuthenticationStoreTest
 
         URI uri2 = URI.create("http://host");
         Authentication.Result result = store.findAuthenticationResult(uri2);
-        Assert.assertNotNull(result);
+        assertNotNull(result);
 
         store.clearAuthenticationResults();
 
@@ -95,6 +96,6 @@ public class HttpAuthenticationStoreTest
 
         uri2 = URI.create("https://server:443/path");
         result = store.findAuthenticationResult(uri2);
-        Assert.assertNotNull(result);
+        assertNotNull(result);
     }
 }

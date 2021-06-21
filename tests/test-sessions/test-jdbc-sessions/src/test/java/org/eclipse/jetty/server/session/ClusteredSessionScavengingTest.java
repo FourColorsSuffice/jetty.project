@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,56 +18,26 @@
 
 package org.eclipse.jetty.server.session;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * ClusteredSessionScavengingTest
  */
+@Testcontainers(disabledWithoutDocker = true)
 public class ClusteredSessionScavengingTest extends AbstractClusteredSessionScavengingTest
 {
-    public void pause (int scavenge)
-    {
-        //Wait a little longer for the scavenging to happen with the JDBCSession handling.
-        //The scavenging happens at about +10% longer than the scavenge interval, so that
-        //not all nodes sync up and start trying to scavenge for the same sessions at the
-        //same time.
-        //So, we wait 3 times the scavenging interval.
-        try
-        {
-            Thread.sleep(scavenge * 3000);
-        }
-        catch (InterruptedException e)
-        {
-            e.printStackTrace();
-        }
-    }
-
-    /** 
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
     public SessionDataStoreFactory createSessionDataStoreFactory()
     {
-       return JdbcTestHelper.newSessionDataStoreFactory();
+        return JdbcTestHelper.newSessionDataStoreFactory();
     }
 
-    @Test
-    public void testNoScavenging() throws Exception
-    {
-        super.testNoScavenging();
-    }
-    
-    
-    @Test
-    public void testLocalSessionsScavenging() throws Exception
-    {
-        super.testLocalSessionsScavenging();
-    }
-
-    
-    @After
-    public void tearDown() throws Exception 
+    @AfterEach
+    public void tearDown() throws Exception
     {
         JdbcTestHelper.shutdown(null);
     }

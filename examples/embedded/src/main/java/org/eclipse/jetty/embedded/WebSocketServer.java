@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.embedded;
 
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
-import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketMessage;
 import org.eclipse.jetty.websocket.api.annotations.WebSocket;
@@ -41,7 +40,7 @@ public class WebSocketServer
     public static class EchoSocket
     {
         @OnWebSocketMessage
-        public void onMessage( Session session, String message )
+        public void onMessage(Session session, String message)
         {
             session.getRemote().sendStringByFuture(message);
         }
@@ -54,27 +53,32 @@ public class WebSocketServer
     public static class EchoServlet extends WebSocketServlet
     {
         @Override
-        public void configure( WebSocketServletFactory factory )
+        public void configure(WebSocketServletFactory factory)
         {
             // Register the echo websocket with the basic WebSocketCreator
             factory.register(EchoSocket.class);
         }
     }
 
-    public static void main( String[] args ) throws Exception
+    public static Server createServer(int port)
     {
-        Server server = new Server(8080);
+        Server server = new Server(port);
 
-        ServletContextHandler context = new ServletContextHandler(
-                ServletContextHandler.SESSIONS);
+        ServletContextHandler context = new ServletContextHandler();
         context.setContextPath("/");
         server.setHandler(context);
 
         // Add the echo socket servlet to the /echo path map
-        context.addServlet(new ServletHolder(EchoServlet.class), "/echo");
+        context.addServlet(EchoServlet.class, "/echo");
+        return server;
+    }
+
+    public static void main(String[] args) throws Exception
+    {
+        int port = ExampleUtil.getPort(args, "jetty.http.port", 8080);
+        Server server = createServer(port);
 
         server.start();
-        context.dumpStdErr();
         server.join();
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,8 +17,6 @@
 //
 
 package org.eclipse.jetty.websocket.common.ab;
-
-import static org.hamcrest.Matchers.is;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -38,19 +36,24 @@ import org.eclipse.jetty.websocket.common.test.ByteBufferAssert;
 import org.eclipse.jetty.websocket.common.test.IncomingFramesCapture;
 import org.eclipse.jetty.websocket.common.test.UnitGenerator;
 import org.eclipse.jetty.websocket.common.test.UnitParser;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class TestABCase2
 {
-    WebSocketPolicy policy = new WebSocketPolicy(WebSocketBehavior.CLIENT);
+    private WebSocketPolicy policy = new WebSocketPolicy(WebSocketBehavior.CLIENT);
 
     @Test
-    public void testGenerate125OctetPingCase2_4()
+    public void testGenerate125OctetPingCase24()
     {
         byte[] bytes = new byte[125];
 
-        for ( int i = 0 ; i < bytes.length ; ++i )
+        for (int i = 0; i < bytes.length; ++i)
         {
             bytes[i] = Integer.valueOf(Integer.toOctalString(i)).byteValue();
         }
@@ -62,7 +65,7 @@ public class TestABCase2
         ByteBuffer expected = ByteBuffer.allocate(bytes.length + 32);
 
         expected.put(new byte[]
-                { (byte)0x89 });
+            {(byte)0x89});
 
         byte b = 0x00; // no masking
         b |= bytes.length & 0x7F;
@@ -71,13 +74,13 @@ public class TestABCase2
 
         expected.flip();
 
-        ByteBufferAssert.assertEquals("buffers do not match",expected,actual);
+        ByteBufferAssert.assertEquals("buffers do not match", expected, actual);
     }
 
     @Test
-    public void testGenerateBinaryPingCase2_3()
+    public void testGenerateBinaryPingCase23()
     {
-        byte[] bytes = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+        byte[] bytes = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 
         PingFrame pingFrame = new PingFrame().setPayload(bytes);
 
@@ -86,7 +89,7 @@ public class TestABCase2
         ByteBuffer expected = ByteBuffer.allocate(32);
 
         expected.put(new byte[]
-                { (byte)0x89 });
+            {(byte)0x89});
 
         byte b = 0x00; // no masking
         b |= bytes.length & 0x7F;
@@ -95,12 +98,11 @@ public class TestABCase2
 
         expected.flip();
 
-        ByteBufferAssert.assertEquals("buffers do not match",expected,actual);
+        ByteBufferAssert.assertEquals("buffers do not match", expected, actual);
     }
 
-
     @Test
-    public void testGenerateEmptyPingCase2_1()
+    public void testGenerateEmptyPingCase21()
     {
         WebSocketFrame pingFrame = new PingFrame();
 
@@ -109,15 +111,15 @@ public class TestABCase2
         ByteBuffer expected = ByteBuffer.allocate(5);
 
         expected.put(new byte[]
-                { (byte)0x89, (byte)0x00 });
+            {(byte)0x89, (byte)0x00});
 
         expected.flip();
 
-        ByteBufferAssert.assertEquals("buffers do not match",expected,actual);
+        ByteBufferAssert.assertEquals(expected, actual, "buffers do not match");
     }
 
     @Test
-    public void testGenerateHelloPingCase2_2()
+    public void testGenerateHelloPingCase22()
     {
         String message = "Hello, world!";
         byte[] messageBytes = StringUtil.getUtf8Bytes(message);
@@ -129,7 +131,7 @@ public class TestABCase2
         ByteBuffer expected = ByteBuffer.allocate(32);
 
         expected.put(new byte[]
-                { (byte)0x89 });
+            {(byte)0x89});
 
         byte b = 0x00; // no masking
         b |= messageBytes.length & 0x7F;
@@ -138,37 +140,36 @@ public class TestABCase2
 
         expected.flip();
 
-        ByteBufferAssert.assertEquals("buffers do not match",expected,actual);
+        ByteBufferAssert.assertEquals(expected, actual, "buffers do not match");
     }
 
-    @Test( expected=WebSocketException.class )
-    public void testGenerateOversizedBinaryPingCase2_5_A()
-    {
-        byte[] bytes = new byte[126];
-        Arrays.fill(bytes,(byte)0x00);
-
-        PingFrame pingFrame = new PingFrame();
-        pingFrame.setPayload(ByteBuffer.wrap(bytes)); // should throw exception
-    }
-
-    @Test( expected=WebSocketException.class )
-    public void testGenerateOversizedBinaryPingCase2_5_B()
+    @Test
+    public void testGenerateOversizedBinaryPingCase25A()
     {
         byte[] bytes = new byte[126];
         Arrays.fill(bytes, (byte)0x00);
 
         PingFrame pingFrame = new PingFrame();
-        pingFrame.setPayload(ByteBuffer.wrap(bytes)); // should throw exception
-
-        // FIXME: Remove? UnitGenerator.generate(pingFrame);
+        assertThrows(WebSocketException.class, () -> pingFrame.setPayload(ByteBuffer.wrap(bytes)));
     }
 
     @Test
-    public void testParse125OctetPingCase2_4()
+    public void testGenerateOversizedBinaryPingCase25B()
+    {
+        byte[] bytes = new byte[126];
+        Arrays.fill(bytes, (byte)0x00);
+
+        PingFrame pingFrame = new PingFrame();
+        assertThrows(WebSocketException.class, () ->
+            pingFrame.setPayload(ByteBuffer.wrap(bytes)));
+    }
+
+    @Test
+    public void testParse125OctetPingCase24()
     {
         byte[] bytes = new byte[125];
 
-        for ( int i = 0 ; i < bytes.length ; ++i )
+        for (int i = 0; i < bytes.length; ++i)
         {
             bytes[i] = Integer.valueOf(Integer.toOctalString(i)).byteValue();
         }
@@ -176,7 +177,7 @@ public class TestABCase2
         ByteBuffer expected = ByteBuffer.allocate(bytes.length + 32);
 
         expected.put(new byte[]
-                { (byte)0x89 });
+            {(byte)0x89});
 
         byte b = 0x00; // no masking
         b |= bytes.length & 0x7F;
@@ -190,23 +191,22 @@ public class TestABCase2
         parser.setIncomingFramesHandler(capture);
         parser.parse(expected);
 
-        capture.assertNoErrors();
-        capture.assertHasFrame(OpCode.PING,1);
+        capture.assertHasFrame(OpCode.PING, 1);
 
         Frame pActual = capture.getFrames().poll();
-        Assert.assertThat("PingFrame.payloadLength",pActual.getPayloadLength(),is(bytes.length));
-        Assert.assertEquals("PingFrame.payload",bytes.length,pActual.getPayloadLength());
+        assertThat("PingFrame.payloadLength", pActual.getPayloadLength(), is(bytes.length));
+        assertEquals(bytes.length, pActual.getPayloadLength(), "PingFrame.payload");
     }
 
     @Test
-    public void testParseBinaryPingCase2_3()
+    public void testParseBinaryPingCase23()
     {
-        byte[] bytes = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+        byte[] bytes = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 
         ByteBuffer expected = ByteBuffer.allocate(32);
 
         expected.put(new byte[]
-                { (byte)0x89 });
+            {(byte)0x89});
 
         byte b = 0x00; // no masking
         b |= bytes.length & 0x7F;
@@ -220,21 +220,20 @@ public class TestABCase2
         parser.setIncomingFramesHandler(capture);
         parser.parse(expected);
 
-        capture.assertNoErrors();
-        capture.assertHasFrame(OpCode.PING,1);
+        capture.assertHasFrame(OpCode.PING, 1);
 
         Frame pActual = capture.getFrames().poll();
-        Assert.assertThat("PingFrame.payloadLength",pActual.getPayloadLength(),is(bytes.length));
-        Assert.assertEquals("PingFrame.payload",bytes.length,pActual.getPayloadLength());
+        assertThat("PingFrame.payloadLength", pActual.getPayloadLength(), is(bytes.length));
+        assertEquals(bytes.length, pActual.getPayloadLength(), "PingFrame.payload");
     }
 
     @Test
-    public void testParseEmptyPingCase2_1()
+    public void testParseEmptyPingCase21()
     {
         ByteBuffer expected = ByteBuffer.allocate(5);
 
         expected.put(new byte[]
-                { (byte)0x89, (byte)0x00 });
+            {(byte)0x89, (byte)0x00});
 
         expected.flip();
 
@@ -243,16 +242,15 @@ public class TestABCase2
         parser.setIncomingFramesHandler(capture);
         parser.parse(expected);
 
-        capture.assertNoErrors();
-        capture.assertHasFrame(OpCode.PING,1);
+        capture.assertHasFrame(OpCode.PING, 1);
 
         Frame pActual = capture.getFrames().poll();
-        Assert.assertThat("PingFrame.payloadLength",pActual.getPayloadLength(),is(0));
-        Assert.assertEquals("PingFrame.payload",0,pActual.getPayloadLength());
+        assertThat("PingFrame.payloadLength", pActual.getPayloadLength(), is(0));
+        assertEquals(0, pActual.getPayloadLength(), "PingFrame.payload");
     }
 
     @Test
-    public void testParseHelloPingCase2_2()
+    public void testParseHelloPingCase22()
     {
         String message = "Hello, world!";
         byte[] messageBytes = message.getBytes();
@@ -260,7 +258,7 @@ public class TestABCase2
         ByteBuffer expected = ByteBuffer.allocate(32);
 
         expected.put(new byte[]
-                { (byte)0x89 });
+            {(byte)0x89});
 
         byte b = 0x00; // no masking
         b |= messageBytes.length & 0x7F;
@@ -274,19 +272,18 @@ public class TestABCase2
         parser.setIncomingFramesHandler(capture);
         parser.parse(expected);
 
-        capture.assertNoErrors();
-        capture.assertHasFrame(OpCode.PING,1);
+        capture.assertHasFrame(OpCode.PING, 1);
 
         Frame pActual = capture.getFrames().poll();
-        Assert.assertThat("PingFrame.payloadLength",pActual.getPayloadLength(),is(message.length()));
-        Assert.assertEquals("PingFrame.payload",message.length(),pActual.getPayloadLength());
+        assertThat("PingFrame.payloadLength", pActual.getPayloadLength(), is(message.length()));
+        assertEquals(message.length(), pActual.getPayloadLength(), "PingFrame.payload");
     }
 
     @Test
-    public void testParseOversizedBinaryPingCase2_5()
+    public void testParseOversizedBinaryPingCase25()
     {
         byte[] bytes = new byte[126];
-        Arrays.fill(bytes,(byte)0x00);
+        Arrays.fill(bytes, (byte)0x00);
 
         ByteBuffer expected = ByteBuffer.allocate(bytes.length + Generator.MAX_HEADER_LENGTH);
 
@@ -315,9 +312,8 @@ public class TestABCase2
         UnitParser parser = new UnitParser(policy);
         IncomingFramesCapture capture = new IncomingFramesCapture();
         parser.setIncomingFramesHandler(capture);
-        parser.parseQuietly(expected);
 
-        Assert.assertEquals("error should be returned for too large of ping payload",1,capture.getErrorCount(ProtocolException.class));
+        ProtocolException x = assertThrows(ProtocolException.class, () -> parser.parseQuietly(expected));
+        assertThat(x.getMessage(), containsString("Invalid control frame payload length"));
     }
-
 }

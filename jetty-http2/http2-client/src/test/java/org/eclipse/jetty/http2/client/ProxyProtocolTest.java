@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,7 +25,6 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,6 +38,7 @@ import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.Stream;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.server.HTTP2CServerConnectionFactory;
+import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.ProxyConnectionFactory;
@@ -48,10 +48,16 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.Promise;
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.TypeUtil;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ProxyProtocolTest
 {
@@ -73,7 +79,7 @@ public class ProxyProtocolTest
         server.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         if (server != null)
@@ -81,7 +87,7 @@ public class ProxyProtocolTest
     }
 
     @Test
-    public void test_PROXY_GET_v1() throws Exception
+    public void testProxyGetV1() throws Exception
     {
         startServer(new AbstractHandler()
         {
@@ -90,12 +96,12 @@ public class ProxyProtocolTest
             {
                 try
                 {
-                    Assert.assertEquals("1.2.3.4",request.getRemoteAddr());
-                    Assert.assertEquals(1111,request.getRemotePort());
-                    Assert.assertEquals("5.6.7.8",request.getLocalAddr());
-                    Assert.assertEquals(2222,request.getLocalPort());
+                    assertEquals("1.2.3.4", request.getRemoteAddr());
+                    assertEquals(1111, request.getRemotePort());
+                    assertEquals("5.6.7.8", request.getLocalAddr());
+                    assertEquals(2222, request.getLocalPort());
                 }
-                catch(Throwable th)
+                catch (Throwable th)
                 {
                     th.printStackTrace();
                     response.setStatus(500);
@@ -124,16 +130,16 @@ public class ProxyProtocolTest
             public void onHeaders(Stream stream, HeadersFrame frame)
             {
                 MetaData.Response response = (MetaData.Response)frame.getMetaData();
-                Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+                assertEquals(HttpStatus.OK_200, response.getStatus());
                 if (frame.isEndStream())
                     latch.countDown();
             }
         });
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
-    
+
     @Test
-    public void test_PROXY_GET_v2() throws Exception
+    public void testProxyGetV2() throws Exception
     {
         startServer(new AbstractHandler()
         {
@@ -142,12 +148,16 @@ public class ProxyProtocolTest
             {
                 try
                 {
-                    Assert.assertEquals("10.0.0.4",request.getRemoteAddr());
-                    Assert.assertEquals(33824,request.getRemotePort());
-                    Assert.assertEquals("10.0.0.4",request.getLocalAddr());
-                    Assert.assertEquals(8888,request.getLocalPort());
+                    assertEquals("10.0.0.4", request.getRemoteAddr());
+                    assertEquals(33824, request.getRemotePort());
+                    assertEquals("10.0.0.5", request.getLocalAddr());
+                    assertEquals(8888, request.getLocalPort());
+                    EndPoint endPoint = baseRequest.getHttpChannel().getEndPoint();
+                    assertThat(endPoint, instanceOf(ProxyConnectionFactory.ProxyEndPoint.class));
+                    ProxyConnectionFactory.ProxyEndPoint proxyEndPoint = (ProxyConnectionFactory.ProxyEndPoint)endPoint;
+                    assertNotNull(proxyEndPoint.getAttribute(ProxyConnectionFactory.TLS_VERSION));
                 }
-                catch(Throwable th)
+                catch (Throwable th)
                 {
                     th.printStackTrace();
                     response.setStatus(500);
@@ -156,7 +166,9 @@ public class ProxyProtocolTest
             }
         });
 
-        String request1 = "0D0A0D0A000D0A515549540A211100140A0000040A000004842022B82000050000000000";
+        // String is: "MAGIC VER|CMD FAM|PROT LEN SRC_ADDR DST_ADDR SRC_PORT DST_PORT PP2_TYPE_SSL LEN CLIENT VERIFY PP2_SUBTYPE_SSL_VERSION LEN 1.2"
+        String request1 = "0D0A0D0A000D0A515549540A 21 11 001A 0A000004 0A000005 8420 22B8 20 000B 01 00000000 21 0003 312E32";
+        request1 = StringUtil.strip(request1, " ");
         SocketChannel channel = SocketChannel.open();
         channel.connect(new InetSocketAddress("localhost", connector.getLocalPort()));
         channel.write(ByteBuffer.wrap(TypeUtil.fromHexString(request1)));
@@ -176,11 +188,11 @@ public class ProxyProtocolTest
             public void onHeaders(Stream stream, HeadersFrame frame)
             {
                 MetaData.Response response = (MetaData.Response)frame.getMetaData();
-                Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+                assertEquals(HttpStatus.OK_200, response.getStatus());
                 if (frame.isEndStream())
                     latch.countDown();
             }
         });
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 }

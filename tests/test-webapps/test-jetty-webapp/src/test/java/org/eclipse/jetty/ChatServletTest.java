@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,26 +18,22 @@
 
 package org.eclipse.jetty;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-
+import com.acme.ChatServlet;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.servlet.ServletTester;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import com.acme.ChatServlet;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
-@RunWith(JUnit4.class)
 public class ChatServletTest
 {
 
     private final ServletTester tester = new ServletTester();
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception
     {
         tester.setContextPath("/");
@@ -47,7 +43,7 @@ public class ChatServletTest
         tester.start();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception
     {
         tester.stop();

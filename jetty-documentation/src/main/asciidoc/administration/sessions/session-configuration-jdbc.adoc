@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,16 +14,17 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[configuring-sessions-jdbc]]
 
-=== Clustered Session Management: JDBC
+=== Persistent Sessions: JDBC
 
 ==== Enabling JDBC Sessions
 
 When using the Jetty distribution, you will first need to enable the `session-store-jdbc` link:#startup-modules[module] for your link:#startup-base-and-home[Jetty base] using the `--add-to-start` argument on the command line.
 
-[source, screen, subs="{sub-order}"]
+[source, screen]
 ----
 $ java -jar ../start.jar --create-startd
 INFO : Base directory was modified
@@ -46,11 +48,11 @@ In addition to adding these modules to the classpath of the server, several ini 
 
 Opening the `start.d/session-store-jdbc.ini` will show a list of all the configurable options for the JDBC module:
 
-[source, screen, subs="{sub-order}"]
+[source, screen]
 ----
 # ---------------------------------------
 # Module: session-store-jdbc
-# Enables JDBC peristent/distributed session storage.
+# Enables JDBC persistent/distributed session storage.
 # ---------------------------------------
 --module=session-store-jdbc
 
@@ -83,6 +85,16 @@ db-connection-type=datasource
 #jetty.session.jdbc.schema.maxIntervalColumn=maxInterval
 #jetty.session.jdbc.schema.mapColumn=map
 #jetty.session.jdbc.schema.table=JettySessions
+# Optional name of the schema used to identify where the session table is defined in the database: 
+#  "" - empty string, no schema name 
+#  "INFERRED" - special string meaning infer from the current db connection
+#  name - a string defined by the user
+#jetty.session.jdbc.schema.schemaName
+# Optional name of the catalog used to identify where the session table is defined in the database: 
+#  "" - empty string, no catalog name
+#  "INFERRED" - special string meaning infer from the current db connection
+#  name - a string defined by the user
+#jetty.session.jdbc.schema.catalogName
 ----
 
 jetty.session.gracePeriod.seconds::
@@ -91,14 +103,13 @@ jetty.session.savePeriod.seconds=0::
 By default whenever the last concurrent request leaves a session, that session is always persisted via the `SessionDataStore`, even if the only thing that changed on the session is its updated last access time.
 A non-zero value means that the `SessionDataStore` will skip persisting the session if only the access time changed, and it has been less than `savePeriod` seconds since the last time the session was written.
 +
-____
 [NOTE]
+====
 Configuring `savePeriod` is useful if your persistence technology is very slow/costly for writes.
 In a clustered environment, there is a risk of the last access time of the session being out-of-date in the shared store for up to `savePeriod` seconds.
 This allows the possibility that a node may prematurely expire the session, even though it is in use by another node.
 Thorough consideration of the `maxIdleTime` of the session when setting the `savePeriod` is imperative - there is no point in setting a `savePeriod` that is larger than the `maxIdleTime`.
-____
-
+====
 db-connection-type::
 Set to either `datasource` or `driver` depending on the type of connection being used.
 jetty.session.jdbc.datasourceName::
@@ -109,4 +120,14 @@ jetty.session.jdbc.driverUrl::
 Url of the database which includes the driver type, host name and port, service name and any specific attributes unique to the database, such as a username.
 As an example, here is a mysql connection with the username appended: `jdbc:mysql://127.0.0.1:3306/sessions?user=sessionsadmin`.
 
-The `jetty.sessionTableSchema` values represent the names for the columns in the JDBC database and can be changed to suit your environment.
+The `jetty.session.jdbc.schema.*` values represent the names of the table and columns in the JDBC database used to store sessions and can be changed to suit your environment.
+
+There are also two special, optional properties: `jetty.session.jdbc.schema.schemaName` and `jetty.session.jdbc.schema.catalogName`.
+The exact meaning of these two properties is dependent on your database vendor, but can broadly be described as further scoping for the session table name.
+See https://en.wikipedia.org/wiki/Database_schema and https://en.wikipedia.org/wiki/Database_catalog.
+These extra scoping names can come into play at startup time when jetty determines if the session table already exists, or otherwise creates it on-the-fly.
+If you have employed either of these concepts when you pre-created the session table, or you want to ensure that jetty uses them when it auto-creates the session table, then you have two options: either set them explicitly, or let jetty infer them from a database connection (obtained using either a Datasource or Driver according to the `db-connection-type` you have configured).
+To set them explicitly, uncomment and supply appropriate values for the `jetty.session.jdbc.schema.schemaName` and/or `jetty.session.jdbc.schema.catalogName` properties.
+To allow jetty to infer them from a database connection, use the special string `INFERRED` instead.
+If you leave them blank or commented out, then the sessions table will not be scoped by schema or catalog name.
+

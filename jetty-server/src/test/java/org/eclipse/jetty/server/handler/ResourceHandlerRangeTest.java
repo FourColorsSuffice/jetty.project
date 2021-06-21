@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -30,21 +30,21 @@ import org.eclipse.jetty.toolchain.test.FS;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.resource.Resource;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
-@Ignore("Unfixed range bug - Issue #107")
+@Disabled("Unfixed range bug - Issue #107")
 public class ResourceHandlerRangeTest
 {
     private static Server server;
     private static URI serverUri;
 
-    @BeforeClass
+    @BeforeAll
     public static void startServer() throws Exception
     {
         server = new Server();
@@ -56,7 +56,7 @@ public class ResourceHandlerRangeTest
 
         File dir = MavenTestingUtils.getTargetTestingDir(ResourceHandlerRangeTest.class.getSimpleName());
         FS.ensureEmpty(dir);
-        File rangeFile = new File(dir,"range.txt");
+        File rangeFile = new File(dir, "range.txt");
         try (FileWriter writer = new FileWriter(rangeFile))
         {
             writer.append("0123456789");
@@ -80,10 +80,10 @@ public class ResourceHandlerRangeTest
             host = "localhost";
         }
         int port = connector.getLocalPort();
-        serverUri = new URI(String.format("http://%s:%d/",host,port));
+        serverUri = new URI(String.format("http://%s:%d/", host, port));
     }
 
-    @AfterClass
+    @AfterAll
     public static void stopServer() throws Exception
     {
         server.stop();
@@ -96,7 +96,7 @@ public class ResourceHandlerRangeTest
 
         HttpURLConnection uconn = (HttpURLConnection)uri.toURL().openConnection();
         uconn.setRequestMethod("GET");
-        uconn.addRequestProperty("Range","bytes=" + 5 + "-");
+        uconn.addRequestProperty("Range", "bytes=" + 5 + "-");
 
         int contentLength = Integer.parseInt(uconn.getHeaderField("Content-Length"));
 
@@ -106,7 +106,7 @@ public class ResourceHandlerRangeTest
             response = IO.toString(is);
         }
 
-        Assert.assertThat("Content Length",contentLength,is(5));
-        Assert.assertThat("Response Content",response,is("56789"));
+        assertThat("Content Length", contentLength, is(5));
+        assertThat("Response Content", response, is("56789"));
     }
 }

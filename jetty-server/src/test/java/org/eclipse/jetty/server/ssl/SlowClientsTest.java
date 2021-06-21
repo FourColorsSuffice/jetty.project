@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -28,7 +28,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.servlet.ServletException;
@@ -44,19 +43,24 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 
-@Ignore
+import static java.time.Duration.ofSeconds;
+
+@Tag("Unstable")
+@Disabled
 public class SlowClientsTest
 {
     private Logger logger = Log.getLogger(getClass());
-    
-    @Test(timeout = 10000)
+
+    @Test
     public void testSlowClientsWithSmallThreadPool() throws Exception
     {
         File keystore = MavenTestingUtils.getTestResourceFile("keystore");
-        SslContextFactory sslContextFactory = new SslContextFactory();
+        SslContextFactory sslContextFactory = new SslContextFactory.Server();
         sslContextFactory.setKeyStorePath(keystore.getAbsolutePath());
         sslContextFactory.setKeyStorePassword("storepwd");
         sslContextFactory.setKeyManagerPassword("keypwd");
@@ -66,6 +70,7 @@ public class SlowClientsTest
         QueuedThreadPool serverThreads = new QueuedThreadPool(maxThreads);
         serverThreads.setDetailedDump(true);
         Server server = new Server(serverThreads);
+
         try
         {
             ServerConnector connector = new ServerConnector(server, 1, 1, sslContextFactory);
@@ -87,48 +92,53 @@ public class SlowClientsTest
 
             SSLContext sslContext = sslContextFactory.getSslContext();
 
-            CompletableFuture[] futures = new CompletableFuture[2 * maxThreads];
-            ExecutorService executor = Executors.newFixedThreadPool(futures.length);
-            for (int i = 0; i < futures.length; i++)
+            Assertions.assertTimeoutPreemptively(ofSeconds(10), () ->
             {
-                int k = i;
-                futures[i] = CompletableFuture.runAsync(() ->
+                CompletableFuture[] futures = new CompletableFuture[2 * maxThreads];
+                ExecutorService executor = Executors.newFixedThreadPool(futures.length);
+                for (int i = 0; i < futures.length; i++)
                 {
-                    try (SSLSocket socket = (SSLSocket)sslContext.getSocketFactory().createSocket("localhost", connector.getLocalPort()))
+                    int k = i;
+                    futures[i] = CompletableFuture.runAsync(() ->
                     {
-                        socket.setSoTimeout(contentLength / 1024);
-                        OutputStream output = socket.getOutputStream();
-                        String target = "/" + k;
-                        String request = "GET " + target + " HTTP/1.1\r\n" +
+                        try (SSLSocket socket = (SSLSocket)sslContext.getSocketFactory().createSocket("localhost", connector.getLocalPort()))
+                        {
+                            socket.setSoTimeout(contentLength / 1024);
+                            OutputStream output = socket.getOutputStream();
+                            String target = "/" + k;
+                            String request = "GET " + target + " HTTP/1.1\r\n" +
                                 "Host: localhost\r\n" +
                                 "Connection: close\r\n" +
                                 "\r\n";
-                        output.write(request.getBytes(StandardCharsets.UTF_8));
-                        output.flush();
+                            output.write(request.getBytes(StandardCharsets.UTF_8));
+                            output.flush();
 
-                        while (serverThreads.getIdleThreads() > 0)
-                            Thread.sleep(50);
+                            while (serverThreads.getIdleThreads() > 0)
+                            {
+                                Thread.sleep(50);
+                            }
 
-                        InputStream input = socket.getInputStream();
-                        while (true)
-                        {
-                            int read = input.read();
-                            if (read < 0)
-                                break;
+                            InputStream input = socket.getInputStream();
+                            while (true)
+                            {
+                                int read = input.read();
+                                if (read < 0)
+                                    break;
+                            }
+                            logger.info("FINISHED {}", target);
                         }
-                        logger.info("FINISHED {}", target);
-                    }
-                    catch (IOException x)
-                    {
-                        throw new UncheckedIOException(x);
-                    }
-                    catch (InterruptedException x)
-                    {
-                        throw new UncheckedIOException(new InterruptedIOException());
-                    }
-                }, executor);
-            }
-            CompletableFuture.allOf(futures).join();
+                        catch (IOException x)
+                        {
+                            throw new UncheckedIOException(x);
+                        }
+                        catch (InterruptedException x)
+                        {
+                            throw new UncheckedIOException(new InterruptedIOException());
+                        }
+                    }, executor);
+                }
+                CompletableFuture.allOf(futures).join();
+            });
         }
         finally
         {

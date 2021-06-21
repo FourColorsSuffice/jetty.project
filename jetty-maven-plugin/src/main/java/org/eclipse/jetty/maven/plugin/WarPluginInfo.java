@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,11 +16,9 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.maven.plugin;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -42,18 +40,15 @@ public class WarPluginInfo
     private List<String> _dependentMavenWarIncludes;
     private List<String> _dependentMavenWarExcludes;
     private List<OverlayConfig> _overlayConfigs;
-    
-    
-    public WarPluginInfo (MavenProject project)
+
+    public WarPluginInfo(MavenProject project)
     {
         _project = project;
     }
 
-    
-    
-    
     /**
      * Find the maven-war-plugin, if one is configured
+     *
      * @return the plugin
      */
     public Plugin getPlugin()
@@ -64,9 +59,8 @@ public class WarPluginInfo
             if (plugins == null)
                 return null;
 
-
             Iterator itor = plugins.iterator();
-            while (itor.hasNext() && _plugin==null)
+            while (itor.hasNext() && _plugin == null)
             {
                 Plugin plugin = (Plugin)itor.next();
                 if ("maven-war-plugin".equals(plugin.getArtifactId()))
@@ -76,11 +70,9 @@ public class WarPluginInfo
         return _plugin;
     }
 
-    
-    
-
     /**
      * Get value of dependentWarIncludes for maven-war-plugin
+     *
      * @return the list of dependent war includes
      */
     public List<String> getDependentMavenWarIncludes()
@@ -100,16 +92,14 @@ public class WarPluginInfo
             if (node == null)
                 return null;
             String val = node.getValue();
-            _dependentMavenWarIncludes = StringUtil.csvSplit(null,val,0,val.length());
+            _dependentMavenWarIncludes = StringUtil.csvSplit(null, val, 0, val.length());
         }
         return _dependentMavenWarIncludes;
     }
 
-
-    
-    
     /**
      * Get value of dependentWarExcludes for maven-war-plugin
+     *
      * @return the list of dependent war excludes
      */
     public List<String> getDependentMavenWarExcludes()
@@ -129,20 +119,17 @@ public class WarPluginInfo
             if (node == null)
                 return null;
             String val = node.getValue();
-            _dependentMavenWarExcludes = StringUtil.csvSplit(null,val,0,val.length());
+            _dependentMavenWarExcludes = StringUtil.csvSplit(null, val, 0, val.length());
         }
         return _dependentMavenWarExcludes;
     }
 
-    
-    
-    
     /**
      * Get config for any overlays that have been declared for the maven-war-plugin.
-     * 
+     *
      * @return the list of overlay configs
      */
-    public List<OverlayConfig> getMavenWarOverlayConfigs ()
+    public List<OverlayConfig> getMavenWarOverlayConfigs()
     {
         if (_overlayConfigs == null)
         {
@@ -167,7 +154,7 @@ public class WarPluginInfo
                 return Collections.emptyList();
 
             _overlayConfigs = new ArrayList<OverlayConfig>();
-            for (int i=0;i<nodes.length;i++)
+            for (int i = 0; i < nodes.length; i++)
             {
                 OverlayConfig overlayConfig = new OverlayConfig(nodes[i], _dependentMavenWarIncludes, _dependentMavenWarExcludes);
                 _overlayConfigs.add(overlayConfig);
@@ -176,20 +163,17 @@ public class WarPluginInfo
 
         return _overlayConfigs;
     }
-    
-    
-    
-    
+
     /**
      * @return the xml as a string
      */
-    public String getMavenWarOverlayConfigAsString ()
+    public String getMavenWarOverlayConfigAsString()
     {
         getPlugin();
 
         if (_plugin == null)
             return "";
-        
+
         Xpp3Dom node = (Xpp3Dom)_plugin.getConfiguration();
         if (node == null)
             return "";

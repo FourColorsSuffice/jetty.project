@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,10 +18,7 @@
 
 package org.eclipse.jetty.servlet;
 
-import static org.junit.Assert.assertEquals;
-
 import java.io.IOException;
-
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -31,9 +28,11 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.LocalConnector;
 import org.eclipse.jetty.server.Server;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  *
@@ -43,7 +42,7 @@ public class InvokerTest
     private Server _server;
     private LocalConnector _connector;
 
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         _server = new Server();
@@ -58,11 +57,11 @@ public class InvokerTest
         context.setContextPath("/");
 
         ServletHolder holder = context.addServlet(Invoker.class, "/servlet/*");
-        holder.setInitParameter("nonContextServlets","true");
+        holder.setInitParameter("nonContextServlets", "true");
         _server.start();
     }
 
-    @After
+    @AfterEach
     public void destroy() throws Exception
     {
         _server.stop();
@@ -72,9 +71,9 @@ public class InvokerTest
     @Test
     public void testInvoker() throws Exception
     {
-        String requestPath = "/servlet/"+TestServlet.class.getName();
-        String request =  "GET "+requestPath+" HTTP/1.0\r\n"+
-            "Host: tester\r\n"+
+        String requestPath = "/servlet/" + TestServlet.class.getName();
+        String request = "GET " + requestPath + " HTTP/1.0\r\n" +
+            "Host: tester\r\n" +
             "\r\n";
 
         String expectedResponse = "HTTP/1.1 200 OK\r\n" +
@@ -82,12 +81,13 @@ public class InvokerTest
             "\r\n" +
             "Invoked TestServlet!";
 
-        String response = _connector.getResponses(request);
+        String response = _connector.getResponse(request);
         assertEquals(expectedResponse, response);
     }
 
     public static class TestServlet extends HttpServlet implements Servlet
     {
+        @Override
         protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
         {
             response.getWriter().append("Invoked TestServlet!");

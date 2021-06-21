@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -85,6 +85,12 @@ public class PathContentProvider extends AbstractTypedContentProvider
         return fileSize;
     }
 
+    @Override
+    public boolean isReproducible()
+    {
+        return true;
+    }
+
     public ByteBufferPool getByteBufferPool()
     {
         return bufferPool;
@@ -120,9 +126,9 @@ public class PathContentProvider extends AbstractTypedContentProvider
             {
                 if (channel == null)
                 {
-                    buffer = bufferPool == null ?
-                            ByteBuffer.allocateDirect(bufferSize) :
-                            bufferPool.acquire(bufferSize, true);
+                    buffer = bufferPool == null
+                        ? ByteBuffer.allocateDirect(bufferSize)
+                        : bufferPool.acquire(bufferSize, true);
                     channel = Files.newByteChannel(filePath, StandardOpenOption.READ);
                     if (LOG.isDebugEnabled())
                         LOG.debug("Opened file {}", filePath);

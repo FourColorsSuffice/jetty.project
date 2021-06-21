@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,10 +21,10 @@ package org.eclipse.jetty.util.thread;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LockerTest
 {
@@ -38,7 +38,7 @@ public class LockerTest
         Locker lock = new Locker();
         assertFalse(lock.isLocked());
 
-        try(Locker.Lock l = lock.lock())
+        try (Locker.Lock l = lock.lock())
         {
             assertTrue(lock.isLocked());
         }
@@ -56,12 +56,12 @@ public class LockerTest
         Locker lock = new Locker();
         assertFalse(lock.isLocked());
 
-        try(Locker.Lock l = lock.lock())
+        try (Locker.Lock l = lock.lock())
         {
             assertTrue(lock.isLocked());
             throw new Exception();
         }
-        catch(Exception e)
+        catch (Exception e)
         {
             assertFalse(lock.isLocked());
         }
@@ -86,7 +86,7 @@ public class LockerTest
             @Override
             public void run()
             {
-                try(Locker.Lock l = lock.lock())
+                try (Locker.Lock l = lock.lock())
                 {
                     held0.countDown();
                     hold0.await();
@@ -102,7 +102,6 @@ public class LockerTest
 
         assertTrue(lock.isLocked());
 
-
         final CountDownLatch held1 = new CountDownLatch(1);
         final CountDownLatch hold1 = new CountDownLatch(1);
         Thread thread1 = new Thread()
@@ -110,7 +109,7 @@ public class LockerTest
             @Override
             public void run()
             {
-                try(Locker.Lock l = lock.lock())
+                try (Locker.Lock l = lock.lock())
                 {
                     held1.countDown();
                     hold1.await();

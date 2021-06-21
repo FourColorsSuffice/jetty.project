@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.util.Map;
-
 import javax.websocket.CloseReason;
 import javax.websocket.DecodeException;
 import javax.websocket.MessageHandler.Whole;
@@ -53,15 +52,15 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
 
     public JsrAnnotatedEventDriver(WebSocketPolicy policy, EndpointInstance endpointInstance, JsrEvents<?, ?> events)
     {
-        super(policy,endpointInstance);
+        super(policy, endpointInstance);
         this.events = events;
-    
+
         EndpointMetadata metadata = endpointInstance.getMetadata();
-    
+
         if (metadata.maxTextMessageSize() >= 1)
-            policy.setMaxTextMessageSize((int) metadata.maxTextMessageSize());
+            policy.setMaxTextMessageSize((int)metadata.maxTextMessageSize());
         if (metadata.maxBinaryMessageSize() >= 1)
-            policy.setMaxBinaryMessageSize((int) metadata.maxBinaryMessageSize());
+            policy.setMaxBinaryMessageSize((int)metadata.maxBinaryMessageSize());
     }
 
     @Override
@@ -78,9 +77,9 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("onBinaryFrame({}, {})",BufferUtil.toDetailString(buffer),fin);
-            LOG.debug("events.onBinary={}",events.hasBinary());
-            LOG.debug("events.onBinaryStream={}",events.hasBinaryStream());
+            LOG.debug("onBinaryFrame({}, {})", BufferUtil.toDetailString(buffer), fin);
+            LOG.debug("events.onBinary={}", events.hasBinary());
+            LOG.debug("events.onBinaryStream={}", events.hasBinaryStream());
         }
         boolean handled = false;
 
@@ -94,7 +93,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
                     // Partial Message Support (does not use messageAppender)
                     if (LOG.isDebugEnabled())
                     {
-                        LOG.debug("Partial Binary Message: fin={}",fin);
+                        LOG.debug("Partial Binary Message: fin={}", fin);
                     }
                     activeMessage = new BinaryPartialOnMessage(this);
                 }
@@ -117,40 +116,35 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
             if (activeMessage == null)
             {
                 if (LOG.isDebugEnabled())
-                {
                     LOG.debug("Binary Message InputStream");
-                }
-                final MessageInputStream stream = new MessageInputStream();
-                activeMessage = stream;
 
-                // Always dispatch streaming read to another thread.
-                dispatch(new Runnable()
+                MessageInputStream stream = new MessageInputStream(session);
+                activeMessage = stream;
+                dispatch(() ->
                 {
-                    @Override
-                    public void run()
+                    try
                     {
-                        try
-                        {
-                            events.callBinaryStream(jsrsession.getAsyncRemote(),websocket,stream);
-                        }
-                        catch (Throwable e)
-                        {
-                            onFatalError(e);
-                        }
+                        events.callBinaryStream(jsrsession.getAsyncRemote(), websocket, stream);
                     }
+                    catch (Throwable e)
+                    {
+                        session.close(e);
+                    }
+
+                    stream.handlerComplete();
                 });
             }
         }
 
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("handled = {}",handled);
+            LOG.debug("handled = {}", handled);
         }
 
         // Process any active MessageAppender
         if (handled && (activeMessage != null))
         {
-            appendMessage(buffer,fin);
+            appendMessage(buffer, fin);
         }
     }
 
@@ -169,13 +163,13 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
 
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("onBinaryMessage({})",BufferUtil.toDetailString(buf));
+            LOG.debug("onBinaryMessage({})", BufferUtil.toDetailString(buf));
         }
 
         try
         {
             // FIN is always true here
-            events.callBinary(jsrsession.getAsyncRemote(),websocket,buf,true);
+            events.callBinary(jsrsession.getAsyncRemote(), websocket, buf, true);
         }
         catch (Throwable e)
         {
@@ -186,13 +180,13 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     @Override
     protected void onClose(CloseReason closereason)
     {
-        events.callClose(websocket,closereason);
+        events.callClose(websocket, closereason);
     }
 
     @Override
     public void onConnect()
     {
-        events.callOpen(websocket,config);
+        events.callOpen(websocket, config);
     }
 
     @Override
@@ -200,7 +194,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         try
         {
-            events.callError(websocket,cause);
+            events.callError(websocket, cause);
         }
         catch (Throwable e)
         {
@@ -225,7 +219,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         try
         {
-            events.callBinaryStream(jsrsession.getAsyncRemote(),websocket,stream);
+            events.callBinaryStream(jsrsession.getAsyncRemote(), websocket, stream);
         }
         catch (DecodeException e)
         {
@@ -237,7 +231,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         try
         {
-            events.callBinary(jsrsession.getAsyncRemote(),websocket,buffer,fin);
+            events.callBinary(jsrsession.getAsyncRemote(), websocket, buffer, fin);
         }
         catch (DecodeException e)
         {
@@ -249,7 +243,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         try
         {
-            events.callText(jsrsession.getAsyncRemote(),websocket,message,fin);
+            events.callText(jsrsession.getAsyncRemote(), websocket, message, fin);
         }
         catch (DecodeException e)
         {
@@ -261,13 +255,13 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     public void onPing(ByteBuffer buffer)
     {
         // Call pong, as there is no "onPing" method in the JSR
-        events.callPong(jsrsession.getAsyncRemote(),websocket,buffer);
+        events.callPong(jsrsession.getAsyncRemote(), websocket, buffer);
     }
-    
+
     @Override
     public void onPong(ByteBuffer buffer)
     {
-        events.callPong(jsrsession.getAsyncRemote(),websocket,buffer);
+        events.callPong(jsrsession.getAsyncRemote(), websocket, buffer);
     }
 
     @Override
@@ -275,7 +269,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         try
         {
-            events.callTextStream(jsrsession.getAsyncRemote(),websocket,reader);
+            events.callTextStream(jsrsession.getAsyncRemote(), websocket, reader);
         }
         catch (DecodeException e)
         {
@@ -291,9 +285,9 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("onTextFrame({}, {})",BufferUtil.toDetailString(buffer),fin);
-            LOG.debug("events.hasText={}",events.hasText());
-            LOG.debug("events.hasTextStream={}",events.hasTextStream());
+            LOG.debug("onTextFrame({}, {})", BufferUtil.toDetailString(buffer), fin);
+            LOG.debug("events.hasText={}", events.hasText());
+            LOG.debug("events.hasTextStream={}", events.hasTextStream());
         }
 
         boolean handled = false;
@@ -308,7 +302,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
                     // Partial Message Support
                     if (LOG.isDebugEnabled())
                     {
-                        LOG.debug("Partial Text Message: fin={}",fin);
+                        LOG.debug("Partial Text Message: fin={}", fin);
                     }
                     activeMessage = new TextPartialOnMessage(this);
                 }
@@ -331,28 +325,23 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
             if (activeMessage == null)
             {
                 if (LOG.isDebugEnabled())
-                {
                     LOG.debug("Text Message Writer");
-                }
 
-                final MessageReader stream = new MessageReader(new MessageInputStream());
-                activeMessage = stream;
-
-                // Always dispatch streaming read to another thread.
-                dispatch(new Runnable()
+                MessageReader reader = new MessageReader(session);
+                activeMessage = reader;
+                dispatch(() ->
                 {
-                    @Override
-                    public void run()
+                    try
                     {
-                        try
-                        {
-                            events.callTextStream(jsrsession.getAsyncRemote(),websocket,stream);
-                        }
-                        catch (Throwable e)
-                        {
-                            onFatalError(e);
-                        }
+                        events.callTextStream(jsrsession.getAsyncRemote(), websocket, reader);
                     }
+                    catch (Throwable e)
+                    {
+                        session.close(e);
+                        return;
+                    }
+
+                    reader.handlerComplete();
                 });
             }
         }
@@ -365,7 +354,7 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
         // Process any active MessageAppender
         if (handled && (activeMessage != null))
         {
-            appendMessage(buffer,fin);
+            appendMessage(buffer, fin);
         }
     }
 
@@ -377,13 +366,13 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     {
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("onText({})",message);
+            LOG.debug("onText({})", message);
         }
 
         try
         {
             // FIN is always true here
-            events.callText(jsrsession.getAsyncRemote(),websocket,message,true);
+            events.callText(jsrsession.getAsyncRemote(), websocket, message, true);
         }
         catch (Throwable e)
         {
@@ -400,6 +389,6 @@ public class JsrAnnotatedEventDriver extends AbstractJsrEventDriver
     @Override
     public String toString()
     {
-        return String.format("%s[websocket=%s]",this.getClass().getSimpleName(),websocket);
+        return String.format("%s[websocket=%s]", this.getClass().getSimpleName(), websocket);
     }
 }

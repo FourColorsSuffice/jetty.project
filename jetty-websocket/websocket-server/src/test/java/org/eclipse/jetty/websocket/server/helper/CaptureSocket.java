@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,9 +20,9 @@ package org.eclipse.jetty.websocket.server.helper;
 
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.EventQueue;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketAdapter;
 import org.eclipse.jetty.websocket.common.util.Sha1Sum;
@@ -30,16 +30,11 @@ import org.eclipse.jetty.websocket.common.util.Sha1Sum;
 public class CaptureSocket extends WebSocketAdapter
 {
     private final CountDownLatch latch = new CountDownLatch(1);
-    public EventQueue<String> messages;
-
-    public CaptureSocket()
-    {
-        messages = new EventQueue<String>();
-    }
+    public LinkedBlockingQueue<String> messages = new LinkedBlockingQueue<>();
 
     public boolean awaitConnected(long timeout) throws InterruptedException
     {
-        return latch.await(timeout,TimeUnit.MILLISECONDS);
+        return latch.await(timeout, TimeUnit.MILLISECONDS);
     }
 
     public void close()
@@ -60,17 +55,17 @@ public class CaptureSocket extends WebSocketAdapter
         // System.out.printf("Received Message \"%s\" [size %d]%n", message, message.length());
         messages.add(message);
     }
-    
+
     @Override
     public void onWebSocketBinary(byte[] payload, int offset, int len)
     {
         try
         {
-            messages.add("binary[sha1="+Sha1Sum.calculate(payload,offset,len)+"]");
+            messages.add("binary[sha1=" + Sha1Sum.calculate(payload, offset, len) + "]");
         }
         catch (NoSuchAlgorithmException e)
         {
-            messages.add("ERROR: Unable to caclulate Binary SHA1: " + e.getMessage());
+            messages.add("ERROR: Unable to calculate Binary SHA1: " + e.getMessage());
             e.printStackTrace();
         }
     }

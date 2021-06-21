@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,13 @@
 
 package org.eclipse.jetty.http2.client;
 
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpVersion;
@@ -35,11 +37,16 @@ import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
+import org.eclipse.jetty.http2.generator.Generator;
+import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class StreamCountTest extends AbstractTest
 {
@@ -79,7 +86,7 @@ public class StreamCountTest extends AbstractTest
             }
         });
 
-        final CountDownLatch settingsLatch = new CountDownLatch(1);
+        CountDownLatch settingsLatch = new CountDownLatch(1);
         Session session = newClient(new Session.Listener.Adapter()
         {
             @Override
@@ -89,13 +96,13 @@ public class StreamCountTest extends AbstractTest
             }
         });
 
-        Assert.assertTrue(settingsLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(settingsLatch.await(5, TimeUnit.SECONDS));
 
         HttpFields fields = new HttpFields();
         MetaData.Request metaData = newRequest("GET", fields);
         HeadersFrame frame1 = new HeadersFrame(metaData, null, false);
         FuturePromise<Stream> streamPromise1 = new FuturePromise<>();
-        final CountDownLatch responseLatch = new CountDownLatch(1);
+        CountDownLatch responseLatch = new CountDownLatch(1);
         session.newStream(frame1, streamPromise1, new Stream.Listener.Adapter()
         {
             @Override
@@ -111,24 +118,16 @@ public class StreamCountTest extends AbstractTest
         FuturePromise<Stream> streamPromise2 = new FuturePromise<>();
         session.newStream(frame2, streamPromise2, new Stream.Listener.Adapter());
 
-        try
-        {
-            streamPromise2.get(5, TimeUnit.SECONDS);
-            Assert.fail();
-        }
-        catch (ExecutionException x)
-        {
-            // Expected
-        }
+        assertThrows(ExecutionException.class,
+            () -> streamPromise2.get(5, TimeUnit.SECONDS));
 
         stream1.data(new DataFrame(stream1.getId(), BufferUtil.EMPTY_BUFFER, true), Callback.NOOP);
-        Assert.assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
     public void testServerAllowsOneStreamEnforcedByServer() throws Exception
     {
-        final CountDownLatch resetLatch = new CountDownLatch(1);
         start(new ServerSessionListener.Adapter()
         {
             @Override
@@ -157,13 +156,21 @@ public class StreamCountTest extends AbstractTest
             }
         });
 
-        Session session = newClient(new Session.Listener.Adapter());
+        CountDownLatch sessionResetLatch = new CountDownLatch(2);
+        Session session = newClient(new Session.Listener.Adapter()
+        {
+            @Override
+            public void onReset(Session session, ResetFrame frame)
+            {
+                sessionResetLatch.countDown();
+            }
+        });
 
         HttpFields fields = new HttpFields();
         MetaData.Request metaData = newRequest("GET", fields);
         HeadersFrame frame1 = new HeadersFrame(metaData, null, false);
         FuturePromise<Stream> streamPromise1 = new FuturePromise<>();
-        final CountDownLatch responseLatch = new CountDownLatch(1);
+        CountDownLatch responseLatch = new CountDownLatch(1);
         session.newStream(frame1, streamPromise1, new Stream.Listener.Adapter()
         {
             @Override
@@ -178,19 +185,41 @@ public class StreamCountTest extends AbstractTest
 
         HeadersFrame frame2 = new HeadersFrame(metaData, null, false);
         FuturePromise<Stream> streamPromise2 = new FuturePromise<>();
+        AtomicReference<CountDownLatch> resetLatch = new AtomicReference<>(new CountDownLatch(1));
         session.newStream(frame2, streamPromise2, new Stream.Listener.Adapter()
         {
             @Override
             public void onReset(Stream stream, ResetFrame frame)
             {
-                resetLatch.countDown();
+                resetLatch.get().countDown();
             }
         });
 
-        streamPromise2.get(5, TimeUnit.SECONDS);
-        Assert.assertTrue(resetLatch.await(5, TimeUnit.SECONDS));
+        Stream stream2 = streamPromise2.get(5, TimeUnit.SECONDS);
+        assertTrue(resetLatch.get().await(5, TimeUnit.SECONDS));
+
+        // Reset the latch and send a DATA frame, it should be dropped
+        // by the client because the stream has already been reset.
+        resetLatch.set(new CountDownLatch(1));
+        stream2.data(new DataFrame(stream2.getId(), BufferUtil.EMPTY_BUFFER, true), Callback.NOOP);
+        // Must not receive another RST_STREAM.
+        assertFalse(resetLatch.get().await(1, TimeUnit.SECONDS));
+
+        // Simulate a client sending both HEADERS and DATA frames at the same time.
+        // The server should send a RST_STREAM for the HEADERS.
+        // For the server, dropping the DATA frame is too costly so it sends another RST_STREAM.
+        int streamId3 = stream2.getId() + 2;
+        HeadersFrame frame3 = new HeadersFrame(streamId3, metaData, null, false);
+        DataFrame data3 = new DataFrame(streamId3, BufferUtil.EMPTY_BUFFER, true);
+        Generator generator = ((HTTP2Session)session).getGenerator();
+        ByteBufferPool.Lease lease = new ByteBufferPool.Lease(generator.getByteBufferPool());
+        generator.control(lease, frame3);
+        generator.data(lease, data3, data3.remaining());
+        ((HTTP2Session)session).getEndPoint().write(Callback.NOOP, lease.getByteBuffers().toArray(new ByteBuffer[0]));
+        // Expect 2 RST_STREAM frames.
+        assertTrue(sessionResetLatch.await(5, TimeUnit.SECONDS));
 
         stream1.data(new DataFrame(stream1.getId(), BufferUtil.EMPTY_BUFFER, true), Callback.NOOP);
-        Assert.assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
     }
 }

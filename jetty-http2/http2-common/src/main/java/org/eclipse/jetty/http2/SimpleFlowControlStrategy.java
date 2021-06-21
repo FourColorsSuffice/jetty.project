@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,6 +17,9 @@
 //
 
 package org.eclipse.jetty.http2;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
@@ -44,29 +47,30 @@ public class SimpleFlowControlStrategy extends AbstractFlowControlStrategy
         // This method is called when a whole flow controlled frame has been consumed.
         // We send a WindowUpdate every time, even if the frame was very small.
 
+        List<Frame> frames = new ArrayList<>(2);
         WindowUpdateFrame sessionFrame = new WindowUpdateFrame(0, length);
+        frames.add(sessionFrame);
         session.updateRecvWindow(length);
         if (LOG.isDebugEnabled())
             LOG.debug("Data consumed, increased session recv window by {} for {}", length, session);
 
-        Frame[] streamFrame = Frame.EMPTY_ARRAY;
         if (stream != null)
         {
-            if (stream.isClosed())
+            if (stream.isRemotelyClosed())
             {
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Data consumed, ignoring update stream recv window by {} for closed {}", length, stream);
+                    LOG.debug("Data consumed, ignoring update stream recv window by {} for remotely closed {}", length, stream);
             }
             else
             {
-                streamFrame = new Frame[1];
-                streamFrame[0] = new WindowUpdateFrame(stream.getId(), length);
+                WindowUpdateFrame streamFrame = new WindowUpdateFrame(stream.getId(), length);
+                frames.add(streamFrame);
                 stream.updateRecvWindow(length);
                 if (LOG.isDebugEnabled())
                     LOG.debug("Data consumed, increased stream recv window by {} for {}", length, stream);
             }
         }
 
-        session.frames(stream, Callback.NOOP, sessionFrame, streamFrame);
+        session.frames(stream, frames, Callback.NOOP);
     }
 }

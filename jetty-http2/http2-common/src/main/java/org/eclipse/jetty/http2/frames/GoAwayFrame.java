@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,6 +24,8 @@ import org.eclipse.jetty.http2.ErrorCode;
 
 public class GoAwayFrame extends Frame
 {
+    public static final GoAwayFrame GRACEFUL = new GoAwayFrame(Integer.MAX_VALUE, ErrorCode.NO_ERROR.code, new byte[]{'g', 'r', 'a', 'c', 'e', 'f', 'u', 'l'});
+
     private final int lastStreamId;
     private final int error;
     private final byte[] payload;
@@ -34,6 +36,15 @@ public class GoAwayFrame extends Frame
         this.lastStreamId = lastStreamId;
         this.error = error;
         this.payload = payload;
+    }
+
+    /**
+     * @return whether this GOAWAY frame is graceful, i.e. its {@code lastStreamId == Integer.MAX_VALUE}
+     */
+    public boolean isGraceful()
+    {
+        // SPEC: section 6.8.
+        return lastStreamId == Integer.MAX_VALUE;
     }
 
     public int getLastStreamId()
@@ -68,11 +79,10 @@ public class GoAwayFrame extends Frame
     @Override
     public String toString()
     {
-        ErrorCode errorCode = ErrorCode.from(error);
-        return String.format("%s,%d/%s/%s",
-                super.toString(),
-                lastStreamId,
-                errorCode != null ? errorCode.toString() : String.valueOf(error),
-                tryConvertPayload());
+        return String.format("%s{%d/%s/%s}",
+            super.toString(),
+            lastStreamId,
+            ErrorCode.toString(error, null),
+            tryConvertPayload());
     }
 }

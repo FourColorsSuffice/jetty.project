@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,46 +21,58 @@ package org.eclipse.jetty.http2;
 import java.io.IOException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.Stream;
 import org.eclipse.jetty.http2.frames.DataFrame;
-import org.eclipse.jetty.http2.frames.DisconnectFrame;
+import org.eclipse.jetty.http2.frames.FailureFrame;
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.FrameType;
 import org.eclipse.jetty.http2.frames.GoAwayFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.PingFrame;
+import org.eclipse.jetty.http2.frames.PrefaceFrame;
 import org.eclipse.jetty.http2.frames.PriorityFrame;
 import org.eclipse.jetty.http2.frames.PushPromiseFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
+import org.eclipse.jetty.http2.frames.StreamFrame;
 import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
 import org.eclipse.jetty.http2.generator.Generator;
+import org.eclipse.jetty.http2.hpack.HpackException;
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.WriteFlusher;
+import org.eclipse.jetty.util.AtomicBiInteger;
 import org.eclipse.jetty.util.Atomics;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.CountingCallback;
+import org.eclipse.jetty.util.MathUtils;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
+import org.eclipse.jetty.util.component.DumpableCollection;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
+import org.eclipse.jetty.util.thread.Locker;
 import org.eclipse.jetty.util.thread.Scheduler;
 
 @ManagedObject
@@ -69,13 +81,15 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     private static final Logger LOG = Log.getLogger(HTTP2Session.class);
 
     private final ConcurrentMap<Integer, IStream> streams = new ConcurrentHashMap<>();
-    private final AtomicInteger streamIds = new AtomicInteger();
-    private final AtomicInteger lastStreamId = new AtomicInteger();
+    private final AtomicLong streamsOpened = new AtomicLong();
+    private final AtomicLong streamsClosed = new AtomicLong();
+    private final StreamsState streamsState = new StreamsState();
+    private final AtomicInteger localStreamIds = new AtomicInteger();
+    private final AtomicInteger lastRemoteStreamId = new AtomicInteger();
     private final AtomicInteger localStreamCount = new AtomicInteger();
-    private final AtomicInteger remoteStreamCount = new AtomicInteger();
+    private final AtomicBiInteger remoteStreamCount = new AtomicBiInteger();
     private final AtomicInteger sendWindow = new AtomicInteger();
     private final AtomicInteger recvWindow = new AtomicInteger();
-    private final AtomicReference<CloseState> closed = new AtomicReference<>(CloseState.NOT_CLOSED);
     private final AtomicLong bytesWritten = new AtomicLong();
     private final Scheduler scheduler;
     private final EndPoint endPoint;
@@ -87,8 +101,8 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     private int maxRemoteStreams;
     private long streamIdleTimeout;
     private int initialSessionRecvWindow;
+    private int writeThreshold;
     private boolean pushEnabled;
-    private long idleTime;
 
     public HTTP2Session(Scheduler scheduler, EndPoint endPoint, Generator generator, Session.Listener listener, FlowControlStrategy flowControl, int initialStreamId)
     {
@@ -100,45 +114,21 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         this.flusher = new HTTP2Flusher(this);
         this.maxLocalStreams = -1;
         this.maxRemoteStreams = -1;
-        this.streamIds.set(initialStreamId);
+        this.localStreamIds.set(initialStreamId);
         this.streamIdleTimeout = endPoint.getIdleTimeout();
         this.sendWindow.set(FlowControlStrategy.DEFAULT_WINDOW_SIZE);
         this.recvWindow.set(FlowControlStrategy.DEFAULT_WINDOW_SIZE);
+        this.writeThreshold = 32 * 1024;
         this.pushEnabled = true; // SPEC: by default, push is enabled.
-        this.idleTime = System.nanoTime();
-    }
-
-    @Override
-    protected void doStart() throws Exception
-    {
         addBean(flowControl);
-        super.doStart();
+        addBean(flusher);
     }
 
     @Override
     protected void doStop() throws Exception
     {
         super.doStop();
-        close(ErrorCode.NO_ERROR.code, "stop", new Callback()
-        {
-            @Override
-            public void succeeded()
-            {
-                disconnect();
-            }
-
-            @Override
-            public void failed(Throwable x)
-            {
-                disconnect();
-            }
-
-            @Override
-            public InvocationType getInvocationType()
-            {
-                return InvocationType.NON_BLOCKING;
-            }
-        });
+        streamsState.halt("stop");
     }
 
     @ManagedAttribute(value = "The flow control strategy", readonly = true)
@@ -147,6 +137,19 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         return flowControl;
     }
 
+    @ManagedAttribute(value = "The total number of streams opened", readonly = true)
+    public long getStreamsOpened()
+    {
+        return streamsOpened.get();
+    }
+
+    @ManagedAttribute(value = "The total number of streams closed", readonly = true)
+    public long getStreamsClosed()
+    {
+        return streamsClosed.get();
+    }
+
+    @ManagedAttribute("The maximum number of concurrent local streams")
     public int getMaxLocalStreams()
     {
         return maxLocalStreams;
@@ -157,6 +160,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         this.maxLocalStreams = maxLocalStreams;
     }
 
+    @ManagedAttribute("The maximum number of concurrent remote streams")
     public int getMaxRemoteStreams()
     {
         return maxRemoteStreams;
@@ -189,6 +193,17 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         this.initialSessionRecvWindow = initialSessionRecvWindow;
     }
 
+    @ManagedAttribute("The number of bytes that trigger a TCP write")
+    public int getWriteThreshold()
+    {
+        return writeThreshold;
+    }
+
+    public void setWriteThreshold(int writeThreshold)
+    {
+        this.writeThreshold = writeThreshold;
+    }
+
     public EndPoint getEndPoint()
     {
         return endPoint;
@@ -206,60 +221,77 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     }
 
     @Override
-    public void onData(final DataFrame frame)
+    public void onData(DataFrame frame)
+    {
+        onData(frame, Callback.NOOP);
+    }
+
+    @Override
+    public void onData(DataFrame frame, Callback callback)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
+            LOG.debug("Received {} on {}", frame, this);
 
         int streamId = frame.getStreamId();
-        final IStream stream = getStream(streamId);
+        IStream stream = getStream(streamId);
 
         // SPEC: the session window must be updated even if the stream is null.
         // The flow control length includes the padding bytes.
-        final int flowControlLength = frame.remaining() + frame.padding();
+        int flowControlLength = frame.remaining() + frame.padding();
         flowControl.onDataReceived(this, stream, flowControlLength);
 
         if (stream != null)
         {
             if (getRecvWindow() < 0)
             {
-                close(ErrorCode.FLOW_CONTROL_ERROR.code, "session_window_exceeded", Callback.NOOP);
+                onSessionFailure(ErrorCode.FLOW_CONTROL_ERROR.code, "session_window_exceeded", callback);
             }
             else
             {
-                stream.process(frame, new Callback()
+                if (stream.updateRecvWindow(0) < 0)
                 {
-                    @Override
-                    public void succeeded()
-                    {
-                        complete();
-                    }
-
-                    @Override
-                    public void failed(Throwable x)
-                    {
-                        // Consume also in case of failures, to free the
-                        // session flow control window for other streams.
-                        complete();
-                    }
-
-                    private void complete()
-                    {
-                        notIdle();
-                        stream.notIdle();
-                        flowControl.onDataConsumed(HTTP2Session.this, stream, flowControlLength);
-                    }
-                });
+                    // It's a bad client, it does not deserve to be
+                    // treated gently by just resetting the stream.
+                    onSessionFailure(ErrorCode.FLOW_CONTROL_ERROR.code, "stream_window_exceeded", callback);
+                }
+                else
+                {
+                    stream.process(frame, new DataCallback(callback, stream, flowControlLength));
+                }
             }
         }
         else
         {
             if (LOG.isDebugEnabled())
-                LOG.debug("Ignoring {}, stream #{} not found", frame, streamId);
+                LOG.debug("Stream #{} not found on {}", streamId, this);
             // We must enlarge the session flow control window,
             // otherwise other requests will be stalled.
             flowControl.onDataConsumed(this, null, flowControlLength);
+            if (isStreamClosed(streamId))
+                reset(null, new ResetFrame(streamId, ErrorCode.STREAM_CLOSED_ERROR.code), callback);
+            else
+                onSessionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_data_frame", callback);
         }
+    }
+
+    private boolean isStreamClosed(int streamId)
+    {
+        return isLocalStream(streamId) ? isLocalStreamClosed(streamId) : isRemoteStreamClosed(streamId);
+    }
+
+    private boolean isLocalStream(int streamId)
+    {
+        return (streamId & 1) == (localStreamIds.get() & 1);
+    }
+
+    protected boolean isLocalStreamClosed(int streamId)
+    {
+        return streamId <= localStreamIds.get();
+    }
+
+    protected boolean isRemoteStreamClosed(int streamId)
+    {
+        return streamId <= getLastRemoteStreamId();
     }
 
     @Override
@@ -269,20 +301,33 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     public void onPriority(PriorityFrame frame)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
+            LOG.debug("Received {} on {}", frame, this);
     }
 
     @Override
     public void onReset(ResetFrame frame)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
+            LOG.debug("Received {} on {}", frame, this);
 
-        IStream stream = getStream(frame.getStreamId());
+        int streamId = frame.getStreamId();
+        IStream stream = getStream(streamId);
         if (stream != null)
-            stream.process(frame, Callback.NOOP);
+        {
+            stream.process(frame, new OnResetCallback());
+        }
         else
+        {
+            onResetForUnknownStream(frame);
+        }
+    }
+
+    protected void onResetForUnknownStream(ResetFrame frame)
+    {
+        if (isStreamClosed(frame.getStreamId()))
             notifyReset(this, frame);
+        else
+            onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_rst_stream_frame");
     }
 
     @Override
@@ -295,7 +340,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     public void onSettings(SettingsFrame frame, boolean reply)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
+            LOG.debug("Received {} on {}", frame, this);
 
         if (frame.isReply())
             return;
@@ -310,54 +355,43 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
                 case SettingsFrame.HEADER_TABLE_SIZE:
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Update HPACK header table size to {} for {}", value, this);
+                        LOG.debug("Updating HPACK header table size to {} for {}", value, this);
                     generator.setHeaderTableSize(value);
                     break;
                 }
                 case SettingsFrame.ENABLE_PUSH:
                 {
-                    // SPEC: check the value is sane.
-                    if (value != 0 && value != 1)
-                    {
-                        onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "invalid_settings_enable_push");
-                        return;
-                    }
-                    pushEnabled = value == 1;
+                    boolean enabled = value == 1;
                     if (LOG.isDebugEnabled())
-                        LOG.debug("{} push for {}", pushEnabled ? "Enable" : "Disable", this);
+                        LOG.debug("{} push for {}", enabled ? "Enabling" : "Disabling", this);
+                    pushEnabled = enabled;
                     break;
                 }
                 case SettingsFrame.MAX_CONCURRENT_STREAMS:
                 {
-                    maxLocalStreams = value;
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Update max local concurrent streams to {} for {}", maxLocalStreams, this);
+                        LOG.debug("Updating max local concurrent streams to {} for {}", value, this);
+                    maxLocalStreams = value;
                     break;
                 }
                 case SettingsFrame.INITIAL_WINDOW_SIZE:
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Update initial window size to {} for {}", value, this);
+                        LOG.debug("Updating initial stream window size to {} for {}", value, this);
                     flowControl.updateInitialStreamWindow(this, value, false);
                     break;
                 }
                 case SettingsFrame.MAX_FRAME_SIZE:
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Update max frame size to {} for {}", value, this);
-                    // SPEC: check the max frame size is sane.
-                    if (value < Frame.DEFAULT_MAX_LENGTH || value > Frame.MAX_MAX_LENGTH)
-                    {
-                        onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "invalid_settings_max_frame_size");
-                        return;
-                    }
+                        LOG.debug("Updating max frame size to {} for {}", value, this);
                     generator.setMaxFrameSize(value);
                     break;
                 }
                 case SettingsFrame.MAX_HEADER_LIST_SIZE:
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Update max header list size to {} for {}", value, this);
+                        LOG.debug("Updating max header list size to {} for {}", value, this);
                     generator.setMaxHeaderListSize(value);
                     break;
                 }
@@ -382,7 +416,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     public void onPing(PingFrame frame)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
+            LOG.debug("Received {} on {}", frame, this);
 
         if (frame.isReply())
         {
@@ -396,16 +430,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     }
 
     /**
-     * This method is called when receiving a GO_AWAY from the other peer.
-     * We check the close state to act appropriately:
-     *
-     * * NOT_CLOSED: we move to REMOTELY_CLOSED and queue a disconnect, so
-     *   that the content of the queue is written, and then the connection
-     *   closed. We notify the application after being terminated.
-     *   See <code>HTTP2Session.ControlEntry#succeeded()</code>
-     *
-     * * In all other cases, we do nothing since other methods are already
-     *   performing their actions.
+     * <p>This method is called when receiving a GO_AWAY from the other peer.</p>
      *
      * @param frame the GO_AWAY frame that has been received.
      * @see #close(int, String, Callback)
@@ -413,136 +438,166 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
      * @see #onIdleTimeout()
      */
     @Override
-    public void onGoAway(final GoAwayFrame frame)
+    public void onGoAway(GoAwayFrame frame)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
-
-        while (true)
-        {
-            CloseState current = closed.get();
-            switch (current)
-            {
-                case NOT_CLOSED:
-                {
-                    if (closed.compareAndSet(current, CloseState.REMOTELY_CLOSED))
-                    {
-                        // We received a GO_AWAY, so try to write
-                        // what's in the queue and then disconnect.
-                        notifyClose(this, frame);
-                        control(null, Callback.NOOP, new DisconnectFrame());
-                        return;
-                    }
-                    break;
-                }
-                default:
-                {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Ignored {}, already closed", frame);
-                    return;
-                }
-            }
-        }
+            LOG.debug("Received {} on {}", frame, this);
+        streamsState.onGoAway(frame);
     }
 
     @Override
     public void onWindowUpdate(WindowUpdateFrame frame)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Received {}", frame);
+            LOG.debug("Received {} on {}", frame, this);
 
         int streamId = frame.getStreamId();
+        int windowDelta = frame.getWindowDelta();
         if (streamId > 0)
         {
             IStream stream = getStream(streamId);
             if (stream != null)
             {
-                stream.process(frame, Callback.NOOP);
-                onWindowUpdate(stream, frame);
+                int streamSendWindow = stream.updateSendWindow(0);
+                if (MathUtils.sumOverflows(streamSendWindow, windowDelta))
+                {
+                    reset(stream, new ResetFrame(streamId, ErrorCode.FLOW_CONTROL_ERROR.code), Callback.NOOP);
+                }
+                else
+                {
+                    stream.process(frame, Callback.NOOP);
+                    onWindowUpdate(stream, frame);
+                }
+            }
+            else
+            {
+                if (!isStreamClosed(streamId))
+                    onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_window_update_frame");
             }
         }
         else
         {
-            onWindowUpdate(null, frame);
+            int sessionSendWindow = updateSendWindow(0);
+            if (MathUtils.sumOverflows(sessionSendWindow, windowDelta))
+                onConnectionFailure(ErrorCode.FLOW_CONTROL_ERROR.code, "invalid_flow_control_window");
+            else
+                onWindowUpdate(null, frame);
         }
+    }
+
+    @Override
+    public void onStreamFailure(int streamId, int error, String reason)
+    {
+        Callback callback = Callback.from(() -> reset(getStream(streamId), new ResetFrame(streamId, error), Callback.NOOP));
+        Throwable failure = toFailure(error, reason);
+        if (LOG.isDebugEnabled())
+            LOG.debug("Stream #{} failure {}", streamId, this, failure);
+        IStream stream = getStream(streamId);
+        if (stream != null)
+            failStream(stream, error, reason, failure, callback);
+        else
+            callback.succeeded();
     }
 
     @Override
     public void onConnectionFailure(int error, String reason)
     {
-        notifyFailure(this, new IOException(String.format("%d/%s", error, reason)));
-        close(error, reason, Callback.NOOP);
+        onSessionFailure(error, reason, Callback.NOOP);
+    }
+
+    private void onSessionFailure(int error, String reason, Callback callback)
+    {
+        streamsState.onSessionFailure(error, reason, callback);
+    }
+
+    void onWriteFailure(Throwable failure)
+    {
+        streamsState.onWriteFailure(failure);
+    }
+
+    protected void abort(String reason, Throwable failure, Callback callback)
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Session abort {} for {}", reason, this, failure);
+        onFailure(ErrorCode.NO_ERROR.code, reason, failure, callback);
+    }
+
+    private void onFailure(int error, String reason, Throwable failure, Callback callback)
+    {
+        Collection<Stream> streams = getStreams();
+        int count = streams.size();
+        Callback countCallback = new CountingCallback(callback, count + 1);
+        for (Stream stream : streams)
+        {
+            if (stream.isClosed())
+                countCallback.succeeded();
+            else
+                failStream(stream, error, reason, failure, countCallback);
+        }
+        notifyFailure(this, failure, countCallback);
+    }
+
+    private void failStreams(Predicate<IStream> matcher, String reason, boolean reset)
+    {
+        int error = ErrorCode.CANCEL_STREAM_ERROR.code;
+        Throwable failure = toFailure(error, reason);
+        for (Stream stream : getStreams())
+        {
+            if (stream.isClosed())
+                continue;
+            if (!matcher.test((IStream)stream))
+                continue;
+            if (LOG.isDebugEnabled())
+                LOG.debug("Failing stream {} of {}", stream, this);
+            failStream(stream, error, reason, failure, Callback.NOOP);
+            if (reset)
+                stream.reset(new ResetFrame(stream.getId(), error), Callback.NOOP);
+        }
+    }
+
+    private void failStream(Stream stream, int error, String reason, Throwable failure, Callback callback)
+    {
+        ((IStream)stream).process(new FailureFrame(error, reason, failure), callback);
+    }
+
+    private Throwable toFailure(int error, String reason)
+    {
+        return new IOException(String.format("%s/%s", ErrorCode.toString(error, null), reason));
     }
 
     @Override
     public void newStream(HeadersFrame frame, Promise<Stream> promise, Stream.Listener listener)
     {
-        // Synchronization is necessary to atomically create
-        // the stream id and enqueue the frame to be sent.
-        boolean queued;
-        synchronized (this)
-        {
-            int streamId = frame.getStreamId();
-            if (streamId <= 0)
-            {
-                streamId = streamIds.getAndAdd(2);
-                PriorityFrame priority = frame.getPriority();
-                priority = priority == null ? null : new PriorityFrame(streamId, priority.getParentStreamId(),
-                        priority.getWeight(), priority.isExclusive());
-                frame = new HeadersFrame(streamId, frame.getMetaData(), priority, frame.isEndStream());
-            }
-            final IStream stream = createLocalStream(streamId, promise);
-            if (stream == null)
-                return;
-            stream.setListener(listener);
+        newStream(new IStream.FrameList(frame), promise, listener);
+    }
 
-            ControlEntry entry = new ControlEntry(frame, stream, new PromiseCallback<>(promise, stream));
-            queued = flusher.append(entry);
-        }
-        // Iterate outside the synchronized block.
-        if (queued)
-            flusher.iterate();
+    @Override
+    public void newStream(IStream.FrameList frames, Promise<Stream> promise, Stream.Listener listener)
+    {
+        streamsState.newLocalStream(frames, promise, listener);
     }
 
     @Override
     public int priority(PriorityFrame frame, Callback callback)
     {
-        int streamId = frame.getStreamId();
-        IStream stream = streams.get(streamId);
-        if (stream == null)
-        {
-            streamId = streamIds.getAndAdd(2);
-            frame = new PriorityFrame(streamId, frame.getParentStreamId(),
-                    frame.getWeight(), frame.isExclusive());
-        }
-        control(stream, callback, frame);
-        return streamId;
+        return streamsState.priority(frame, callback);
     }
 
     @Override
     public void push(IStream stream, Promise<Stream> promise, PushPromiseFrame frame, Stream.Listener listener)
     {
-        // Synchronization is necessary to atomically create
-        // the stream id and enqueue the frame to be sent.
-        boolean queued;
-        synchronized (this)
+        streamsState.push(frame, new Promise.Wrapper<Stream>(promise)
         {
-            int streamId = streamIds.getAndAdd(2);
-            frame = new PushPromiseFrame(frame.getStreamId(), streamId, frame.getMetaData());
-
-            final IStream pushStream = createLocalStream(streamId, promise);
-            if (pushStream == null)
-                return;
-            pushStream.setListener(listener);
-
-            ControlEntry entry = new ControlEntry(frame, pushStream, new PromiseCallback<>(promise, pushStream));
-            queued = flusher.append(entry);
-        }
-        // Iterate outside the synchronized block.
-        if (queued)
-            flusher.iterate();
+            @Override
+            public void succeeded(Stream pushedStream)
+            {
+                // Pushed streams are implicitly remotely closed.
+                // They are closed when sending an end-stream DATA frame.
+                ((IStream)pushedStream).updateClose(true, CloseState.Event.RECEIVED);
+                super.succeeded(pushedStream);
+            }
+        }, listener);
     }
-
 
     @Override
     public void settings(SettingsFrame frame, Callback callback)
@@ -559,26 +614,20 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             control(null, callback, frame);
     }
 
-    protected void reset(ResetFrame frame, Callback callback)
+    void reset(IStream stream, ResetFrame frame, Callback callback)
     {
-        control(getStream(frame.getStreamId()), callback, frame);
+        control(stream, Callback.from(() ->
+        {
+            if (stream != null)
+            {
+                stream.close();
+                removeStream(stream);
+            }
+        }, callback), frame);
     }
 
     /**
-     * Invoked internally and by applications to send a GO_AWAY frame to the
-     * other peer. We check the close state to act appropriately:
-     *
-     * * NOT_CLOSED: we move to LOCALLY_CLOSED and queue a GO_AWAY. When the
-     *   GO_AWAY has been written, it will only cause the output to be shut
-     *   down (not the connection closed), so that the application can still
-     *   read frames arriving from the other peer.
-     *   Ideally the other peer will notice the GO_AWAY and close the connection.
-     *   When that happen, we close the connection from {@link #onShutdown()}.
-     *   Otherwise, the idle timeout mechanism will close the connection, see
-     *   {@link #onIdleTimeout()}.
-     *
-     * * In all other cases, we do nothing since other methods are already
-     *   performing their actions.
+     * <p>Invoked internally and by applications to send a GO_AWAY frame to the other peer.</p>
      *
      * @param error the error code
      * @param reason the reason
@@ -590,85 +639,88 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     @Override
     public boolean close(int error, String reason, Callback callback)
     {
-        while (true)
+        if (LOG.isDebugEnabled())
+            LOG.debug("Closing {}/{} {}", ErrorCode.toString(error, null), reason, this);
+        return goAway(newGoAwayFrame(error, reason), callback);
+    }
+
+    public boolean goAway(GoAwayFrame frame, Callback callback)
+    {
+        return streamsState.goAway(frame, callback);
+    }
+
+    private GoAwayFrame newGoAwayFrame(int error, String reason)
+    {
+        return newGoAwayFrame(getLastRemoteStreamId(), error, reason);
+    }
+
+    private GoAwayFrame newGoAwayFrame(int lastRemoteStreamId, int error, String reason)
+    {
+        byte[] payload = null;
+        if (reason != null)
         {
-            CloseState current = closed.get();
-            switch (current)
-            {
-                case NOT_CLOSED:
-                {
-                    if (closed.compareAndSet(current, CloseState.LOCALLY_CLOSED))
-                    {
-                        byte[] payload = null;
-                        if (reason != null)
-                        {
-                            // Trim the reason to avoid attack vectors.
-                            reason = reason.substring(0, Math.min(reason.length(), 32));
-                            payload = reason.getBytes(StandardCharsets.UTF_8);
-                        }
-                        GoAwayFrame frame = new GoAwayFrame(lastStreamId.get(), error, payload);
-                        control(null, callback, frame);
-                        return true;
-                    }
-                    break;
-                }
-                default:
-                {
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Ignoring close {}/{}, already closed", error, reason);
-                    callback.succeeded();
-                    return false;
-                }
-            }
+            // Trim the reason to avoid attack vectors.
+            reason = reason.substring(0, Math.min(reason.length(), 32));
+            payload = reason.getBytes(StandardCharsets.UTF_8);
         }
+        return new GoAwayFrame(lastRemoteStreamId, error, payload);
     }
 
     @Override
     public boolean isClosed()
     {
-        return closed.get() != CloseState.NOT_CLOSED;
+        return getCloseState() != CloseState.NOT_CLOSED;
+    }
+
+    public CloseState getCloseState()
+    {
+        return streamsState.getCloseState();
     }
 
     private void control(IStream stream, Callback callback, Frame frame)
     {
-        frames(stream, callback, frame, Frame.EMPTY_ARRAY);
+        frames(stream, Collections.singletonList(frame), callback);
     }
 
     @Override
-    public void frames(IStream stream, Callback callback, Frame frame, Frame... frames)
+    public void frames(IStream stream, List<? extends Frame> frames, Callback callback)
     {
         // We want to generate as late as possible to allow re-prioritization;
         // generation will happen while processing the entries.
 
         // The callback needs to be notified only when the last frame completes.
 
-        int length = frames.length;
-        if (length == 0)
+        int count = frames.size();
+        if (count > 1)
+            callback = new CountingCallback(callback, count);
+        for (int i = 1; i <= count; ++i)
         {
-            frame(new ControlEntry(frame, stream, callback), true);
+            Frame frame = frames.get(i - 1);
+            HTTP2Flusher.Entry entry = newEntry(frame, stream, callback);
+            frame(entry, i == count);
         }
-        else
-        {
-            callback = new CountingCallback(callback, 1 + length);
-            frame(new ControlEntry(frame, stream, callback), false);
-            for (int i = 1; i <= length; ++i)
-                frame(new ControlEntry(frames[i - 1], stream, callback), i == length);
-        }
+    }
+
+    private HTTP2Flusher.Entry newEntry(Frame frame, IStream stream, Callback callback)
+    {
+        return frame.getType() == FrameType.DATA
+            ? new DataEntry((DataFrame)frame, stream, callback)
+            : new ControlEntry(frame, stream, callback);
     }
 
     @Override
     public void data(IStream stream, Callback callback, DataFrame frame)
     {
         // We want to generate as late as possible to allow re-prioritization.
-        frame(new DataEntry(frame, stream, callback), true);
+        frame(newEntry(frame, stream, callback), true);
     }
 
     private void frame(HTTP2Flusher.Entry entry, boolean flush)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("{} {}", flush ? "Sending" : "Queueing", entry.frame);
+            LOG.debug("{} {} on {}", flush ? "Sending" : "Queueing", entry, this);
         // Ping frames are prepended to process them as soon as possible.
-        boolean queued = entry.frame.getType() == FrameType.PING ? flusher.prepend(entry) : flusher.append(entry);
+        boolean queued = entry.hasHighPriority() ? flusher.prepend(entry) : flusher.append(entry);
         if (queued && flush)
         {
             if (entry.stream != null)
@@ -703,6 +755,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
         else
         {
+            localStreamCount.decrementAndGet();
             promise.failed(new IllegalStateException("Duplicate stream " + streamId));
             return null;
         }
@@ -710,26 +763,38 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
 
     protected IStream createRemoteStream(int streamId)
     {
+        // This stream has been seen the server.
+        // Even if the stream cannot be created because this peer is closing,
+        // updating the lastRemoteStreamId ensures that in-flight HEADERS and
+        // DATA frames can be read (and discarded) without causing an error.
+        updateLastRemoteStreamId(streamId);
+
+        if (!streamsState.newRemoteStream(streamId))
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("Could not create remote stream #{} for {}", streamId, this);
+            return null;
+        }
+
         // SPEC: exceeding max concurrent streams is treated as stream error.
         while (true)
         {
-            int remoteCount = remoteStreamCount.get();
+            long encoded = remoteStreamCount.get();
+            int remoteCount = AtomicBiInteger.getHi(encoded);
+            int remoteClosing = AtomicBiInteger.getLo(encoded);
             int maxCount = getMaxRemoteStreams();
-            if (maxCount >= 0 && remoteCount >= maxCount)
+            if (maxCount >= 0 && remoteCount - remoteClosing >= maxCount)
             {
-                reset(new ResetFrame(streamId, ErrorCode.REFUSED_STREAM_ERROR.code), Callback.NOOP);
+                reset(null, new ResetFrame(streamId, ErrorCode.REFUSED_STREAM_ERROR.code), Callback.from(() -> onStreamDestroyed(streamId)));
                 return null;
             }
-            if (remoteStreamCount.compareAndSet(remoteCount, remoteCount + 1))
+            if (remoteStreamCount.compareAndSet(encoded, remoteCount + 1, remoteClosing))
                 break;
         }
 
         IStream stream = newStream(streamId, false);
-
-        // SPEC: duplicate stream is treated as connection error.
         if (streams.putIfAbsent(streamId, stream) == null)
         {
-            updateLastStreamId(streamId);
             stream.setIdleTimeout(getStreamIdleTimeout());
             flowControl.onStreamCreated(stream);
             if (LOG.isDebugEnabled())
@@ -738,9 +803,20 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
         else
         {
-            close(ErrorCode.PROTOCOL_ERROR.code, "duplicate_stream", Callback.NOOP);
+            remoteStreamCount.addAndGetHi(-1);
+            onStreamDestroyed(streamId);
+            // SPEC: duplicate stream is treated as connection error.
+            onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "duplicate_stream");
             return null;
         }
+    }
+
+    void updateStreamCount(boolean local, int deltaStreams, int deltaClosing)
+    {
+        if (local)
+            localStreamCount.addAndGet(deltaStreams);
+        else
+            remoteStreamCount.add(deltaStreams, deltaClosing);
     }
 
     protected IStream newStream(int streamId, boolean local)
@@ -749,40 +825,30 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     }
 
     @Override
-    public void removeStream(IStream stream)
+    public boolean removeStream(IStream stream)
     {
-        IStream removed = streams.remove(stream.getId());
-        if (removed != null)
-        {
-            assert removed == stream;
-
-            boolean local = stream.isLocal();
-            if (local)
-                localStreamCount.decrementAndGet();
-            else
-                remoteStreamCount.decrementAndGet();
-
-            onStreamClosed(stream);
-
-            flowControl.onStreamDestroyed(stream);
-
-            if (LOG.isDebugEnabled())
-                LOG.debug("Removed {} {}", local ? "local" : "remote", stream);
-        }
+        int streamId = stream.getId();
+        IStream removed = streams.remove(streamId);
+        if (removed == null)
+            return false;
+        if (LOG.isDebugEnabled())
+            LOG.debug("Removed {} {} from {}", stream.isLocal() ? "local" : "remote", stream, this);
+        onStreamClosed(stream);
+        flowControl.onStreamDestroyed(stream);
+        onStreamDestroyed(streamId);
+        return true;
     }
 
     @Override
     public Collection<Stream> getStreams()
     {
-        List<Stream> result = new ArrayList<>();
-        result.addAll(streams.values());
-        return result;
+        return new ArrayList<>(streams.values());
     }
 
     @ManagedAttribute("The number of active streams")
     public int getStreamCount()
     {
-        return streams.size();
+        return streamsState.streamCount.intValue();
     }
 
     @Override
@@ -838,22 +904,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     }
 
     /**
-     * A typical close by a remote peer involves a GO_AWAY frame followed by TCP FIN.
-     * This method is invoked when the TCP FIN is received, or when an exception is
-     * thrown while reading, and we check the close state to act appropriately:
-     *
-     * * NOT_CLOSED: means that the remote peer did not send a GO_AWAY (abrupt close)
-     *   or there was an exception while reading, and therefore we terminate.
-     *
-     * * LOCALLY_CLOSED: we have sent the GO_AWAY to the remote peer, which received
-     *   it and closed the connection; we queue a disconnect to close the connection
-     *   on the local side.
-     *   The GO_AWAY just shutdown the output, so we need this step to make sure the
-     *   connection is closed. See {@link #close(int, String, Callback)}.
-     *
-     * * REMOTELY_CLOSED: we received the GO_AWAY, and the TCP FIN afterwards, so we
-     *   do nothing since the handling of the GO_AWAY will take care of closing the
-     *   connection. See {@link #onGoAway(GoAwayFrame)}.
+     * <p>This method is called when the TCP FIN is received from the remote peer.</p>
      *
      * @see #onGoAway(GoAwayFrame)
      * @see #close(int, String, Callback)
@@ -862,54 +913,11 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     @Override
     public void onShutdown()
     {
-        if (LOG.isDebugEnabled())
-            LOG.debug("Shutting down {}", this);
-
-        switch (closed.get())
-        {
-            case NOT_CLOSED:
-            {
-                // The other peer did not send a GO_AWAY, no need to be gentle.
-                if (LOG.isDebugEnabled())
-                    LOG.debug("Abrupt close for {}", this);
-                abort(new ClosedChannelException());
-                break;
-            }
-            case LOCALLY_CLOSED:
-            {
-                // We have closed locally, and only shutdown
-                // the output; now queue a disconnect.
-                control(null, Callback.NOOP, new DisconnectFrame());
-                break;
-            }
-            case REMOTELY_CLOSED:
-            {
-                // Nothing to do, the GO_AWAY frame we
-                // received will close the connection.
-                break;
-            }
-            default:
-            {
-                break;
-            }
-        }
+        streamsState.onShutdown();
     }
 
     /**
-     * This method is invoked when the idle timeout triggers. We check the close state
-     * to act appropriately:
-     *
-     * * NOT_CLOSED: it's a real idle timeout, we just initiate a close, see
-     *   {@link #close(int, String, Callback)}.
-     *
-     * * LOCALLY_CLOSED: we have sent a GO_AWAY and only shutdown the output, but the
-     *   other peer did not close the connection so we never received the TCP FIN, and
-     *   therefore we terminate.
-     *
-     * * REMOTELY_CLOSED: the other peer sent us a GO_AWAY, we should have queued a
-     *   disconnect, but for some reason it was not processed (for example, queue was
-     *   stuck because of TCP congestion), therefore we terminate.
-     *   See {@link #onGoAway(GoAwayFrame)}.
+     * <p>This method is invoked when the idle timeout expires.</p>
      *
      * @return true if the session should be closed, false otherwise
      * @see #onGoAway(GoAwayFrame)
@@ -919,31 +927,12 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     @Override
     public boolean onIdleTimeout()
     {
-        switch (closed.get())
-        {
-            case NOT_CLOSED:
-            {
-                long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - idleTime);
-                if (elapsed < endPoint.getIdleTimeout())
-                    return false;
-                return notifyIdleTimeout(this);
-            }
-            case LOCALLY_CLOSED:
-            case REMOTELY_CLOSED:
-            {
-                abort(new TimeoutException("Idle timeout " + endPoint.getIdleTimeout() + " ms"));
-                return false;
-            }
-            default:
-            {
-                return false;
-            }
-        }
+        return streamsState.onIdleTimeout();
     }
 
     private void notIdle()
     {
-        idleTime = System.nanoTime();
+        streamsState.idleTime = System.nanoTime();
     }
 
     @Override
@@ -952,12 +941,44 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "upgrade");
     }
 
-    protected void onStreamOpened(IStream stream)
+    private void onStreamCreated(int streamId)
     {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Created stream #{} for {}", streamId, this);
+        streamsState.onStreamCreated();
     }
 
-    protected void onStreamClosed(IStream stream)
+    protected final void onStreamOpened(IStream stream)
     {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Opened stream {} for {}", stream, this);
+        streamsOpened.incrementAndGet();
+    }
+
+    private void onStreamClosed(IStream stream)
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Closed stream {} for {}", stream, this);
+        streamsClosed.incrementAndGet();
+    }
+
+    private void onStreamDestroyed(int streamId)
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Destroyed stream #{} for {}", streamId, this);
+        streamsState.onStreamDestroyed();
+    }
+
+    @Override
+    public void onFlushed(long bytes) throws IOException
+    {
+        flusher.onFlushed(bytes);
+    }
+
+    private void terminate(Throwable cause)
+    {
+        flusher.terminate(cause);
+        disconnect();
     }
 
     public void disconnect()
@@ -967,50 +988,19 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         endPoint.close();
     }
 
-    private void terminate(Throwable cause)
-    {
-        while (true)
-        {
-            CloseState current = closed.get();
-            switch (current)
-            {
-                case NOT_CLOSED:
-                case LOCALLY_CLOSED:
-                case REMOTELY_CLOSED:
-                {
-                    if (closed.compareAndSet(current, CloseState.CLOSED))
-                    {
-                        flusher.terminate(cause);
-                        for (IStream stream : streams.values())
-                            stream.close();
-                        streams.clear();
-                        disconnect();
-                        return;
-                    }
-                    break;
-                }
-                default:
-                {
-                    return;
-                }
-            }
-        }
-    }
-
-    protected void abort(Throwable failure)
-    {
-        notifyFailure(this, failure);
-        terminate(failure);
-    }
-
     public boolean isDisconnected()
     {
         return !endPoint.isOpen();
     }
 
-    private void updateLastStreamId(int streamId)
+    protected int getLastRemoteStreamId()
     {
-        Atomics.updateMax(lastStreamId, streamId);
+        return lastRemoteStreamId.get();
+    }
+
+    private void updateLastRemoteStreamId(int streamId)
+    {
+        Atomics.updateMax(lastRemoteStreamId, streamId);
     }
 
     protected Stream.Listener notifyNewStream(Stream stream, HeadersFrame frame)
@@ -1062,11 +1052,23 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
     }
 
-    protected void notifyClose(Session session, GoAwayFrame frame)
+    protected void notifyGoAway(Session session, GoAwayFrame frame)
     {
         try
         {
-            listener.onClose(session, frame);
+            listener.onGoAway(session, frame);
+        }
+        catch (Throwable x)
+        {
+            LOG.info("Failure while notifying listener " + listener, x);
+        }
+    }
+
+    protected void notifyClose(Session session, GoAwayFrame frame, Callback callback)
+    {
+        try
+        {
+            listener.onClose(session, frame, callback);
         }
         catch (Throwable x)
         {
@@ -1087,11 +1089,11 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
     }
 
-    protected void notifyFailure(Session session, Throwable failure)
+    protected void notifyFailure(Session session, Throwable failure, Callback callback)
     {
         try
         {
-            listener.onFailure(session, failure);
+            listener.onFailure(session, failure, callback);
         }
         catch (Throwable x)
         {
@@ -1114,37 +1116,63 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
     }
 
+    protected static boolean isClientStream(int streamId)
+    {
+        // Client-initiated stream ids are odd.
+        return (streamId & 1) == 1;
+    }
+
+    @Override
+    public void dump(Appendable out, String indent) throws IOException
+    {
+        dumpObjects(out, indent, new DumpableCollection("streams", streams.values()));
+    }
+
     @Override
     public String toString()
     {
-        return String.format("%s@%x{l:%s <-> r:%s,queueSize=%d,sendWindow=%s,recvWindow=%s,streams=%d,%s}",
-                getClass().getSimpleName(),
-                hashCode(),
-                getEndPoint().getLocalAddress(),
-                getEndPoint().getRemoteAddress(),
-                flusher.getQueueSize(),
-                sendWindow,
-                recvWindow,
-                streams.size(),
-                closed);
+        return String.format("%s@%x{local:%s,remote:%s,sendWindow=%s,recvWindow=%s,%s}",
+            getClass().getSimpleName(),
+            hashCode(),
+            getEndPoint().getLocalAddress(),
+            getEndPoint().getRemoteAddress(),
+            sendWindow,
+            recvWindow,
+            streamsState
+        );
     }
 
     private class ControlEntry extends HTTP2Flusher.Entry
     {
-        private int bytes;
+        private int frameBytes;
 
         private ControlEntry(Frame frame, IStream stream, Callback callback)
         {
             super(frame, stream, callback);
         }
 
-        protected boolean generate(ByteBufferPool.Lease lease)
+        @Override
+        public int getFrameBytesGenerated()
         {
-            bytes = generator.control(lease, frame);
-            if (LOG.isDebugEnabled())
-                LOG.debug("Generated {}", frame);
-            prepare();
+            return frameBytes;
+        }
+
+        @Override
+        protected boolean generate(ByteBufferPool.Lease lease) throws HpackException
+        {
+            frameBytes = generator.control(lease, frame);
+            beforeSend();
             return true;
+        }
+
+        @Override
+        public long onFlushed(long bytes)
+        {
+            long flushed = Math.min(frameBytes, bytes);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Flushed {}/{} frame bytes for {}", flushed, bytes, this);
+            frameBytes -= flushed;
+            return bytes - flushed;
         }
 
         /**
@@ -1160,10 +1188,16 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
          * sender, the action may have not been performed yet, causing the larger
          * data to be rejected, when it should have been accepted.</p>
          */
-        private void prepare()
+        private void beforeSend()
         {
             switch (frame.getType())
             {
+                case HEADERS:
+                {
+                    HeadersFrame headersFrame = (HeadersFrame)frame;
+                    stream.updateClose(headersFrame.isEndStream(), CloseState.Event.BEFORE_SEND);
+                    break;
+                }
                 case SETTINGS:
                 {
                     SettingsFrame settingsFrame = (SettingsFrame)frame;
@@ -1180,40 +1214,28 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
 
         @Override
+        boolean hasHighPriority()
+        {
+            return frame.getType() == FrameType.PING;
+        }
+
+        @Override
         public void succeeded()
         {
-            bytesWritten.addAndGet(bytes);
+            commit();
+
+            bytesWritten.addAndGet(frameBytes);
+            frameBytes = 0;
+
             switch (frame.getType())
             {
                 case HEADERS:
                 {
-                    onStreamOpened(stream);
                     HeadersFrame headersFrame = (HeadersFrame)frame;
-                    if (stream.updateClose(headersFrame.isEndStream(), true))
+                    if (headersFrame.getMetaData().isRequest())
+                        onStreamOpened(stream);
+                    if (stream.updateClose(headersFrame.isEndStream(), CloseState.Event.AFTER_SEND))
                         removeStream(stream);
-                    break;
-                }
-                case RST_STREAM:
-                {
-                    if (stream != null)
-                    {
-                        stream.close();
-                        removeStream(stream);
-                    }
-                    break;
-                }
-                case PUSH_PROMISE:
-                {
-                    // Pushed streams are implicitly remotely closed.
-                    // They are closed when sending an end-stream DATA frame.
-                    stream.updateClose(true, false);
-                    break;
-                }
-                case GO_AWAY:
-                {
-                    // We just sent a GO_AWAY, only shutdown the
-                    // output without closing yet, to allow reads.
-                    getEndPoint().shutdownOutput();
                     break;
                 }
                 case WINDOW_UPDATE:
@@ -1221,25 +1243,22 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
                     flowControl.windowUpdate(HTTP2Session.this, stream, (WindowUpdateFrame)frame);
                     break;
                 }
-                case DISCONNECT:
-                {
-                    terminate(new ClosedChannelException());
-                    break;
-                }
                 default:
                 {
                     break;
                 }
             }
+
             super.succeeded();
         }
     }
 
     private class DataEntry extends HTTP2Flusher.Entry
     {
-        private int bytes;
+        private int frameBytes;
+        private int frameRemaining;
+        private int dataBytes;
         private int dataRemaining;
-        private int dataWritten;
 
         private DataEntry(DataFrame frame, IStream stream, Callback callback)
         {
@@ -1253,14 +1272,21 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
 
         @Override
-        public int dataRemaining()
+        public int getFrameBytesGenerated()
+        {
+            return frameBytes;
+        }
+
+        @Override
+        public int getDataBytesRemaining()
         {
             return dataRemaining;
         }
 
+        @Override
         protected boolean generate(ByteBufferPool.Lease lease)
         {
-            int dataRemaining = dataRemaining();
+            int dataRemaining = getDataBytesRemaining();
 
             int sessionSendWindow = getSendWindow();
             int streamSendWindow = stream.updateSendWindow(0);
@@ -1271,59 +1297,907 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             int length = Math.min(dataRemaining, window);
 
             // Only one DATA frame is generated.
-            bytes = generator.data(lease, (DataFrame)frame, length);
-            int written = bytes - Frame.HEADER_LENGTH;
+            DataFrame dataFrame = (DataFrame)frame;
+            int frameBytes = generator.data(lease, dataFrame, length);
+            this.frameBytes += frameBytes;
+            this.frameRemaining += frameBytes;
+
+            int dataBytes = frameBytes - Frame.HEADER_LENGTH;
+            this.dataBytes += dataBytes;
+            this.dataRemaining -= dataBytes;
             if (LOG.isDebugEnabled())
-                LOG.debug("Generated {}, length/window/data={}/{}/{}", frame, written, window, dataRemaining);
+                LOG.debug("Generated {}, length/window/data={}/{}/{}", dataFrame, dataBytes, window, dataRemaining);
 
-            this.dataWritten = written;
-            this.dataRemaining -= written;
+            flowControl.onDataSending(stream, dataBytes);
 
-            flowControl.onDataSending(stream, written);
+            stream.updateClose(dataFrame.isEndStream(), CloseState.Event.BEFORE_SEND);
 
             return true;
         }
 
         @Override
+        public long onFlushed(long bytes) throws IOException
+        {
+            long flushed = Math.min(frameRemaining, bytes);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Flushed {}/{} frame bytes for {}", flushed, bytes, this);
+            frameRemaining -= flushed;
+            // We should only forward data (not frame) bytes,
+            // but we trade precision for simplicity.
+            Object channel = stream.getAttachment();
+            if (channel instanceof WriteFlusher.Listener)
+                ((WriteFlusher.Listener)channel).onFlushed(flushed);
+            return bytes - flushed;
+        }
+
+        @Override
         public void succeeded()
         {
-            bytesWritten.addAndGet(bytes);
-            flowControl.onDataSent(stream, dataWritten);
+            bytesWritten.addAndGet(frameBytes);
+            frameBytes = 0;
+            frameRemaining = 0;
+
+            flowControl.onDataSent(stream, dataBytes);
+            dataBytes = 0;
 
             // Do we have more to send ?
             DataFrame dataFrame = (DataFrame)frame;
-            if (dataRemaining() == 0)
+            if (getDataBytesRemaining() == 0)
             {
                 // Only now we can update the close state
                 // and eventually remove the stream.
-                if (stream.updateClose(dataFrame.isEndStream(), true))
+                if (stream.updateClose(dataFrame.isEndStream(), CloseState.Event.AFTER_SEND))
                     removeStream(stream);
                 super.succeeded();
             }
         }
     }
 
-    private static class PromiseCallback<C> implements Callback
+    private class DataCallback extends Callback.Nested
     {
-        private final Promise<C> promise;
-        private final C value;
+        private final IStream stream;
+        private final int flowControlLength;
 
-        private PromiseCallback(Promise<C> promise, C value)
+        public DataCallback(Callback callback, IStream stream, int flowControlLength)
         {
-            this.promise = promise;
-            this.value = value;
+            super(callback);
+            this.stream = stream;
+            this.flowControlLength = flowControlLength;
         }
 
         @Override
         public void succeeded()
         {
-            promise.succeeded(value);
+            complete();
+            super.succeeded();
         }
 
         @Override
         public void failed(Throwable x)
         {
-            promise.failed(x);
+            // Consume also in case of failures, to free the
+            // session flow control window for other streams.
+            complete();
+            super.failed(x);
+        }
+
+        private void complete()
+        {
+            notIdle();
+            stream.notIdle();
+            flowControl.onDataConsumed(HTTP2Session.this, stream, flowControlLength);
+        }
+    }
+
+    private class OnResetCallback implements Callback
+    {
+        @Override
+        public void succeeded()
+        {
+            complete();
+        }
+
+        @Override
+        public void failed(Throwable x)
+        {
+            complete();
+        }
+
+        @Override
+        public InvocationType getInvocationType()
+        {
+            return InvocationType.NON_BLOCKING;
+        }
+
+        private void complete()
+        {
+            flusher.iterate();
+        }
+    }
+
+    /**
+     * <p>The HTTP/2 specification requires that stream ids are monotonically increasing,
+     * see https://tools.ietf.org/html/rfc7540#section-5.1.1.</p>
+     * <p>This implementation uses a queue to atomically reserve a stream id and claim
+     * a slot in the queue; the slot is then assigned the entries to write.</p>
+     * <p>Concurrent threads push slots in the queue but only one thread flushes
+     * the slots, up to the slot that has a non-null entries to write, therefore
+     * guaranteeing that frames are sent strictly in their stream id order.</p>
+     * <p>This class also coordinates the creation of streams with the close of
+     * the session, see https://tools.ietf.org/html/rfc7540#section-6.8.</p>
+     */
+    private class StreamsState
+    {
+        private final Locker lock = new Locker();
+        private final Queue<Slot> slots = new ArrayDeque<>();
+        // Must be incremented with the lock held.
+        private final AtomicLong streamCount = new AtomicLong();
+        private long idleTime = System.nanoTime();
+        private CloseState closed = CloseState.NOT_CLOSED;
+        private Runnable zeroStreamsAction;
+        private GoAwayFrame goAwayRecv;
+        private GoAwayFrame goAwaySent;
+        private Throwable failure;
+        private Thread flushing;
+
+        private CloseState getCloseState()
+        {
+            try (Locker.Lock l = lock.lock())
+            {
+                return closed;
+            }
+        }
+
+        private boolean goAway(GoAwayFrame frame, Callback callback)
+        {
+            boolean sendGoAway = false;
+            boolean tryRunZeroStreamsAction = false;
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    {
+                        goAwaySent = frame;
+                        closed = CloseState.LOCALLY_CLOSED;
+                        sendGoAway = true;
+                        if (frame.isGraceful())
+                        {
+                            // Try to send the non-graceful GOAWAY
+                            // when the last stream is destroyed.
+                            zeroStreamsAction = () ->
+                            {
+                                GoAwayFrame goAwayFrame = newGoAwayFrame(ErrorCode.NO_ERROR.code, "close");
+                                goAway(goAwayFrame, Callback.NOOP);
+                            };
+                            tryRunZeroStreamsAction = streamCount.get() == 0;
+                        }
+                        break;
+                    }
+                    case LOCALLY_CLOSED:
+                    {
+                        if (frame.isGraceful())
+                        {
+                            // Trying to send a non-first, but graceful, GOAWAY, ignore this one.
+                            if (LOG.isDebugEnabled())
+                                LOG.debug("Already sent, ignored GOAWAY {} for {}", frame, HTTP2Session.this);
+                        }
+                        else
+                        {
+                            // SPEC: see section 6.8.
+                            if (goAwaySent.isGraceful() ||
+                                frame.getLastStreamId() < goAwaySent.getLastStreamId() ||
+                                frame.getError() != ErrorCode.NO_ERROR.code)
+                            {
+                                goAwaySent = frame;
+                                sendGoAway = true;
+                            }
+                            else
+                            {
+                                // Trying to send another non-graceful GOAWAY, ignore this one.
+                                if (LOG.isDebugEnabled())
+                                    LOG.debug("Already sent, ignored GOAWAY {} for {}", frame, HTTP2Session.this);
+                            }
+                        }
+                        break;
+                    }
+                    case REMOTELY_CLOSED:
+                    {
+                        goAwaySent = frame;
+                        sendGoAway = true;
+                        if (frame.isGraceful())
+                        {
+                            // Try to send the non-graceful GOAWAY
+                            // when the last stream is destroyed.
+                            zeroStreamsAction = () ->
+                            {
+                                GoAwayFrame goAwayFrame = newGoAwayFrame(ErrorCode.NO_ERROR.code, "close");
+                                goAway(goAwayFrame, Callback.NOOP);
+                            };
+                            tryRunZeroStreamsAction = streamCount.get() == 0;
+                        }
+                        else
+                        {
+                            if (goAwayRecv.isGraceful())
+                            {
+                                if (LOG.isDebugEnabled())
+                                    LOG.debug("Waiting non-graceful GOAWAY for {}", HTTP2Session.this);
+                            }
+                            else
+                            {
+                                closed = CloseState.CLOSING;
+                                zeroStreamsAction = () -> terminate(frame);
+                                tryRunZeroStreamsAction = streamCount.get() == 0;
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                    {
+                        // Already closing or closed, ignore it.
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Already closed, ignored {} for {}", frame, HTTP2Session.this);
+                        break;
+                    }
+                }
+            }
+
+            if (sendGoAway)
+            {
+                if (tryRunZeroStreamsAction)
+                    sendGoAway(frame, Callback.from(callback, this::tryRunZeroStreamsAction));
+                else
+                    sendGoAway(frame, callback);
+                return true;
+            }
+            else
+            {
+                callback.succeeded();
+                return false;
+            }
+        }
+
+        private void halt(String reason)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("Halting ({}) for {}", reason, HTTP2Session.this);
+            GoAwayFrame goAwayFrame = null;
+            GoAwayFrame goAwayFrameEvent;
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    case REMOTELY_CLOSED:
+                    case LOCALLY_CLOSED:
+                    case CLOSING:
+                    {
+                        if (goAwaySent == null || goAwaySent.isGraceful())
+                            goAwaySent = goAwayFrame = newGoAwayFrame(ErrorCode.NO_ERROR.code, reason);
+                        goAwayFrameEvent = goAwayRecv != null ? goAwayRecv : goAwaySent;
+                        closed = CloseState.CLOSED;
+                        zeroStreamsAction = null;
+                        if (failure != null)
+                            failure = toFailure(ErrorCode.NO_ERROR.code, reason);
+                        break;
+                    }
+                    default:
+                    {
+                        return;
+                    }
+                }
+            }
+            failStreams(stream -> true, reason, true);
+            if (goAwayFrame != null)
+                sendGoAwayAndTerminate(goAwayFrame, goAwayFrameEvent);
+            else
+                terminate(goAwayFrameEvent);
+        }
+
+        private void onGoAway(GoAwayFrame frame)
+        {
+            boolean failStreams = false;
+            boolean tryRunZeroStreamsAction = false;
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    {
+                        goAwayRecv = frame;
+                        if (frame.isGraceful())
+                        {
+                            closed = CloseState.REMOTELY_CLOSED;
+                            if (LOG.isDebugEnabled())
+                                LOG.debug("Waiting non-graceful GOAWAY for {}", HTTP2Session.this);
+                        }
+                        else
+                        {
+                            goAwaySent = newGoAwayFrame(ErrorCode.NO_ERROR.code, "close");
+                            closed = CloseState.CLOSING;
+                            GoAwayFrame goAwayFrame = goAwaySent;
+                            zeroStreamsAction = () -> sendGoAwayAndTerminate(goAwayFrame, frame);
+                            tryRunZeroStreamsAction = streamCount.get() == 0;
+                            failStreams = true;
+                        }
+                        break;
+                    }
+                    case LOCALLY_CLOSED:
+                    {
+                        goAwayRecv = frame;
+                        if (frame.isGraceful())
+                        {
+                            // Wait for the non-graceful GOAWAY from the other peer.
+                            if (LOG.isDebugEnabled())
+                                LOG.debug("Waiting non-graceful GOAWAY for {}", HTTP2Session.this);
+                        }
+                        else
+                        {
+                            closed = CloseState.CLOSING;
+                            if (goAwaySent.isGraceful())
+                            {
+                                goAwaySent = newGoAwayFrame(ErrorCode.NO_ERROR.code, "close");
+                                GoAwayFrame goAwayFrame = goAwaySent;
+                                zeroStreamsAction = () -> sendGoAwayAndTerminate(goAwayFrame, frame);
+                                tryRunZeroStreamsAction = streamCount.get() == 0;
+                            }
+                            else
+                            {
+                                zeroStreamsAction = () -> terminate(frame);
+                                tryRunZeroStreamsAction = streamCount.get() == 0;
+                                failStreams = true;
+                            }
+                        }
+                        break;
+                    }
+                    case REMOTELY_CLOSED:
+                    {
+                        if (frame.isGraceful())
+                        {
+                            // Received a non-first, but graceful, GOAWAY, ignore it.
+                            if (LOG.isDebugEnabled())
+                                LOG.debug("Already received, ignoring GOAWAY for {}", HTTP2Session.this);
+                        }
+                        else
+                        {
+                            goAwayRecv = frame;
+                            closed = CloseState.CLOSING;
+                            if (goAwaySent == null || goAwaySent.isGraceful())
+                            {
+                                goAwaySent = newGoAwayFrame(ErrorCode.NO_ERROR.code, "close");
+                                GoAwayFrame goAwayFrame = goAwaySent;
+                                zeroStreamsAction = () -> sendGoAwayAndTerminate(goAwayFrame, frame);
+                            }
+                            else
+                            {
+                                zeroStreamsAction = () -> terminate(frame);
+                            }
+                            tryRunZeroStreamsAction = streamCount.get() == 0;
+                            failStreams = true;
+                        }
+                        break;
+                    }
+                    default:
+                    {
+                        // Already closing or closed, ignore it.
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Already closed, ignored {} for {}", frame, HTTP2Session.this);
+                        break;
+                    }
+                }
+            }
+
+            notifyGoAway(HTTP2Session.this, frame);
+
+            if (failStreams)
+            {
+                // Must compare the lastStreamId only with local streams.
+                // For example, a client that sent request with streamId=137 may send a GOAWAY(4),
+                // where streamId=4 is the last stream pushed by the server to the client.
+                // The server must not compare its local streamId=4 with remote streamId=137.
+                Predicate<IStream> failIf = stream -> stream.isLocal() && stream.getId() > frame.getLastStreamId();
+                failStreams(failIf, "closing", false);
+            }
+
+            if (tryRunZeroStreamsAction)
+                tryRunZeroStreamsAction();
+        }
+
+        private void onShutdown()
+        {
+            String reason = "input_shutdown";
+            Throwable cause = null;
+            boolean failStreams = false;
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    case LOCALLY_CLOSED:
+                    {
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Unexpected ISHUT for {}", HTTP2Session.this);
+                        closed = CloseState.CLOSING;
+                        failure = cause = new ClosedChannelException();
+                        break;
+                    }
+                    case REMOTELY_CLOSED:
+                    {
+                        closed = CloseState.CLOSING;
+                        GoAwayFrame goAwayFrame = newGoAwayFrame(0, ErrorCode.NO_ERROR.code, reason);
+                        zeroStreamsAction = () -> terminate(goAwayFrame);
+                        failure = new ClosedChannelException();
+                        failStreams = true;
+                        break;
+                    }
+                    case CLOSING:
+                    {
+                        if (failure == null)
+                            failure = new ClosedChannelException();
+                        failStreams = true;
+                        break;
+                    }
+                    default:
+                    {
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Already closed, ignoring ISHUT for {}", HTTP2Session.this);
+                        return;
+                    }
+                }
+            }
+
+            if (failStreams)
+            {
+                // Since nothing else will arrive from the other peer, reset
+                // the streams for which the other peer did not send all frames.
+                Predicate<IStream> failIf = stream -> !stream.isRemotelyClosed();
+                failStreams(failIf, reason, false);
+                tryRunZeroStreamsAction();
+            }
+            else
+            {
+                GoAwayFrame goAwayFrame = newGoAwayFrame(0, ErrorCode.NO_ERROR.code, reason);
+                abort(reason, cause, Callback.from(() -> terminate(goAwayFrame)));
+            }
+        }
+
+        private boolean onIdleTimeout()
+        {
+            String reason = "idle_timeout";
+            boolean notify = false;
+            boolean sendGoAway = false;
+            GoAwayFrame goAwayFrame = null;
+            Throwable cause = null;
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    {
+                        long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - idleTime);
+                        if (elapsed < endPoint.getIdleTimeout())
+                            return false;
+                        notify = true;
+                        break;
+                    }
+                    // Timed out while waiting for closing events, fail all the streams.
+                    case LOCALLY_CLOSED:
+                    {
+                        if (goAwaySent.isGraceful())
+                        {
+                            goAwaySent = newGoAwayFrame(ErrorCode.NO_ERROR.code, reason);
+                            sendGoAway = true;
+                        }
+                        goAwayFrame = goAwaySent;
+                        closed = CloseState.CLOSING;
+                        zeroStreamsAction = null;
+                        failure = cause = new TimeoutException("Session idle timeout expired");
+                        break;
+                    }
+                    case REMOTELY_CLOSED:
+                    {
+                        goAwaySent = newGoAwayFrame(ErrorCode.NO_ERROR.code, reason);
+                        sendGoAway = true;
+                        goAwayFrame = goAwaySent;
+                        closed = CloseState.CLOSING;
+                        zeroStreamsAction = null;
+                        failure = cause = new TimeoutException("Session idle timeout expired");
+                        break;
+                    }
+                    default:
+                    {
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Already closed, ignored idle timeout for {}", HTTP2Session.this);
+                        return false;
+                    }
+                }
+            }
+
+            if (notify)
+            {
+                boolean confirmed = notifyIdleTimeout(HTTP2Session.this);
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Idle timeout {} for {}", confirmed ? "confirmed" : "ignored", HTTP2Session.this);
+                if (confirmed)
+                    halt(reason);
+                return false;
+            }
+
+            failStreams(stream -> true, reason, true);
+            if (sendGoAway)
+                sendGoAway(goAwayFrame, Callback.NOOP);
+            notifyFailure(HTTP2Session.this, cause, Callback.NOOP);
+            terminate(goAwayFrame);
+            return false;
+        }
+
+        private void onSessionFailure(int error, String reason, Callback callback)
+        {
+            GoAwayFrame goAwayFrame;
+            Throwable cause;
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    case LOCALLY_CLOSED:
+                    case REMOTELY_CLOSED:
+                    {
+                        // Send another GOAWAY with the error code.
+                        goAwaySent = goAwayFrame = newGoAwayFrame(error, reason);
+                        closed = CloseState.CLOSING;
+                        zeroStreamsAction = null;
+                        failure = cause = toFailure(error, reason);
+                        break;
+                    }
+                    default:
+                    {
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Already closed, ignored session failure {}", HTTP2Session.this, failure);
+                        callback.succeeded();
+                        return;
+                    }
+                }
+            }
+
+            if (LOG.isDebugEnabled())
+                LOG.debug("Session failure {}", HTTP2Session.this, cause);
+
+            failStreams(stream -> true, reason, true);
+            sendGoAway(goAwayFrame, Callback.NOOP);
+            notifyFailure(HTTP2Session.this, cause, Callback.NOOP);
+            terminate(goAwayFrame);
+        }
+
+        private void onWriteFailure(Throwable x)
+        {
+            String reason = "write_failure";
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    case LOCALLY_CLOSED:
+                    case REMOTELY_CLOSED:
+                    {
+                        closed = CloseState.CLOSING;
+                        zeroStreamsAction = () ->
+                        {
+                            GoAwayFrame goAwayFrame = newGoAwayFrame(0, ErrorCode.NO_ERROR.code, reason);
+                            terminate(goAwayFrame);
+                        };
+                        failure = x;
+                        break;
+                    }
+                    default:
+                    {
+                        return;
+                    }
+                }
+            }
+            abort(reason, x, Callback.from(this::tryRunZeroStreamsAction));
+        }
+
+        private void sendGoAwayAndTerminate(GoAwayFrame frame, GoAwayFrame eventFrame)
+        {
+            sendGoAway(frame, Callback.from(() -> terminate(eventFrame)));
+        }
+
+        private void sendGoAway(GoAwayFrame frame, Callback callback)
+        {
+            control(null, callback, frame);
+        }
+
+        private void onStreamCreated()
+        {
+            streamCount.incrementAndGet();
+        }
+
+        private void onStreamDestroyed()
+        {
+            long count = streamCount.decrementAndGet();
+            // I've seen zero here, but it may increase again.
+            // That's why tryRunZeroStreamsAction() must check
+            // the count with the lock held.
+            if (count == 0)
+                tryRunZeroStreamsAction();
+        }
+
+        private void tryRunZeroStreamsAction()
+        {
+            // Threads from onStreamClosed() and other events
+            // such as onGoAway() may be in a race to finish,
+            // but only one moves to CLOSED and runs the action.
+            Runnable action = null;
+            try (Locker.Lock l = lock.lock())
+            {
+                long count = streamCount.get();
+                if (count > 0)
+                {
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Deferred closing action, {} pending streams on {}", count, HTTP2Session.this);
+                    return;
+                }
+
+                switch (closed)
+                {
+                    case LOCALLY_CLOSED:
+                    {
+                        if (goAwaySent.isGraceful())
+                        {
+                            action = zeroStreamsAction;
+                            zeroStreamsAction = null;
+                        }
+                        break;
+                    }
+                    case REMOTELY_CLOSED:
+                    {
+                        if (goAwaySent != null && goAwaySent.isGraceful())
+                        {
+                            action = zeroStreamsAction;
+                            zeroStreamsAction = null;
+                        }
+                        break;
+                    }
+                    case CLOSING:
+                    {
+                        closed = CloseState.CLOSED;
+                        action = zeroStreamsAction;
+                        zeroStreamsAction = null;
+                        break;
+                    }
+                    default:
+                    {
+                        break;
+                    }
+                }
+            }
+            if (action != null)
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Executing zero streams action on {}", HTTP2Session.this);
+                action.run();
+            }
+        }
+
+        private void terminate(GoAwayFrame frame)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("Terminating {}", HTTP2Session.this);
+            HTTP2Session.this.terminate(failure);
+            notifyClose(HTTP2Session.this, frame, Callback.NOOP);
+        }
+
+        private int priority(PriorityFrame frame, Callback callback)
+        {
+            Slot slot = new Slot();
+            int currentStreamId = frame.getStreamId();
+            int streamId = reserveSlot(slot, currentStreamId, callback::failed);
+            if (streamId > 0)
+            {
+                if (currentStreamId <= 0)
+                    frame = frame.withStreamId(streamId);
+                slot.entries = Collections.singletonList(newEntry(frame, null, Callback.from(callback::succeeded, x ->
+                {
+                    HTTP2Session.this.onStreamDestroyed(streamId);
+                    callback.failed(x);
+                })));
+                flush();
+            }
+            return streamId;
+        }
+
+        private void newLocalStream(IStream.FrameList frameList, Promise<Stream> promise, Stream.Listener listener)
+        {
+            Slot slot = new Slot();
+            int currentStreamId = frameList.getStreamId();
+            int streamId = reserveSlot(slot, currentStreamId, promise::failed);
+            if (streamId > 0)
+            {
+                List<StreamFrame> frames = frameList.getFrames();
+                if (currentStreamId <= 0)
+                {
+                    frames = frames.stream()
+                        .map(frame -> frame.withStreamId(streamId))
+                        .collect(Collectors.toList());
+                }
+                if (createLocalStream(slot, frames, promise, listener, streamId))
+                    return;
+                freeSlot(slot, streamId);
+            }
+        }
+
+        private boolean newRemoteStream(int streamId)
+        {
+            try (Locker.Lock l = lock.lock())
+            {
+                switch (closed)
+                {
+                    case NOT_CLOSED:
+                    {
+                        HTTP2Session.this.onStreamCreated(streamId);
+                        return true;
+                    }
+                    case LOCALLY_CLOSED:
+                    {
+                        // SPEC: streams larger than GOAWAY's lastStreamId are dropped.
+                        if (streamId <= goAwaySent.getLastStreamId())
+                        {
+                            // Allow creation of streams that may have been in-flight.
+                            HTTP2Session.this.onStreamCreated(streamId);
+                            return true;
+                        }
+                        return false;
+                    }
+                    default:
+                        return false;
+                }
+            }
+        }
+
+        private void push(PushPromiseFrame frame, Promise<Stream> promise, Stream.Listener listener)
+        {
+            Slot slot = new Slot();
+            int streamId = reserveSlot(slot, 0, promise::failed);
+            if (streamId > 0)
+            {
+                frame = frame.withStreamId(streamId);
+                if (createLocalStream(slot, Collections.singletonList(frame), promise, listener, streamId))
+                    return;
+                freeSlot(slot, streamId);
+            }
+        }
+
+        private boolean createLocalStream(Slot slot, List<StreamFrame> frames, Promise<Stream> promise, Stream.Listener listener, int streamId)
+        {
+            IStream stream = HTTP2Session.this.createLocalStream(streamId, promise);
+            if (stream == null)
+                return false;
+
+            stream.setListener(listener);
+            stream.process(new PrefaceFrame(), Callback.NOOP);
+
+            Callback streamCallback = Callback.from(() -> promise.succeeded(stream), x ->
+            {
+                HTTP2Session.this.onStreamDestroyed(streamId);
+                promise.failed(x);
+            });
+            int count = frames.size();
+            if (count == 1)
+            {
+                slot.entries = Collections.singletonList(newEntry(frames.get(0), stream, streamCallback));
+            }
+            else
+            {
+                Callback callback = new CountingCallback(streamCallback, count);
+                slot.entries = frames.stream()
+                    .map(frame -> newEntry(frame, stream, callback))
+                    .collect(Collectors.toList());
+            }
+            flush();
+            return true;
+        }
+
+        private int reserveSlot(Slot slot, int streamId, Consumer<Throwable> fail)
+        {
+            Throwable failure = null;
+            try (Locker.Lock l = lock.lock())
+            {
+                if (closed == CloseState.NOT_CLOSED)
+                {
+                    if (streamId <= 0)
+                    {
+                        streamId = localStreamIds.getAndAdd(2);
+                        HTTP2Session.this.onStreamCreated(streamId);
+                    }
+                    slots.offer(slot);
+                }
+                else
+                {
+                    failure = this.failure;
+                    if (failure == null)
+                        failure = new IllegalStateException("session closed");
+                }
+            }
+            if (failure == null)
+                return streamId;
+            fail.accept(failure);
+            return 0;
+        }
+
+        private void freeSlot(Slot slot, int streamId)
+        {
+            try (Locker.Lock l = lock.lock())
+            {
+                slots.remove(slot);
+            }
+            HTTP2Session.this.onStreamDestroyed(streamId);
+            flush();
+        }
+
+        /**
+         * <p>Iterates over the entries of the slot queue to flush them.</p>
+         * <p>The flush proceeds until either one of the following two conditions is true:</p>
+         * <ul>
+         *     <li>the queue is empty</li>
+         *     <li>a slot with a no entries is encountered</li>
+         * </ul>
+         * <p>When a slot with a no entries is encountered, then it means that a concurrent thread reserved
+         * a slot but hasn't set its entries yet. Since slots must be flushed in order, the thread encountering
+         * the slot with no entries must bail out and it is up to the concurrent thread to finish up flushing.</p>
+         * <p>Note that only one thread can flush at any time; if two threads happen to call this method
+         * concurrently, one will do the work while the other will bail out, so it is safe that all
+         * threads call this method after they are done reserving a slot and setting the entries.</p>
+         */
+        private void flush()
+        {
+            Thread thread = Thread.currentThread();
+            boolean queued = false;
+            while (true)
+            {
+                List<HTTP2Flusher.Entry> entries;
+                try (Locker.Lock l = lock.lock())
+                {
+                    if (flushing == null)
+                        flushing = thread;
+                    else if (flushing != thread)
+                        return; // another thread is flushing
+
+                    Slot slot = slots.peek();
+                    entries = slot == null ? null : slot.entries;
+
+                    if (entries == null)
+                    {
+                        flushing = null;
+                        break; // No more slots or null entries, so we may iterate on the flusher
+                    }
+
+                    slots.poll();
+                }
+                queued |= flusher.append(entries);
+            }
+            if (queued)
+                flusher.iterate();
+        }
+
+        @Override
+        public String toString()
+        {
+            try (Locker.Lock l = lock.lock())
+            {
+                return String.format("state=[streams=%d,%s,goAwayRecv=%s,goAwaySent=%s,failure=%s]",
+                    streamCount.get(),
+                    closed,
+                    goAwayRecv,
+                    goAwaySent,
+                    failure
+                );
+            }
+        }
+
+        private class Slot
+        {
+            private volatile List<HTTP2Flusher.Entry> entries;
         }
     }
 }

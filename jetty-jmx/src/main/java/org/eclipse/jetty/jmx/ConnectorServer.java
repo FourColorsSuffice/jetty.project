@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -33,7 +33,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.IntConsumer;
-
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import javax.management.remote.JMXConnectorServer;
@@ -43,6 +42,7 @@ import javax.management.remote.rmi.RMIConnectorServer;
 import javax.rmi.ssl.SslRMIClientSocketFactory;
 
 import org.eclipse.jetty.util.HostPort;
+import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.component.AbstractLifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -53,10 +53,10 @@ import org.eclipse.jetty.util.thread.ShutdownThread;
  * <p>LifeCycle wrapper for JMXConnectorServer.</p>
  * <p>This class provides the following facilities:</p>
  * <ul>
- *   <li>participates in the {@code Server} lifecycle</li>
- *   <li>starts the RMI registry if not there already</li>
- *   <li>allows to bind the RMI registry and the RMI server to the loopback interface</li>
- *   <li>makes it easy to use TLS for the JMX communication</li>
+ * <li>participates in the {@code Server} lifecycle</li>
+ * <li>starts the RMI registry if not there already</li>
+ * <li>allows to bind the RMI registry and the RMI server to the loopback interface</li>
+ * <li>makes it easy to use TLS for the JMX communication</li>
  * </ul>
  */
 public class ConnectorServer extends AbstractLifeCycle
@@ -77,7 +77,7 @@ public class ConnectorServer extends AbstractLifeCycle
      * Constructs a ConnectorServer
      *
      * @param serviceURL the address of the new ConnectorServer
-     * @param name       object name string to be assigned to ConnectorServer bean
+     * @param name object name string to be assigned to ConnectorServer bean
      */
     public ConnectorServer(JMXServiceURL serviceURL, String name)
     {
@@ -87,12 +87,12 @@ public class ConnectorServer extends AbstractLifeCycle
     /**
      * Constructs a ConnectorServer
      *
-     * @param svcUrl      the address of the new ConnectorServer
+     * @param svcUrl the address of the new ConnectorServer
      * @param environment a set of attributes to control the new ConnectorServer's behavior.
-     *                    This parameter can be null. Keys in this map must
-     *                    be Strings. The appropriate type of each associated value depends on
-     *                    the attribute. The contents of environment are not changed by this call.
-     * @param name        object name string to be assigned to ConnectorServer bean
+     * This parameter can be null. Keys in this map must
+     * be Strings. The appropriate type of each associated value depends on
+     * the attribute. The contents of environment are not changed by this call.
+     * @param name object name string to be assigned to ConnectorServer bean
      */
     public ConnectorServer(JMXServiceURL svcUrl, Map<String, ?> environment, String name)
     {
@@ -244,7 +244,15 @@ public class ConnectorServer extends AbstractLifeCycle
             if (_sslContextFactory == null)
             {
                 ServerSocket server = new ServerSocket();
-                server.bind(new InetSocketAddress(address, port));
+                try
+                {
+                    server.bind(new InetSocketAddress(address, port));
+                }
+                catch (Throwable e)
+                {
+                    IO.close(server);
+                    throw e;
+                }
                 return server;
             }
             else

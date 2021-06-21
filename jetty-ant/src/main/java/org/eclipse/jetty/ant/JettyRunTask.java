@@ -41,42 +41,59 @@ import org.eclipse.jetty.webapp.WebAppContext;
  */
 public class JettyRunTask extends Task
 {
-    private int scanIntervalSeconds; 
-    
-    /** Temporary files directory. */
+    private int scanIntervalSeconds;
+
+    /**
+     * Temporary files directory.
+     */
     private File tempDirectory;
 
-    /** List of web applications to be deployed. */
-    private List<AntWebAppContext> webapps = new ArrayList<AntWebAppContext>();
+    /**
+     * List of web applications to be deployed.
+     */
+    private List<AntWebAppContext> webapps = new ArrayList<>();
 
-    /** Location of jetty.xml file. */
+    /**
+     * Location of jetty.xml file.
+     */
     private File jettyXml;
 
-    /** List of server connectors. */
+    /**
+     * List of server connectors.
+     */
     private Connectors connectors = null;
 
-    /** Server request logger object. */
+    /**
+     * Server request logger object.
+     */
     private RequestLog requestLog;
 
-    /** List of login services. */
+    /**
+     * List of login services.
+     */
     private LoginServices loginServices;
 
-    /** List of system properties to be set. */
+    /**
+     * List of system properties to be set.
+     */
     private SystemProperties systemProperties;
-    
-    /** List of other contexts to deploy */
+
+    /**
+     * List of other contexts to deploy
+     */
     private ContextHandlers contextHandlers;
 
- 
-    /** Port Jetty will use for the default connector */
+    /**
+     * Port Jetty will use for the default connector
+     */
     private int jettyPort = 8080;
-    
+
     private int stopPort;
-    
+
     private String stopKey;
 
     private boolean daemon;
-    
+
     public JettyRunTask()
     {
         TaskLog.setTask(this);
@@ -84,16 +101,18 @@ public class JettyRunTask extends Task
 
     /**
      * Creates a new <code>WebApp</code> Ant object.
-     * @param webapp the webapp context 
+     *
+     * @param webapp the webapp context
      */
     public void addWebApp(AntWebAppContext webapp)
     {
-       webapps.add(webapp);
+        webapps.add(webapp);
     }
 
     /**
      * Adds a new Ant's connector tag object if it have not been created yet.
-     * @param connectors the connectors 
+     *
+     * @param connectors the connectors
      */
     public void addConnectors(Connectors connectors)
     {
@@ -103,10 +122,10 @@ public class JettyRunTask extends Task
     }
 
     public void addLoginServices(LoginServices services)
-    {        
-        if (this.loginServices != null )
-            throw new BuildException("Only one <loginServices> tag is allowed!");       
-        this.loginServices = services;  
+    {
+        if (this.loginServices != null)
+            throw new BuildException("Only one <loginServices> tag is allowed!");
+        this.loginServices = services;
     }
 
     public void addSystemProperties(SystemProperties systemProperties)
@@ -115,8 +134,8 @@ public class JettyRunTask extends Task
             throw new BuildException("Only one <systemProperties> tag is allowed!");
         this.systemProperties = systemProperties;
     }
-    
-    public void addContextHandlers (ContextHandlers handlers)
+
+    public void addContextHandlers(ContextHandlers handlers)
     {
         if (this.contextHandlers != null)
             throw new BuildException("Only one <contextHandlers> tag is allowed!");
@@ -147,19 +166,15 @@ public class JettyRunTask extends Task
     {
         try
         {
-            this.requestLog = (RequestLog) Class.forName(className).newInstance();
-        }
-        catch (InstantiationException e)
-        {
-            throw new BuildException("Request logger instantiation exception: " + e);
-        }
-        catch (IllegalAccessException e)
-        {
-            throw new BuildException("Request logger instantiation exception: " + e);
+            this.requestLog = (RequestLog)Class.forName(className).getDeclaredConstructor().newInstance();
         }
         catch (ClassNotFoundException e)
         {
             throw new BuildException("Unknown request logger class: " + className);
+        }
+        catch (Exception e)
+        {
+            throw new BuildException("Request logger instantiation exception: " + e);
         }
     }
 
@@ -175,7 +190,7 @@ public class JettyRunTask extends Task
 
     /**
      * Sets the port Jetty uses for the default connector.
-     * 
+     *
      * @param jettyPort The port Jetty will use for the default connector
      */
     public void setJettyPort(final int jettyPort)
@@ -189,11 +204,12 @@ public class JettyRunTask extends Task
      *
      * @throws BuildException if unable to build
      */
+    @Override
     public void execute() throws BuildException
     {
 
         TaskLog.log("Configuring Jetty for project: " + getProject().getName());
-        
+
         setSystemProperties();
 
         List<Connector> connectorsList = null;
@@ -201,9 +217,9 @@ public class JettyRunTask extends Task
         if (connectors != null)
             connectorsList = connectors.getConnectors();
         else
-            connectorsList = new Connectors(jettyPort,30000).getDefaultConnectors();
+            connectorsList = new Connectors(jettyPort, 30000).getDefaultConnectors();
 
-        List<LoginService> loginServicesList = (loginServices != null?loginServices.getLoginServices():new ArrayList<LoginService>());
+        List<LoginService> loginServicesList = (loginServices != null ? loginServices.getLoginServices() : new ArrayList<LoginService>());
         ServerProxyImpl server = new ServerProxyImpl();
         server.setConnectors(connectorsList);
         server.setLoginServices(loginServicesList);
@@ -218,7 +234,7 @@ public class JettyRunTask extends Task
 
         try
         {
-            for (WebAppContext webapp: webapps)
+            for (WebAppContext webapp : webapps)
             {
                 server.addWebApplication((AntWebAppContext)webapp);
             }
@@ -239,7 +255,7 @@ public class JettyRunTask extends Task
     public void setStopPort(int stopPort)
     {
         this.stopPort = stopPort;
-        TaskLog.log("stopPort="+stopPort);
+        TaskLog.log("stopPort=" + stopPort);
     }
 
     public String getStopKey()
@@ -250,7 +266,7 @@ public class JettyRunTask extends Task
     public void setStopKey(String stopKey)
     {
         this.stopKey = stopKey;
-        TaskLog.log("stopKey="+stopKey);
+        TaskLog.log("stopKey=" + stopKey);
     }
 
     /**
@@ -267,7 +283,7 @@ public class JettyRunTask extends Task
     public void setDaemon(boolean daemon)
     {
         this.daemon = daemon;
-        TaskLog.log("Daemon="+daemon);
+        TaskLog.log("Daemon=" + daemon);
     }
 
     public int getScanIntervalSeconds()
@@ -278,9 +294,9 @@ public class JettyRunTask extends Task
     public void setScanIntervalSeconds(int secs)
     {
         scanIntervalSeconds = secs;
-        TaskLog.log("scanIntervalSecs="+secs);
+        TaskLog.log("scanIntervalSecs=" + secs);
     }
-    
+
     /**
      * Sets the system properties.
      */
@@ -291,10 +307,9 @@ public class JettyRunTask extends Task
             Iterator propertiesIterator = systemProperties.getSystemProperties().iterator();
             while (propertiesIterator.hasNext())
             {
-                Property property = ((Property) propertiesIterator.next());
+                Property property = ((Property)propertiesIterator.next());
                 SystemProperties.setIfNotSetAlready(property);
             }
         }
     }
-
 }

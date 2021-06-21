@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,9 +20,6 @@ package org.eclipse.jetty.websocket.jsr356.server;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
 import javax.websocket.ClientEndpoint;
 import javax.websocket.CloseReason;
 import javax.websocket.EncodeException;
@@ -38,20 +35,14 @@ import org.eclipse.jetty.util.BufferUtil;
 @ClientEndpoint
 public class EchoClientSocket extends TrackingSocket
 {
-    public final CountDownLatch eventCountLatch;
     private Session session;
     private Basic remote;
-
-    public EchoClientSocket(int expectedEventCount)
-    {
-        this.eventCountLatch = new CountDownLatch(expectedEventCount);
-    }
 
     public void close() throws IOException
     {
         if (session != null)
         {
-            this.session.close(new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE,"Test Complete"));
+            this.session.close(new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "Test Complete"));
         }
     }
 
@@ -88,12 +79,6 @@ public class EchoClientSocket extends TrackingSocket
     public void onText(String text)
     {
         addEvent(text);
-        eventCountLatch.countDown();
-    }
-
-    public boolean awaitAllEvents(long timeout, TimeUnit unit) throws InterruptedException
-    {
-        return eventCountLatch.await(timeout,unit);
     }
 
     public void sendObject(Object obj) throws IOException, EncodeException
@@ -103,19 +88,19 @@ public class EchoClientSocket extends TrackingSocket
 
     public void sendPartialBinary(ByteBuffer part, boolean fin) throws IOException
     {
-        remote.sendBinary(part,fin);
+        remote.sendBinary(part, fin);
     }
 
     public void sendPartialText(String part, boolean fin) throws IOException
     {
-        remote.sendText(part,fin);
+        remote.sendText(part, fin);
     }
-    
+
     public void sendPing(String message) throws IOException
     {
         remote.sendPing(BufferUtil.toBuffer(message));
     }
-    
+
     public void sendPong(String message) throws IOException
     {
         remote.sendPong(BufferUtil.toBuffer(message));

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,8 +24,9 @@ import java.nio.ByteBuffer;
 import org.eclipse.jetty.http.HttpTester;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.util.BufferUtil;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class HttpRequestTesterTest
 {
@@ -36,7 +37,7 @@ public class HttpRequestTesterTest
         request.setMethod("GET");
         request.setURI("/uri");
         request.setVersion("HTTP/1.0");
-        request.put("Host","fakehost");
+        request.put("Host", "fakehost");
 
         ByteBuffer bBuff = request.generate();
 
@@ -45,7 +46,7 @@ public class HttpRequestTesterTest
         expectedRequest.append("Host: fakehost\r\n");
         expectedRequest.append("\r\n");
 
-        Assert.assertEquals("Basic Request",expectedRequest.toString(),BufferUtil.toString(bBuff));
+        assertEquals(expectedRequest.toString(), BufferUtil.toString(bBuff), "Basic Request");
     }
 
     @Test
@@ -55,10 +56,9 @@ public class HttpRequestTesterTest
         request.setMethod("GET");
         request.setVersion(HttpVersion.HTTP_1_1);
         request.setURI("/uri");
-        request.put("Host","fakehost");
+        request.put("Host", "fakehost");
         request.put("Connection", "close");
         request.setContent("aaa");
-       
 
         ByteBuffer bBuff = request.generate();
 
@@ -69,8 +69,7 @@ public class HttpRequestTesterTest
         expectedRequest.append("Content-Length: 3\r\n");
         expectedRequest.append("\r\n");
         expectedRequest.append("aaa");
-       
 
-        Assert.assertEquals("Basic Request",expectedRequest.toString(),BufferUtil.toString(bBuff));
+        assertEquals(expectedRequest.toString(), BufferUtil.toString(bBuff), "Basic Request");
     }
 }

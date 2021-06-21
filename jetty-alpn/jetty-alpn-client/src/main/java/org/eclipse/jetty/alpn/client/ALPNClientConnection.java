@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,17 +21,15 @@ package org.eclipse.jetty.alpn.client;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
-
 import javax.net.ssl.SSLEngine;
 
-import org.eclipse.jetty.alpn.ALPN;
 import org.eclipse.jetty.io.ClientConnectionFactory;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.io.NegotiatingClientConnection;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
-public class ALPNClientConnection extends NegotiatingClientConnection implements ALPN.ClientProvider
+public class ALPNClientConnection extends NegotiatingClientConnection
 {
     private static final Logger LOG = Log.getLogger(ALPNClientConnection.class);
 
@@ -41,41 +39,18 @@ public class ALPNClientConnection extends NegotiatingClientConnection implements
     {
         super(endPoint, executor, sslEngine, connectionFactory, context);
         this.protocols = protocols;
-        ALPN.put(sslEngine, this);
     }
 
-    @Override
-    public void unsupported()
-    {
-        ALPN.remove(getSSLEngine());
-        completed();
-    }
-
-    @Override
-    public List<String> protocols()
+    public List<String> getProtocols()
     {
         return protocols;
     }
 
-    @Override
     public void selected(String protocol)
     {
-        if (protocols.contains(protocol))
-        {
-            ALPN.remove(getSSLEngine());
-            completed();
-        }
-        else
-        {
-            LOG.info("Could not negotiate protocol: server [{}] - client {}", protocol, protocols);
+        if (protocol == null || !protocols.contains(protocol))
             close();
-        }
-    }
-
-    @Override
-    public void close()
-    {
-        ALPN.remove(getSSLEngine());
-        super.close();
+        else
+            super.completed();
     }
 }

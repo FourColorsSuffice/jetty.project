@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,9 +21,7 @@ package org.eclipse.jetty.client;
 import java.io.IOException;
 import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
-
 import javax.net.ssl.SSLHandshakeException;
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -35,40 +33,41 @@ import org.eclipse.jetty.server.handler.DefaultHandler;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.hamcrest.Matchers;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * This test class runs tests to make sure that hostname verification (http://www.ietf.org/rfc/rfc2818.txt
  * section 3.1) is configurable in SslContextFactory and works as expected.
  */
-@Ignore
 public class HostnameVerificationTest
 {
-    private SslContextFactory clientSslContextFactory = new SslContextFactory();
+    private SslContextFactory clientSslContextFactory = new SslContextFactory.Client();
     private Server server;
     private HttpClient client;
     private NetworkConnector connector;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception
     {
         QueuedThreadPool serverThreads = new QueuedThreadPool();
         serverThreads.setName("server");
         server = new Server(serverThreads);
 
-        SslContextFactory serverSslContextFactory = new SslContextFactory();
-        serverSslContextFactory.setKeyStorePath("src/test/resources/keystore.jks");
+        SslContextFactory serverSslContextFactory = new SslContextFactory.Server();
+        serverSslContextFactory.setKeyStorePath("src/test/resources/keystore.p12");
         serverSslContextFactory.setKeyStorePassword("storepwd");
         connector = new ServerConnector(server, serverSslContextFactory);
         server.addConnector(connector);
         server.setHandler(new DefaultHandler()
         {
             @Override
-            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 baseRequest.setHandled(true);
                 response.getWriter().write("foobar");
@@ -77,7 +76,7 @@ public class HostnameVerificationTest
         server.start();
 
         // keystore contains a hostname which doesn't match localhost
-        clientSslContextFactory.setKeyStorePath("src/test/resources/keystore.jks");
+        clientSslContextFactory.setKeyStorePath("src/test/resources/keystore.p12");
         clientSslContextFactory.setKeyStorePassword("storepwd");
 
         QueuedThreadPool clientThreads = new QueuedThreadPool();
@@ -87,38 +86,38 @@ public class HostnameVerificationTest
         client.start();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception
     {
         client.stop();
         server.stop();
-        server.join();
     }
 
     /**
      * This test is supposed to verify that hostname verification works as described in:
      * http://www.ietf.org/rfc/rfc2818.txt section 3.1. It uses a certificate with a common name different to localhost
-     * and sends a request to localhost. This should fail with a SSLHandshakeException.
-     *
-     * @throws Exception on test failure
+     * and sends a request to localhost. This should fail with an SSLHandshakeException.
      */
     @Test
-    public void simpleGetWithHostnameVerificationEnabledTest() throws Exception
+    public void simpleGetWithHostnameVerificationEnabledTest()
     {
         clientSslContextFactory.setEndpointIdentificationAlgorithm("HTTPS");
         String uri = "https://localhost:" + connector.getLocalPort() + "/";
-        try
+
+        ExecutionException x = assertThrows(ExecutionException.class, () -> client.GET(uri));
+
+        Throwable cause = x.getCause();
+        assertThat(cause, Matchers.instanceOf(SSLHandshakeException.class));
+
+        // Search for the CertificateException.
+        Throwable certificateException = cause.getCause();
+        while (certificateException != null)
         {
-            client.GET(uri);
-            Assert.fail("sending request to client should have failed with an Exception!");
+            if (certificateException instanceof CertificateException)
+                break;
+            certificateException = certificateException.getCause();
         }
-        catch (ExecutionException x)
-        {
-            Throwable cause = x.getCause();
-            Assert.assertThat(cause, Matchers.instanceOf(SSLHandshakeException.class));
-            Throwable root = cause.getCause().getCause();
-            Assert.assertThat(root, Matchers.instanceOf(CertificateException.class));
-        }
+        assertThat(certificateException, Matchers.instanceOf(CertificateException.class));
     }
 
     /**
@@ -126,7 +125,6 @@ public class HostnameVerificationTest
      * work fine.
      *
      * @throws Exception on test failure
-     *
      */
     @Test
     public void simpleGetWithHostnameVerificationDisabledTest() throws Exception
@@ -139,7 +137,7 @@ public class HostnameVerificationTest
         }
         catch (ExecutionException e)
         {
-            Assert.fail("SSLHandshake should work just fine as hostname verification is disabled! " + e.getMessage());
+            fail("SSLHandshake should work just fine as hostname verification is disabled!", e);
         }
     }
 
@@ -160,7 +158,7 @@ public class HostnameVerificationTest
         }
         catch (ExecutionException e)
         {
-            Assert.fail("SSLHandshake should work just fine as hostname verification is disabled! " + e.getMessage());
+            fail("SSLHandshake should work just fine as hostname verification is disabled!", e);
         }
     }
 }

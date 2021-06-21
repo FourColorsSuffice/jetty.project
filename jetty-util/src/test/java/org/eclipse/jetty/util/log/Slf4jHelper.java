@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,16 +25,17 @@ import java.net.URL;
 import java.net.URLClassLoader;
 
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.junit.Assume;
+
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 public final class Slf4jHelper
 {
     public static ClassLoader createTestClassLoader(ClassLoader parentClassLoader) throws MalformedURLException
     {
         File testJarDir = MavenTestingUtils.getTargetFile("test-jars");
-        Assume.assumeTrue(testJarDir.exists()); // trigger @Ignore if dir not there
+        assumeTrue(testJarDir.exists()); // trigger @Ignore if dir not there
 
-        File jarfiles[] = testJarDir.listFiles(new FileFilter()
+        File[] jarfiles = testJarDir.listFiles(new FileFilter()
         {
             public boolean accept(File path)
             {
@@ -46,15 +47,15 @@ public final class Slf4jHelper
             }
         });
 
-        Assume.assumeTrue(jarfiles.length > 0); // trigger @Ignore if no jar files.
+        assumeTrue(jarfiles.length > 0); // trigger @Ignore if no jar files.
 
-        URL urls[] = new URL[jarfiles.length];
+        URL[] urls = new URL[jarfiles.length];
         for (int i = 0; i < jarfiles.length; i++)
         {
             urls[i] = jarfiles[i].toURI().toURL();
             // System.out.println("Adding test-jar => " + urls[i]);
         }
 
-        return new URLClassLoader(urls,parentClassLoader);
+        return new URLClassLoader(urls, parentClassLoader);
     }
 }

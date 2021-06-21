@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,21 +18,20 @@
 
 package org.eclipse.jetty.http;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import org.junit.jupiter.api.Test;
 
-import org.junit.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class HttpStatusCodeTest
 {
     @Test
     public void testInvalidGetCode()
     {
-        assertNull("Invalid code: 800", HttpStatus.getCode(800));
-        assertNull("Invalid code: 190", HttpStatus.getCode(190));
+        assertNull(HttpStatus.getCode(800), "Invalid code: 800");
+        assertNull(HttpStatus.getCode(190), "Invalid code: 190");
     }
-    
-    
+
     @Test
     public void testImATeapot()
     {
@@ -42,6 +41,6 @@ public class HttpStatusCodeTest
 
     public void testHttpMethod()
     {
-        assertEquals("GET",HttpMethod.GET.toString());
+        assertEquals("GET", HttpMethod.GET.toString());
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,332 +18,442 @@
 
 package org.eclipse.jetty.util.thread.strategy;
 
+import java.io.Closeable;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Executor;
-import java.util.concurrent.locks.Condition;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.LongAdder;
 
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import org.eclipse.jetty.util.annotation.ManagedAttribute;
+import org.eclipse.jetty.util.annotation.ManagedObject;
+import org.eclipse.jetty.util.annotation.ManagedOperation;
+import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.ExecutionStrategy;
 import org.eclipse.jetty.util.thread.Invocable;
-import org.eclipse.jetty.util.thread.Invocable.InvocableExecutor;
-import org.eclipse.jetty.util.thread.Invocable.InvocationType;
-import org.eclipse.jetty.util.thread.Locker;
-import org.eclipse.jetty.util.thread.Locker.Lock;
+import org.eclipse.jetty.util.thread.TryExecutor;
 
 /**
- * <p>A strategy where the thread that produces will run the resulting task if it 
+ * <p>A strategy where the thread that produces will run the resulting task if it
  * is possible to do so without thread starvation.</p>
- * 
+ *
  * <p>This strategy preemptively dispatches a thread as a pending producer, so that
  * when a thread produces a task it can immediately run the task and let the pending
- * producer thread take over producing.  If necessary another thread will be dispatched
- * to replace the pending producing thread.   When operating in this pattern, the 
- * sub-strategy is called Execute Produce Consume (EPC)
- * </p>
- * <p>However, if the task produced uses the {@link Invocable} API to indicate that 
- * it will not block, then the strategy will run it directly, regardless of the 
- * presence of a pending producing thread and then resume producing after the 
- * task has completed. This sub-strategy is also used if the strategy has been
- * configured with a maximum of 0 pending threads and the thread currently producing
- * does not use the {@link Invocable} API to indicate that it will not block.
- * When operating in this pattern, the sub-strategy is called
- * ProduceConsume (PC).
- * </p>
- * <p>If there is no pending producer thread available and if the task has not 
+ * producer thread take over production. When operating in this way, the sub-strategy
+ * is called Execute Produce Consume (EPC).</p>
+ * <p>However, if the task produced uses the {@link Invocable} API to indicate that
+ * it will not block, then the strategy will run it directly, regardless of the
+ * presence of a pending producer thread and then resume production after the
+ * task has completed. When operating in this pattern, the sub-strategy is called
+ * ProduceConsume (PC).</p>
+ * <p>If there is no pending producer thread available and if the task has not
  * indicated it is non-blocking, then this strategy will dispatch the execution of
- * the task and immediately continue producing.  When operating in this pattern, the
- * sub-strategy is called ProduceExecuteConsume (PEC).
- * </p>
- * 
+ * the task and immediately continue production. When operating in this pattern, the
+ * sub-strategy is called ProduceExecuteConsume (PEC).</p>
+ * <p>The EatWhatYouKill strategy is named after a hunting proverb, in the
+ * sense that one should kill(produce) only to eat(consume).</p>
  */
-public class EatWhatYouKill extends AbstractLifeCycle implements ExecutionStrategy, Runnable
+@ManagedObject("eat what you kill execution strategy")
+public class EatWhatYouKill extends ContainerLifeCycle implements ExecutionStrategy, Runnable
 {
     private static final Logger LOG = Log.getLogger(EatWhatYouKill.class);
 
-    enum State { IDLE, PRODUCING, REPRODUCING };
-    
-    private final Locker _locker = new Locker();
-    private State _state = State.IDLE;
-    private final Runnable _runProduce = new RunProduce();
+    private enum State
+    {
+        IDLE, PRODUCING, REPRODUCING
+    }
+
+    /* The modes this strategy can work in */
+    private enum Mode
+    {
+        PRODUCE_CONSUME,
+        PRODUCE_INVOKE_CONSUME, // This is PRODUCE_CONSUME an EITHER task with NON_BLOCKING invocation
+        PRODUCE_EXECUTE_CONSUME,
+        EXECUTE_PRODUCE_CONSUME // Eat What You Kill!
+    }
+
+    private final LongAdder _pcMode = new LongAdder();
+    private final LongAdder _picMode = new LongAdder();
+    private final LongAdder _pecMode = new LongAdder();
+    private final LongAdder _epcMode = new LongAdder();
     private final Producer _producer;
-    private final InvocableExecutor _executor;
-    private int _pendingProducersMax;
-    private int _pendingProducers;
-    private int _pendingProducersDispatched;
-    private int _pendingProducersSignalled;
-    private Condition _produce = _locker.newCondition();
+    private final Executor _executor;
+    private final TryExecutor _tryExecutor;
+    private State _state = State.IDLE;
+    private boolean _pending;
 
     public EatWhatYouKill(Producer producer, Executor executor)
     {
-        this(producer,executor,InvocationType.NON_BLOCKING,InvocationType.BLOCKING);
-    }
-
-    public EatWhatYouKill(Producer producer, Executor executor, int maxProducersPending )
-    {
-        this(producer,executor,InvocationType.NON_BLOCKING,InvocationType.BLOCKING);
-    }
-    
-    public EatWhatYouKill(Producer producer, Executor executor, InvocationType preferredInvocationPEC, InvocationType preferredInvocationEPC)
-    {
-        this(producer,executor,preferredInvocationPEC,preferredInvocationEPC,Integer.getInteger("org.eclipse.jetty.util.thread.strategy.EatWhatYouKill.maxProducersPending",1));
-    }
-    
-    public EatWhatYouKill(Producer producer, Executor executor, InvocationType preferredInvocationPEC, InvocationType preferredInvocationEPC, int maxProducersPending )
-    {
         _producer = producer;
-        _pendingProducersMax = maxProducersPending;
-        _executor = new InvocableExecutor(executor,preferredInvocationPEC,preferredInvocationEPC);
-    }
-
-    @Override
-    public void produce()
-    {
-        boolean produce;
-        try (Lock locked = _locker.lock())
-        {
-            switch(_state)
-            {
-                case IDLE:
-                    _state = State.PRODUCING;
-                    produce = true;
-                    break;
-                    
-                case PRODUCING:
-                    _state = State.REPRODUCING;
-                    produce = false;
-                    break;
-                    
-                default:     
-                    produce = false;   
-            }
-        }
-
+        _executor = executor;
+        _tryExecutor = TryExecutor.asTryExecutor(executor);
+        addBean(_producer);
+        addBean(_tryExecutor);
         if (LOG.isDebugEnabled())
-            LOG.debug("{} execute {}", this, produce);
-
-        if (produce)
-            doProduce();
+            LOG.debug("{} created", this);
     }
 
     @Override
     public void dispatch()
     {
-        boolean dispatch = false;
-        try (Lock locked = _locker.lock())
+        boolean execute = false;
+        synchronized (this)
         {
-            switch(_state)
+            switch (_state)
             {
                 case IDLE:
-                    dispatch = true;
+                    if (!_pending)
+                    {
+                        _pending = true;
+                        execute = true;
+                    }
                     break;
-                    
+
                 case PRODUCING:
                     _state = State.REPRODUCING;
-                    dispatch = false;
                     break;
-                    
-                default:     
-                    dispatch = false;   
+
+                default:
+                    break;
             }
         }
         if (LOG.isDebugEnabled())
-            LOG.debug("{} dispatch {}", this, dispatch);
-        if (dispatch)
-            _executor.execute(_runProduce,InvocationType.BLOCKING);
+            LOG.debug("{} dispatch {}", this, execute);
+        if (execute)
+            _executor.execute(this);
     }
 
     @Override
     public void run()
     {
-        if (LOG.isDebugEnabled())
-            LOG.debug("{} run", this);
-        if (!isRunning())
-            return;
-        boolean producing = false;
-        try (Lock locked = _locker.lock())
-        {
-            _pendingProducersDispatched--;
-            _pendingProducers++;
-
-            loop: while (isRunning())
-            {
-                try
-                {
-                    _produce.await();
-
-                    if (_pendingProducersSignalled==0)
-                    {
-                        // spurious wakeup!
-                        continue loop;
-                    } 
-
-                    _pendingProducersSignalled--;
-                    if (_state == State.IDLE)                    
-                    {
-                        _state = State.PRODUCING;
-                        producing = true;
-                    } 
-                }
-                catch (InterruptedException e)
-                {
-                    LOG.debug(e);
-                    _pendingProducers--;
-                }
-               
-                break loop;
-            }     
-        }
-
-        if (producing)
-            doProduce();
-    }
-
-    private void doProduce()
-    {
-        boolean may_block_caller = !Invocable.isNonBlockingInvocation();
-        if (LOG.isDebugEnabled())
-            LOG.debug("{} produce {}", this,may_block_caller?"non-blocking":"blocking");
-
-        producing: while (isRunning())
-        {
-            // If we got here, then we are the thread that is producing.
-            Runnable task = _producer.produce();
-
-            boolean produce;
-            boolean consume;
-            boolean execute_producer;
-            
-            StringBuilder state = null;
-            
-            try (Lock locked = _locker.lock())
-            {
-                if (LOG.isDebugEnabled())
-                {
-                    state = new StringBuilder();
-                    getString(state);
-                    getState(state);
-                    state.append("->");
-                }
-                
-                // Did we produced a task?
-                if (task == null)
-                {
-                    // There is no task.
-                    // Could another one just have been queued with a produce call?
-                    if (_state==State.REPRODUCING)
-                    {
-                        _state = State.PRODUCING;
-                        continue producing;
-                    }
-
-                    // ... and no additional calls to execute, so we are idle
-                    _state = State.IDLE;
-                    break producing;
-                }
-                
-                // Will we eat our own kill - ie consume the task we just produced?
-                if (Invocable.getInvocationType(task)==InvocationType.NON_BLOCKING)
-                {
-                    // ProduceConsume
-                    produce = true;
-                    consume = true;
-                    execute_producer = false;
-                }
-                else if (may_block_caller && (_pendingProducers>0 || _pendingProducersMax==0))
-                {
-                    // ExecuteProduceConsume (eat what we kill!)
-                    produce = false;
-                    consume = true;
-                    execute_producer = true;
-                    _pendingProducersDispatched++;
-                    _state = State.IDLE;
-                    _pendingProducers--;
-                    _pendingProducersSignalled++;
-                    _produce.signal();
-                }
-                else
-                {
-                    // ProduceExecuteConsume
-                    produce = true;
-                    consume = false;
-                    execute_producer = (_pendingProducersDispatched + _pendingProducers)<_pendingProducersMax;
-                    if (execute_producer)
-                        _pendingProducersDispatched++;
-                }
-                
-                if (LOG.isDebugEnabled())
-                    getState(state);
-                
-            }
-            
-            if (LOG.isDebugEnabled())
-            {
-                LOG.debug("{} {} {}",
-                    state,
-                    consume?(execute_producer?"EPC!":"PC"):"PEC",
-                    task);
-            }
-
-            if (execute_producer)
-                // Spawn a new thread to continue production by running the produce loop.
-                _executor.execute(this);
-            
-            // Run or execute the task.
-            if (consume)
-                _executor.invoke(task);
-            else
-                _executor.execute(task);
-           
-            // Once we have run the task, we can try producing again.
-            if (produce)
-                continue producing;
-
-            try (Lock locked = _locker.lock())
-            {
-                if (_state==State.IDLE)
-                {
-                    _state = State.PRODUCING;
-                    continue producing;
-                }
-            }
-
-            break producing;
-        }
-        if (LOG.isDebugEnabled())
-            LOG.debug("{} produce exit",this);
-    }
-
-    public Boolean isIdle()
-    {
-        try (Lock locked = _locker.lock())
-        {
-            return _state==State.IDLE;
-        }
+        tryProduce(true);
     }
 
     @Override
-    protected void doStop() throws Exception
+    public void produce()
     {
-        try (Lock locked = _locker.lock())
+        tryProduce(false);
+    }
+
+    private void tryProduce(boolean wasPending)
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("{} tryProduce {}", this, wasPending);
+
+        synchronized (this)
         {
-            _pendingProducersSignalled=_pendingProducers+_pendingProducersDispatched;
-            _pendingProducers=0;
-            _produce.signalAll();
+            if (wasPending)
+                _pending = false;
+
+            switch (_state)
+            {
+                case IDLE:
+                    // Enter PRODUCING
+                    _state = State.PRODUCING;
+                    break;
+
+                case PRODUCING:
+                    // Keep other Thread producing
+                    _state = State.REPRODUCING;
+                    return;
+
+                default:
+                    return;
+            }
+        }
+
+        boolean nonBlocking = Invocable.isNonBlockingInvocation();
+
+        while (isRunning())
+        {
+            try
+            {
+                if (doProduce(nonBlocking))
+                    continue;
+                return;
+            }
+            catch (Throwable ex)
+            {
+                LOG.warn(ex);
+            }
         }
     }
 
+    private boolean doProduce(boolean nonBlocking)
+    {
+        Runnable task = produceTask();
+
+        if (task == null)
+        {
+            synchronized (this)
+            {
+                // Could another task just have been queued with a produce call?
+                switch (_state)
+                {
+                    case PRODUCING:
+                        _state = State.IDLE;
+                        return false;
+
+                    case REPRODUCING:
+                        _state = State.PRODUCING;
+                        return true;
+
+                    default:
+                        throw new IllegalStateException(toStringLocked());
+                }
+            }
+        }
+
+        Mode mode;
+        if (nonBlocking)
+        {
+            // The calling thread cannot block, so we only have a choice between PC and PEC modes,
+            // based on the invocation type of the task
+            switch (Invocable.getInvocationType(task))
+            {
+                case NON_BLOCKING:
+                    mode = Mode.PRODUCE_CONSUME;
+                    break;
+
+                case EITHER:
+                    mode = Mode.PRODUCE_INVOKE_CONSUME;
+                    break;
+
+                default:
+                    mode = Mode.PRODUCE_EXECUTE_CONSUME;
+                    break;
+            }
+        }
+        else
+        {
+            // The calling thread can block, so we can choose between PC, PEC and EPC modes,
+            // based on the invocation type of the task and if a reserved thread is available
+            switch (Invocable.getInvocationType(task))
+            {
+                case NON_BLOCKING:
+                    mode = Mode.PRODUCE_CONSUME;
+                    break;
+
+                case BLOCKING:
+                    // The task is blocking, so PC is not an option. Thus we choose
+                    // between EPC and PEC based on the availability of a reserved thread.
+                    synchronized (this)
+                    {
+                        if (_pending)
+                        {
+                            _state = State.IDLE;
+                            mode = Mode.EXECUTE_PRODUCE_CONSUME;
+                        }
+                        else if (_tryExecutor.tryExecute(this))
+                        {
+                            _pending = true;
+                            _state = State.IDLE;
+                            mode = Mode.EXECUTE_PRODUCE_CONSUME;
+                        }
+                        else
+                        {
+                            mode = Mode.PRODUCE_EXECUTE_CONSUME;
+                        }
+                    }
+                    break;
+
+                case EITHER:
+                    // The task may be non blocking, so PC is an option. Thus we choose
+                    // between EPC and PC based on the availability of a reserved thread.
+                    synchronized (this)
+                    {
+                        if (_pending)
+                        {
+                            _state = State.IDLE;
+                            mode = Mode.EXECUTE_PRODUCE_CONSUME;
+                        }
+                        else if (_tryExecutor.tryExecute(this))
+                        {
+                            _pending = true;
+                            _state = State.IDLE;
+                            mode = Mode.EXECUTE_PRODUCE_CONSUME;
+                        }
+                        else
+                        {
+                            // PC mode, but we must consume with non-blocking invocation
+                            // as we may be the last thread and we cannot block
+                            mode = Mode.PRODUCE_INVOKE_CONSUME;
+                        }
+                    }
+                    break;
+
+                default:
+                    throw new IllegalStateException(toString());
+            }
+        }
+
+        if (LOG.isDebugEnabled())
+            LOG.debug("{} m={} t={}/{}", this, mode, task, Invocable.getInvocationType(task));
+
+        // Consume or execute task
+        switch (mode)
+        {
+            case PRODUCE_CONSUME:
+                _pcMode.increment();
+                runTask(task);
+                return true;
+
+            case PRODUCE_INVOKE_CONSUME:
+                _picMode.increment();
+                invokeTask(task);
+                return true;
+
+            case PRODUCE_EXECUTE_CONSUME:
+                _pecMode.increment();
+                execute(task);
+                return true;
+
+            case EXECUTE_PRODUCE_CONSUME:
+                _epcMode.increment();
+                runTask(task);
+
+                // Try to produce again?
+                synchronized (this)
+                {
+                    if (_state == State.IDLE)
+                    {
+                        // We beat the pending producer, so we will become the producer instead
+                        _state = State.PRODUCING;
+                        return true;
+                    }
+                }
+                return false;
+
+            default:
+                throw new IllegalStateException(toString());
+        }
+    }
+
+    private void runTask(Runnable task)
+    {
+        try
+        {
+            task.run();
+        }
+        catch (Throwable x)
+        {
+            LOG.warn(x);
+        }
+    }
+
+    private void invokeTask(Runnable task)
+    {
+        try
+        {
+            Invocable.invokeNonBlocking(task);
+        }
+        catch (Throwable x)
+        {
+            LOG.warn(x);
+        }
+    }
+
+    private Runnable produceTask()
+    {
+        try
+        {
+            return _producer.produce();
+        }
+        catch (Throwable e)
+        {
+            LOG.warn(e);
+            return null;
+        }
+    }
+
+    private void execute(Runnable task)
+    {
+        try
+        {
+            _executor.execute(task);
+        }
+        catch (RejectedExecutionException e)
+        {
+            if (isRunning())
+                LOG.warn(e);
+            else
+                LOG.ignore(e);
+
+            if (task instanceof Closeable)
+            {
+                try
+                {
+                    ((Closeable)task).close();
+                }
+                catch (Throwable ex2)
+                {
+                    LOG.ignore(ex2);
+                }
+            }
+        }
+    }
+
+    @ManagedAttribute(value = "number of tasks consumed with PC mode", readonly = true)
+    public long getPCTasksConsumed()
+    {
+        return _pcMode.longValue();
+    }
+
+    @ManagedAttribute(value = "number of tasks executed with PIC mode", readonly = true)
+    public long getPICTasksExecuted()
+    {
+        return _picMode.longValue();
+    }
+
+    @ManagedAttribute(value = "number of tasks executed with PEC mode", readonly = true)
+    public long getPECTasksExecuted()
+    {
+        return _pecMode.longValue();
+    }
+
+    @ManagedAttribute(value = "number of tasks consumed with EPC mode", readonly = true)
+    public long getEPCTasksConsumed()
+    {
+        return _epcMode.longValue();
+    }
+
+    @ManagedAttribute(value = "whether this execution strategy is idle", readonly = true)
+    public boolean isIdle()
+    {
+        synchronized (this)
+        {
+            return _state == State.IDLE;
+        }
+    }
+
+    @ManagedOperation(value = "resets the task counts", impact = "ACTION")
+    public void reset()
+    {
+        _pcMode.reset();
+        _epcMode.reset();
+        _pecMode.reset();
+        _picMode.reset();
+    }
+
+    @Override
     public String toString()
+    {
+        synchronized (this)
+        {
+            return toStringLocked();
+        }
+    }
+
+    public String toStringLocked()
     {
         StringBuilder builder = new StringBuilder();
         getString(builder);
-        try (Lock locked = _locker.lock())
-        {
-            getState(builder);
-        }
+        getState(builder);
         return builder.toString();
     }
-    
+
     private void getString(StringBuilder builder)
     {
         builder.append(getClass().getSimpleName());
@@ -357,18 +467,20 @@ public class EatWhatYouKill extends AbstractLifeCycle implements ExecutionStrate
     private void getState(StringBuilder builder)
     {
         builder.append(_state);
+        builder.append("/p=");
+        builder.append(_pending);
         builder.append('/');
-        builder.append(_pendingProducers);
-        builder.append('/');
-        builder.append(_pendingProducersMax);
-    }
-
-    private class RunProduce implements Runnable
-    {
-        @Override
-        public void run()
-        {
-            produce();
-        }
+        builder.append(_tryExecutor);
+        builder.append("[pc=");
+        builder.append(getPCTasksConsumed());
+        builder.append(",pic=");
+        builder.append(getPICTasksExecuted());
+        builder.append(",pec=");
+        builder.append(getPECTasksExecuted());
+        builder.append(",epc=");
+        builder.append(getEPCTasksConsumed());
+        builder.append("]");
+        builder.append("@");
+        builder.append(DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(ZonedDateTime.now()));
     }
 }

@@ -1,5 +1,4 @@
-<?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-" "http://www.eclipse.org/jetty/configure_9_3.dtd">
+<?xml version="1.0"?><!DOCTYPE Configure PUBLIC "-" "http://www.eclipse.org/jetty/configure_9_3.dtd">
 <Configure id="Server" class="org.eclipse.jetty.server.Server">
     <!-- =========================================================== -->
     <!-- Configure Authentication Login Service                      -->
@@ -12,7 +11,7 @@
       <Arg>
         <New class="org.eclipse.jetty.security.HashLoginService">
           <Set name="name">Test Realm</Set>
-          <Set name="config"><Property name="jetty.home" default="src/test/config"/>/realm.properties</Set>
+          <Set name="config"><Property name="jetty.home" default="src/test/config"/>/etc/realm.properties</Set>
         </New>
       </Arg>
     </Call>

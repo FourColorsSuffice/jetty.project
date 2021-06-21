@@ -4,12 +4,11 @@
   <parent>
     <groupId>org.eclipse.jetty.tests</groupId>
     <artifactId>tests-parent</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>test-webapps-parent</artifactId>
   <name>Jetty Tests :: WebApps :: Parent</name>
-  <url>http://www.eclipse.org/jetty</url>
   <packaging>pom</packaging>
   <build>
     <plugins>
@@ -38,5 +37,13 @@
     <module>test-servlet-spec</module>
     <module>test-jaas-webapp</module>
     <module>test-jndi-webapp</module>
+    <module>test-http2-webapp</module>
+    <module>test-simple-webapp</module>
+    <module>test-felix-webapp</module>
+    <module>test-cdi-common-webapp</module>
+    <module>test-weld-cdi-webapp</module>
+    <module>test-owb-cdi-webapp</module>
+    <module>test-websocket-client-webapp</module>
+    <module>test-websocket-client-provided-webapp</module>
   </modules>
 </project>

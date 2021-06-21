@@ -2,26 +2,19 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
   </parent>
 
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-client</artifactId>
   <name>Jetty :: Asynchronous HTTP Client</name>
-  <url>http://www.eclipse.org/jetty</url>
   <properties>
     <bundle-symbolic-name>${project.groupId}.client</bundle-symbolic-name>
     <jetty.test.policy.loc>target/test-policy</jetty.test.policy.loc>
+    <spotbugs.onlyAnalyze>org.eclipse.client.*</spotbugs.onlyAnalyze>
   </properties>
   <build>
     <plugins>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <configuration>
-          <onlyAnalyze>org.eclipse.jetty.client.*</onlyAnalyze>
-        </configuration>
-      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
@@ -37,7 +30,7 @@
                 <artifactItem>
                   <groupId>org.eclipse.jetty.toolchain</groupId>
                   <artifactId>jetty-test-policy</artifactId>
-                  <version>${jetty-test-policy-version}</version>
+                  <version>${jetty-test-policy.version}</version>
                   <type>jar</type>
                   <overWrite>true</overWrite>
                   <includes>**/*.keystore,**/*.pem</includes>
@@ -58,6 +51,7 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <minimizeJar>true</minimizeJar>
               <shadedArtifactAttached>true</shadedArtifactAttached>
               <shadedClassifierName>hybrid</shadedClassifierName>
               <artifactSet>
@@ -99,6 +93,12 @@
       <artifactId>jetty-io</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-jmx</artifactId>
+      <version>${project.version}</version>
+      <optional>true</optional>
+    </dependency>
 
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
@@ -110,6 +110,24 @@
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-security</artifactId>
       <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kerby</groupId>
+      <artifactId>kerb-simplekdc</artifactId>
+      <version>2.0.1</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- transitive dependency defined as a range and we don't want that -->
+    <dependency>
+      <groupId>net.minidev</groupId>
+      <artifactId>json-smart</artifactId>
+      <version>2.4.7</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

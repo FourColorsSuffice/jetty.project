@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,7 +18,7 @@
 
 package org.eclipse.jetty.util;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class UptimeTest
 {
@@ -26,6 +26,6 @@ public class UptimeTest
     public void testUptime()
     {
         // should not throw an exception (if it does, the exception flows out and fails the testcase)
-        System.err.printf("Uptime = %,d%n",Uptime.getUptime());
+        System.err.printf("Uptime = %,d%n", Uptime.getUptime());
     }
 }

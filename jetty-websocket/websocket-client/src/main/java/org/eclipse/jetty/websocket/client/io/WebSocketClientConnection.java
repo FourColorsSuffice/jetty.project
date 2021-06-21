@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,7 +18,6 @@
 
 package org.eclipse.jetty.websocket.client.io;
 
-import java.net.InetSocketAddress;
 import java.util.concurrent.Executor;
 
 import org.eclipse.jetty.io.ByteBufferPool;
@@ -28,7 +27,6 @@ import org.eclipse.jetty.websocket.api.BatchMode;
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
 import org.eclipse.jetty.websocket.api.WriteCallback;
 import org.eclipse.jetty.websocket.api.extensions.Frame;
-import org.eclipse.jetty.websocket.api.extensions.IncomingFrames;
 import org.eclipse.jetty.websocket.client.masks.Masker;
 import org.eclipse.jetty.websocket.client.masks.RandomMasker;
 import org.eclipse.jetty.websocket.common.WebSocketFrame;
@@ -43,22 +41,10 @@ public class WebSocketClientConnection extends AbstractWebSocketConnection
 
     public WebSocketClientConnection(EndPoint endp, Executor executor, Scheduler scheduler, WebSocketPolicy websocketPolicy, ByteBufferPool bufferPool)
     {
-        super(endp,executor,scheduler,websocketPolicy,bufferPool);
+        super(endp, executor, scheduler, websocketPolicy, bufferPool);
         this.masker = new RandomMasker();
     }
 
-    @Override
-    public InetSocketAddress getLocalAddress()
-    {
-        return getEndPoint().getLocalAddress();
-    }
-
-    @Override
-    public InetSocketAddress getRemoteAddress()
-    {
-        return getEndPoint().getRemoteAddress();
-    }
-    
     /**
      * Override to set the masker.
      */
@@ -69,12 +55,6 @@ public class WebSocketClientConnection extends AbstractWebSocketConnection
         {
             masker.setMask((WebSocketFrame)frame);
         }
-        super.outgoingFrame(frame,callback, batchMode);
-    }
-
-    @Override
-    public void setNextIncomingFrames(IncomingFrames incoming)
-    {
-        getParser().setIncomingFramesHandler(incoming);
+        super.outgoingFrame(frame, callback, batchMode);
     }
 }

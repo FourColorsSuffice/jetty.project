@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,6 +18,7 @@
 
 package org.eclipse.jetty.util;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -28,7 +29,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class AttributesMap implements Attributes
+import org.eclipse.jetty.util.component.Dumpable;
+
+public class AttributesMap implements Attributes, Dumpable
 {
     private final AtomicReference<ConcurrentMap<String, Object>> _map = new AtomicReference<>();
 
@@ -91,6 +94,7 @@ public class AttributesMap implements Attributes
         return Collections.enumeration(getAttributeNameSet());
     }
 
+    @Override
     public Set<String> getAttributeNameSet()
     {
         return keySet();
@@ -99,7 +103,7 @@ public class AttributesMap implements Attributes
     public Set<Map.Entry<String, Object>> getAttributeEntrySet()
     {
         Map<String, Object> map = map();
-        return map == null ? Collections.<Map.Entry<String, Object>>emptySet() : map.entrySet();
+        return map == null ? Collections.emptySet() : map.entrySet();
     }
 
     public static Enumeration<String> getAttributeNamesCopy(Attributes attrs)
@@ -107,8 +111,7 @@ public class AttributesMap implements Attributes
         if (attrs instanceof AttributesMap)
             return Collections.enumeration(((AttributesMap)attrs).keySet());
 
-        List<String> names = new ArrayList<>();
-        names.addAll(Collections.list(attrs.getAttributeNames()));
+        List<String> names = new ArrayList<>(Collections.list(attrs.getAttributeNames()));
         return Collections.enumeration(names);
     }
 
@@ -136,7 +139,7 @@ public class AttributesMap implements Attributes
     private Set<String> keySet()
     {
         Map<String, Object> map = map();
-        return map == null ? Collections.<String>emptySet() : map.keySet();
+        return map == null ? Collections.emptySet() : map.keySet();
     }
 
     public void addAll(Attributes attributes)
@@ -147,5 +150,17 @@ public class AttributesMap implements Attributes
             String name = e.nextElement();
             setAttribute(name, attributes.getAttribute(name));
         }
+    }
+
+    @Override
+    public String dump()
+    {
+        return Dumpable.dump(this);
+    }
+
+    @Override
+    public void dump(Appendable out, String indent) throws IOException
+    {
+        Dumpable.dumpObjects(out, indent, String.format("%s@%x", this.getClass().getSimpleName(), hashCode()), map());
     }
 }

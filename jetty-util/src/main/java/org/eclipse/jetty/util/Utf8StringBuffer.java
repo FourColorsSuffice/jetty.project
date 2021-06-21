@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,7 +18,6 @@
 
 package org.eclipse.jetty.util;
 
-/* ------------------------------------------------------------ */
 /**
  * UTF-8 StringBuffer.
  *
@@ -58,6 +57,12 @@ public class Utf8StringBuffer extends Utf8Appendable
     {
         super.reset();
         _buffer.setLength(0);
+    }
+
+    @Override
+    public String getPartialString()
+    {
+        return _buffer.toString();
     }
 
     public StringBuffer getStringBuffer()

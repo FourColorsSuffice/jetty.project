@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[configuring-virtual-hosts]]
 === Configuring Virtual Hosts
@@ -22,7 +24,7 @@ If the content to be served to the aliases names is link:#different-virtual-host
 
 Virtual hosts are set on a link:{JDURL}/org/eclipse/jetty/server/handler/ContextHandler.html[context] by calling the link:{JDURL}/org/eclipse/jetty/server/handler/ContextHandler.html#setVirtualHosts-java.lang.String:A-[`setVirtualHosts`] or link:{JDURL}/org/eclipse/jetty/server/handler/ContextHandler.html#addVirtualHosts-java.lang.String:A-[`addVirtualHost`] method which can be done in several ways:
 
-* Using a link:#deployable-descriptor-file[context XML] file in the webapps directory (see the example in link:{SRCDIR}/tests/test-webapps/test-jetty-webapp/src/main/config/demo-base/webapps/test.xml[test.xml] in the Jetty distribution).
+* Using a link:#deployable-descriptor-file[context XML] file in the webapps directory (see the example in link:{GITBROWSEURL}/tests/test-webapps/test-jetty-webapp/src/main/config/demo-base/webapps/test.xml[test.xml] in the Jetty distribution).
 * Creating a link:#deployment-architecture[custom deployer] with a binding to configure virtual hosts for all contexts found in the same `webapps` directory.
 * Calling the link:{JDURL}/org/eclipse/jetty/server/handler/ContextHandler.html#setVirtualHosts-java.lang.String:A-[API] directly on an link:#advanced-embedding[embedded] usage.
 * Using a `WEB-INF/jetty-web.xml` file (now deprecated).
@@ -60,7 +62,7 @@ You supply a list of IP addresses and names at which the web application is reac
 Suppose you have a webapp called `blah.war`, that you want all of the above names and addresses to be served at path "`/blah`".
 Here's how you would configure the virtual hosts with a link:#deployable-descriptor-file[context XML] file:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
@@ -100,7 +102,7 @@ Using the method of preparing link:#deployable-descriptor-file[contextXML] files
 
 For `blah` webapp:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
@@ -126,7 +128,7 @@ These URLs now resolve to the blah context (ie `blah.war`):
 
 For `other` webapp:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
@@ -175,7 +177,7 @@ To achieve this, we simply use the same context path of `/` for each of our weba
 
 For foo webapp:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
@@ -195,7 +197,7 @@ For foo webapp:
 
 For bar webapp:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">

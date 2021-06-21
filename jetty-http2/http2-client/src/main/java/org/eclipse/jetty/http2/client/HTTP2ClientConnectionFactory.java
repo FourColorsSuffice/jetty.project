@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,8 +18,8 @@
 
 package org.eclipse.jetty.http2.client;
 
-import java.io.IOException;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
@@ -53,7 +53,7 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
     private final Connection.Listener connectionListener = new ConnectionListener();
 
     @Override
-    public Connection newConnection(EndPoint endPoint, Map<String, Object> context) throws IOException
+    public Connection newConnection(EndPoint endPoint, Map<String, Object> context)
     {
         HTTP2Client client = (HTTP2Client)context.get(CLIENT_CONTEXT_KEY);
         ByteBufferPool byteBufferPool = (ByteBufferPool)context.get(BYTE_BUFFER_POOL_CONTEXT_KEY);
@@ -63,17 +63,22 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
         @SuppressWarnings("unchecked")
         Promise<Session> promise = (Promise<Session>)context.get(SESSION_PROMISE_CONTEXT_KEY);
 
-        Generator generator = new Generator(byteBufferPool);
+        Generator generator = new Generator(byteBufferPool, client.getMaxDynamicTableSize(), client.getMaxHeaderBlockFragment());
         FlowControlStrategy flowControl = client.getFlowControlStrategyFactory().newFlowControlStrategy();
         HTTP2ClientSession session = new HTTP2ClientSession(scheduler, endPoint, generator, listener, flowControl);
+        session.setMaxRemoteStreams(client.getMaxConcurrentPushedStreams());
+
         Parser parser = new Parser(byteBufferPool, session, 4096, 8192);
+        parser.setMaxFrameLength(client.getMaxFrameLength());
+        parser.setMaxSettingsKeys(client.getMaxSettingsKeys());
+
         HTTP2ClientConnection connection = new HTTP2ClientConnection(client, byteBufferPool, executor, endPoint,
-                parser, session, client.getInputBufferSize(), promise, listener);
+            parser, session, client.getInputBufferSize(), promise, listener);
         connection.addListener(connectionListener);
         return customize(connection, context);
     }
 
-    private class HTTP2ClientConnection extends HTTP2Connection implements Callback
+    private static class HTTP2ClientConnection extends HTTP2Connection implements Callback
     {
         private final HTTP2Client client;
         private final Promise<Session> promise;
@@ -88,25 +93,17 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
         }
 
         @Override
-        public long getMessagesIn()
-        {
-            HTTP2ClientSession session = (HTTP2ClientSession)getSession();
-            return session.getStreamsOpened();
-        }
-
-        @Override
-        public long getMessagesOut()
-        {
-            HTTP2ClientSession session = (HTTP2ClientSession)getSession();
-            return session.getStreamsClosed();
-        }
-
-        @Override
         public void onOpen()
         {
             Map<Integer, Integer> settings = listener.onPreface(getSession());
             if (settings == null)
-                settings = Collections.emptyMap();
+                settings = new HashMap<>();
+            settings.computeIfAbsent(SettingsFrame.INITIAL_WINDOW_SIZE, k -> client.getInitialStreamRecvWindow());
+            settings.computeIfAbsent(SettingsFrame.MAX_CONCURRENT_STREAMS, k -> client.getMaxConcurrentPushedStreams());
+
+            Integer maxFrameLength = settings.get(SettingsFrame.MAX_FRAME_SIZE);
+            if (maxFrameLength != null)
+                getParser().setMaxFrameLength(maxFrameLength);
 
             PrefaceFrame prefaceFrame = new PrefaceFrame();
             SettingsFrame settingsFrame = new SettingsFrame(settings, false);
@@ -114,25 +111,22 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
             ISession session = getSession();
 
             int windowDelta = client.getInitialSessionRecvWindow() - FlowControlStrategy.DEFAULT_WINDOW_SIZE;
+            session.updateRecvWindow(windowDelta);
             if (windowDelta > 0)
-            {
-                session.updateRecvWindow(windowDelta);
-                session.frames(null, this, prefaceFrame, settingsFrame, new WindowUpdateFrame(0, windowDelta));
-            }
+                session.frames(null, Arrays.asList(prefaceFrame, settingsFrame, new WindowUpdateFrame(0, windowDelta)), this);
             else
-            {
-                session.frames(null, this, prefaceFrame, settingsFrame);
-            }
-            // Only start reading from server after we have sent the client preface,
-            // otherwise we risk to read the server preface (a SETTINGS frame) and
-            // reply to that before we have the chance to send the client preface.
-            super.onOpen();
+                session.frames(null, Arrays.asList(prefaceFrame, settingsFrame), this);
         }
 
         @Override
         public void succeeded()
         {
+            super.onOpen();
             promise.succeeded(getSession());
+            // Only start reading from server after we have sent the client preface,
+            // otherwise we risk to read the server preface (a SETTINGS frame) and
+            // reply to that before we have the chance to send the client preface.
+            produce();
         }
 
         @Override
@@ -143,7 +137,7 @@ public class HTTP2ClientConnectionFactory implements ClientConnectionFactory
         }
     }
 
-    private class ConnectionListener implements Connection.Listener
+    private static class ConnectionListener implements Connection.Listener
     {
         @Override
         public void onOpened(Connection connection)

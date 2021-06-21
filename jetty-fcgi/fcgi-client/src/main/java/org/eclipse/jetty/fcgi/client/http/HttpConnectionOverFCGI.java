@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,12 +21,16 @@ package org.eclipse.jetty.fcgi.client.http;
 import java.io.EOFException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.eclipse.jetty.client.HttpChannel;
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.HttpConnection;
 import org.eclipse.jetty.client.HttpDestination;
@@ -45,18 +49,21 @@ import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.io.AbstractConnection;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.RetainableByteBuffer;
+import org.eclipse.jetty.util.Attachable;
 import org.eclipse.jetty.util.BufferUtil;
-import org.eclipse.jetty.util.CompletableCallback;
+import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Promise;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
-public class HttpConnectionOverFCGI extends AbstractConnection implements Connection
+public class HttpConnectionOverFCGI extends AbstractConnection implements Connection, Attachable
 {
     private static final Logger LOG = Log.getLogger(HttpConnectionOverFCGI.class);
 
     private final LinkedList<Integer> requests = new LinkedList<>();
-    private final Map<Integer, HttpChannelOverFCGI> channels = new ConcurrentHashMap<>();
+    private final Map<Integer, HttpChannelOverFCGI> activeChannels = new ConcurrentHashMap<>();
+    private final Queue<HttpChannelOverFCGI> idleChannels = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final HttpDestination destination;
     private final Promise<Connection> promise;
@@ -64,7 +71,8 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
     private final Flusher flusher;
     private final Delegate delegate;
     private final ClientParser parser;
-    private ByteBuffer buffer;
+    private RetainableByteBuffer networkBuffer;
+    private Object attachment;
 
     public HttpConnectionOverFCGI(EndPoint endPoint, HttpDestination destination, Promise<Connection> promise, boolean multiplexed)
     {
@@ -110,67 +118,80 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
     @Override
     public void onFillable()
     {
-        buffer = acquireBuffer();
-        process(buffer);
+        networkBuffer = newNetworkBuffer();
+        process();
     }
 
-    private ByteBuffer acquireBuffer()
+    private void reacquireNetworkBuffer()
+    {
+        if (networkBuffer == null)
+            throw new IllegalStateException();
+        if (networkBuffer.hasRemaining())
+            throw new IllegalStateException();
+        networkBuffer.release();
+        networkBuffer = newNetworkBuffer();
+        if (LOG.isDebugEnabled())
+            LOG.debug("Reacquired {}", networkBuffer);
+    }
+
+    private RetainableByteBuffer newNetworkBuffer()
     {
         HttpClient client = destination.getHttpClient();
         ByteBufferPool bufferPool = client.getByteBufferPool();
-        return bufferPool.acquire(client.getResponseBufferSize(), true);
+        // TODO: configure directness.
+        return new RetainableByteBuffer(bufferPool, client.getResponseBufferSize(), true);
     }
 
-    private void releaseBuffer(ByteBuffer buffer)
+    private void releaseNetworkBuffer()
     {
-        assert this.buffer == buffer;
-        HttpClient client = destination.getHttpClient();
-        ByteBufferPool bufferPool = client.getByteBufferPool();
-        bufferPool.release(buffer);
-        this.buffer = null;
+        if (networkBuffer == null)
+            throw new IllegalStateException();
+        if (networkBuffer.hasRemaining())
+            throw new IllegalStateException();
+        networkBuffer.release();
+        if (LOG.isDebugEnabled())
+            LOG.debug("Released {}", networkBuffer);
+        this.networkBuffer = null;
     }
 
-    private void process(ByteBuffer buffer)
+    void process()
     {
         try
         {
             EndPoint endPoint = getEndPoint();
-            boolean looping = false;
             while (true)
             {
-                if (!looping && parse(buffer))
+                if (parse(networkBuffer.getBuffer()))
                     return;
 
-                int read = endPoint.fill(buffer);
+                if (networkBuffer.getReferences() > 1)
+                    reacquireNetworkBuffer();
+
+                // The networkBuffer may have been reacquired.
+                int read = endPoint.fill(networkBuffer.getBuffer());
                 if (LOG.isDebugEnabled())
                     LOG.debug("Read {} bytes from {}", read, endPoint);
 
-                if (read > 0)
+                if (read == 0)
                 {
-                    if (parse(buffer))
-                        return;
-                }
-                else if (read == 0)
-                {
-                    releaseBuffer(buffer);
+                    releaseNetworkBuffer();
                     fillInterested();
                     return;
                 }
-                else
+                else if (read < 0)
                 {
-                    releaseBuffer(buffer);
+                    releaseNetworkBuffer();
                     shutdown();
                     return;
                 }
-
-                looping = true;
             }
         }
         catch (Exception x)
         {
             if (LOG.isDebugEnabled())
                 LOG.debug(x);
-            releaseBuffer(buffer);
+            networkBuffer.clear();
+            releaseNetworkBuffer();
             close(x);
         }
     }
@@ -184,7 +205,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
     {
         // Close explicitly only if we are idle, since the request may still
         // be in progress, otherwise close only if we can fail the responses.
-        if (channels.isEmpty())
+        if (activeChannels.isEmpty())
             close();
         else
             failAndClose(new EOFException(String.valueOf(getEndPoint())));
@@ -204,8 +225,20 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
 
     protected void release(HttpChannelOverFCGI channel)
     {
-        channels.remove(channel.getRequest());
-        destination.release(this);
+        if (activeChannels.remove(channel.getRequest()) == null)
+        {
+            channel.destroy();
+        }
+        else
+        {
+            channel.setRequest(0);
+            // Recycle only non-failed channels.
+            if (channel.isFailed())
+                channel.destroy();
+            else
+                idleChannels.offer(channel);
+            destination.release(this);
+        }
     }
 
     @Override
@@ -218,7 +251,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
     {
         if (closed.compareAndSet(false, true))
         {
-            getHttpDestination().close(this);
+            getHttpDestination().remove(this);
 
             abort(failure);
 
@@ -237,6 +270,18 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         return closed.get();
     }
 
+    @Override
+    public void setAttachment(Object obj)
+    {
+        this.attachment = obj;
+    }
+
+    @Override
+    public Object getAttachment()
+    {
+        return attachment;
+    }
+
     protected boolean closeByHTTP(HttpFields fields)
     {
         if (multiplexed)
@@ -249,20 +294,32 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
 
     protected void abort(Throwable failure)
     {
-        for (HttpChannelOverFCGI channel : channels.values())
+        for (HttpChannelOverFCGI channel : activeChannels.values())
         {
             HttpExchange exchange = channel.getHttpExchange();
             if (exchange != null)
                 exchange.getRequest().abort(failure);
+            channel.destroy();
         }
-        channels.clear();
+        activeChannels.clear();
+
+        HttpChannel channel = idleChannels.poll();
+        while (channel != null)
+        {
+            channel.destroy();
+            channel = idleChannels.poll();
+        }
     }
 
     private void failAndClose(Throwable failure)
     {
         boolean result = false;
-        for (HttpChannelOverFCGI channel : channels.values())
+        for (HttpChannelOverFCGI channel : activeChannels.values())
+        {
             result |= channel.responseFailure(failure);
+            channel.destroy();
+        }
+
         if (result)
             close(failure);
     }
@@ -286,9 +343,18 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         }
     }
 
-    protected HttpChannelOverFCGI newHttpChannel(int id, Request request)
+    protected HttpChannelOverFCGI acquireHttpChannel(int id, Request request)
     {
-        return new HttpChannelOverFCGI(this, getFlusher(), id, request.getIdleTimeout());
+        HttpChannelOverFCGI channel = idleChannels.poll();
+        if (channel == null)
+            channel = newHttpChannel(request);
+        channel.setRequest(id);
+        return channel;
+    }
+
+    protected HttpChannelOverFCGI newHttpChannel(Request request)
+    {
+        return new HttpChannelOverFCGI(this, getFlusher(), request.getIdleTimeout());
     }
 
     @Override
@@ -300,7 +366,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
             getEndPoint().getLocalAddress(),
             getEndPoint().getRemoteAddress());
     }
-    
+
     private class Delegate extends HttpConnection
     {
         private Delegate(HttpDestination destination)
@@ -309,15 +375,21 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         }
 
         @Override
+        protected Iterator<HttpChannel> getHttpChannels()
+        {
+            return new IteratorWrapper<>(activeChannels.values().iterator());
+        }
+
+        @Override
         protected SendFailure send(HttpExchange exchange)
         {
             Request request = exchange.getRequest();
             normalizeRequest(request);
 
-            // FCGI may be multiplexed, so create one channel for each request.
+            // FCGI may be multiplexed, so one channel for each exchange.
             int id = acquireRequest();
-            HttpChannelOverFCGI channel = newHttpChannel(id, request);
-            channels.put(id, channel);
+            HttpChannelOverFCGI channel = acquireHttpChannel(id, request);
+            activeChannels.put(id, channel);
 
             return send(channel, exchange);
         }
@@ -326,6 +398,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         public void close()
         {
             HttpConnectionOverFCGI.this.close();
+            destroy();
         }
 
         protected void close(Throwable failure)
@@ -351,7 +424,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         @Override
         public void onBegin(int request, int code, String reason)
         {
-            HttpChannelOverFCGI channel = channels.get(request);
+            HttpChannelOverFCGI channel = activeChannels.get(request);
             if (channel != null)
                 channel.responseBegin(code, reason);
             else
@@ -361,7 +434,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         @Override
         public void onHeader(int request, HttpField field)
         {
-            HttpChannelOverFCGI channel = channels.get(request);
+            HttpChannelOverFCGI channel = activeChannels.get(request);
             if (channel != null)
                 channel.responseHeader(field);
             else
@@ -369,13 +442,13 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         }
 
         @Override
-        public void onHeaders(int request)
+        public boolean onHeaders(int request)
         {
-            HttpChannelOverFCGI channel = channels.get(request);
+            HttpChannelOverFCGI channel = activeChannels.get(request);
             if (channel != null)
-                channel.responseHeaders();
-            else
-                noChannel(request);
+                return !channel.responseHeaders();
+            noChannel(request);
+            return false;
         }
 
         @Override
@@ -385,29 +458,11 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
             {
                 case STD_OUT:
                 {
-                    HttpChannelOverFCGI channel = channels.get(request);
+                    HttpChannelOverFCGI channel = activeChannels.get(request);
                     if (channel != null)
                     {
-                        CompletableCallback callback = new CompletableCallback()
-                        {
-                            @Override
-                            public void resume()
-                            {
-                                if (LOG.isDebugEnabled())
-                                    LOG.debug("Content consumed asynchronously, resuming processing");
-                                process(HttpConnectionOverFCGI.this.buffer);
-                            }
-
-                            @Override
-                            public void abort(Throwable x)
-                            {
-                                close(x);
-                            }
-                        };
-                        // Do not short circuit these calls.
-                        boolean proceed = channel.content(buffer, callback);
-                        boolean async = callback.tryComplete();
-                        return !proceed || async;
+                        networkBuffer.retain();
+                        return !channel.content(buffer, Callback.from(networkBuffer::release, HttpConnectionOverFCGI.this::close));
                     }
                     else
                     {
@@ -431,7 +486,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         @Override
         public void onEnd(int request)
         {
-            HttpChannelOverFCGI channel = channels.get(request);
+            HttpChannelOverFCGI channel = activeChannels.get(request);
             if (channel != null)
             {
                 if (channel.responseSuccess())
@@ -446,7 +501,7 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         @Override
         public void onFailure(int request, Throwable failure)
         {
-            HttpChannelOverFCGI channel = channels.get(request);
+            HttpChannelOverFCGI channel = activeChannels.get(request);
             if (channel != null)
             {
                 if (channel.responseFailure(failure))
@@ -462,6 +517,34 @@ public class HttpConnectionOverFCGI extends AbstractConnection implements Connec
         {
             if (LOG.isDebugEnabled())
                 LOG.debug("Channel not found for request {}", request);
+        }
+    }
+
+    private static final class IteratorWrapper<T> implements Iterator<T>
+    {
+        private final Iterator<? extends T> iterator;
+
+        private IteratorWrapper(Iterator<? extends T> iterator)
+        {
+            this.iterator = iterator;
+        }
+
+        @Override
+        public boolean hasNext()
+        {
+            return iterator.hasNext();
+        }
+
+        @Override
+        public T next()
+        {
+            return iterator.next();
+        }
+
+        @Override
+        public void remove()
+        {
+            iterator.remove();
         }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,13 +26,14 @@ import java.util.Iterator;
 import org.eclipse.jetty.client.api.ContentProvider;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
 /**
  * {@link HttpContent} is a stateful, linear representation of the request content provided
  * by a {@link ContentProvider} that can be traversed one-way to obtain content buffers to
- * send to a HTTP server.
+ * send to an HTTP server.
  * <p>
  * {@link HttpContent} offers the notion of a one-way cursor to traverse the content.
  * The cursor starts in a virtual "before" position and can be advanced using {@link #advance()}
@@ -78,7 +79,17 @@ public class HttpContent implements Callback, Closeable
     public HttpContent(ContentProvider provider)
     {
         this.provider = provider;
-        this.iterator = provider == null ? Collections.<ByteBuffer>emptyIterator() : provider.iterator();
+        this.iterator = provider == null ? Collections.emptyIterator() : provider.iterator();
+    }
+
+    /**
+     * @return true if the buffer is the sentinel instance {@link CLOSE}
+     */
+    private static boolean isTheCloseBuffer(ByteBuffer buffer)
+    {
+        @SuppressWarnings("ReferenceEquality")
+        boolean isTheCloseBuffer = (buffer == CLOSE);
+        return isTheCloseBuffer;
     }
 
     /**
@@ -177,6 +188,7 @@ public class HttpContent implements Callback, Closeable
     /**
      * @return whether the cursor has been advanced past the {@link #isLast() last} position.
      */
+    @SuppressWarnings("ReferenceEquality")
     public boolean isConsumed()
     {
         return buffer == AFTER;
@@ -187,7 +199,7 @@ public class HttpContent implements Callback, Closeable
     {
         if (isConsumed())
             return;
-        if (buffer == CLOSE)
+        if (isTheCloseBuffer(buffer))
             return;
         if (iterator instanceof Callback)
             ((Callback)iterator).succeeded();
@@ -198,7 +210,7 @@ public class HttpContent implements Callback, Closeable
     {
         if (isConsumed())
             return;
-        if (buffer == CLOSE)
+        if (isTheCloseBuffer(buffer))
             return;
         if (iterator instanceof Callback)
             ((Callback)iterator).failed(x);
@@ -207,26 +219,19 @@ public class HttpContent implements Callback, Closeable
     @Override
     public void close()
     {
-        try
-        {
-            if (iterator instanceof Closeable)
-                ((Closeable)iterator).close();
-        }
-        catch (Throwable x)
-        {
-            LOG.ignore(x);
-        }
+        if (iterator instanceof Closeable)
+            IO.close((Closeable)iterator);
     }
 
     @Override
     public String toString()
     {
         return String.format("%s@%x - has=%b,last=%b,consumed=%b,buffer=%s",
-                getClass().getSimpleName(),
-                hashCode(),
-                hasContent(),
-                isLast(),
-                isConsumed(),
-                BufferUtil.toDetailString(getContent()));
+            getClass().getSimpleName(),
+            hashCode(),
+            hasContent(),
+            isLast(),
+            isConsumed(),
+            BufferUtil.toDetailString(getContent()));
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,8 +19,6 @@
 package org.eclipse.jetty.embedded;
 
 import java.io.IOException;
-
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -30,13 +28,13 @@ import org.eclipse.jetty.servlet.ServletHandler;
 
 public class MinimalServlets
 {
-    public static void main( String[] args ) throws Exception
+
+    public static Server createServer(int port)
     {
-        // Create a basic jetty server object that will listen on port 8080.
         // Note that if you set this to port 0 then a randomly available port
         // will be assigned that you can either look in the logs for the port,
         // or programmatically obtain it for use in test cases.
-        Server server = new Server(8080);
+        Server server = new Server(port);
 
         // The ServletHandler is a dead simple way to create a context handler
         // that is backed by an instance of a Servlet.
@@ -52,13 +50,20 @@ public class MinimalServlets
         // through a web.xml @WebServlet annotation, or anything similar.
         handler.addServletWithMapping(HelloServlet.class, "/*");
 
+        return server;
+    }
+
+    public static void main(String[] args) throws Exception
+    {
+        // Create a basic jetty server object that will listen on port 8080.
+        int port = ExampleUtil.getPort(args, "jetty.http.port", 8080);
+        Server server = createServer(port);
+
         // Start things up!
         server.start();
 
         // The use of server.join() the will make the current thread join and
-        // wait until the server is done executing.
-        // See
-        // http://docs.oracle.com/javase/7/docs/api/java/lang/Thread.html#join()
+        // wait until the server thread is done executing.
         server.join();
     }
 
@@ -66,12 +71,12 @@ public class MinimalServlets
     public static class HelloServlet extends HttpServlet
     {
         @Override
-        protected void doGet( HttpServletRequest request,
-                              HttpServletResponse response ) throws ServletException,
-                                                            IOException
+        protected void doGet(HttpServletRequest request,
+                             HttpServletResponse response) throws IOException
         {
-            response.setContentType("text/html");
             response.setStatus(HttpServletResponse.SC_OK);
+            response.setContentType("text/html");
+            response.setCharacterEncoding("utf-8");
             response.getWriter().println("<h1>Hello from HelloServlet</h1>");
         }
     }

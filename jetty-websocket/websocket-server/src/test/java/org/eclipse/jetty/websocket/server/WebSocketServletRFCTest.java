@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,18 +18,17 @@
 
 package org.eclipse.jetty.websocket.server;
 
-import static org.hamcrest.Matchers.is;
-
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Locale;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.AdvancedRunner;
-import org.eclipse.jetty.toolchain.test.EventQueue;
+import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.util.Utf8Appendable.NotUtf8Exception;
 import org.eclipse.jetty.util.Utf8StringBuilder;
 import org.eclipse.jetty.util.log.StacklessLogging;
-import org.eclipse.jetty.util.log.StdErrLog;
 import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.api.extensions.Frame;
 import org.eclipse.jetty.websocket.common.CloseInfo;
@@ -42,92 +41,101 @@ import org.eclipse.jetty.websocket.common.frames.BinaryFrame;
 import org.eclipse.jetty.websocket.common.frames.ContinuationFrame;
 import org.eclipse.jetty.websocket.common.frames.TextFrame;
 import org.eclipse.jetty.websocket.common.test.BlockheadClient;
+import org.eclipse.jetty.websocket.common.test.BlockheadClientRequest;
+import org.eclipse.jetty.websocket.common.test.BlockheadConnection;
+import org.eclipse.jetty.websocket.common.test.Timeouts;
 import org.eclipse.jetty.websocket.common.test.UnitGenerator;
 import org.eclipse.jetty.websocket.common.util.Hex;
 import org.eclipse.jetty.websocket.server.helper.RFCServlet;
 import org.eclipse.jetty.websocket.servlet.WebSocketServlet;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Test various <a href="http://tools.ietf.org/html/rfc6455">RFC 6455</a> specified requirements placed on {@link WebSocketServlet}
  */
-@RunWith(AdvancedRunner.class)
 public class WebSocketServletRFCTest
 {
+    private static final String REQUEST_HASH_KEY = "dGhlIHNhbXBsZSBub25jZQ==";
     private static Generator generator = new UnitGenerator();
     private static SimpleServletServer server;
+    private static BlockheadClient client;
 
-    @BeforeClass
+    @BeforeAll
     public static void startServer() throws Exception
     {
         server = new SimpleServletServer(new RFCServlet());
         server.start();
     }
 
-    @AfterClass
+    @AfterAll
     public static void stopServer()
     {
         server.stop();
     }
 
-    /**
-     * @param clazz the class to enable
-     * @param enabled true to enable the stack traces (or not)
-     * @deprecated use {@link StacklessLogging} in a try-with-resources block instead
-     */
-    @Deprecated
-    private void enableStacks(Class<?> clazz, boolean enabled)
+    @BeforeAll
+    public static void startClient() throws Exception
     {
-        StdErrLog log = StdErrLog.getLogger(clazz);
-        log.setHideStacks(!enabled);
+        client = new BlockheadClient();
+        client.setIdleTimeout(TimeUnit.SECONDS.toMillis(2));
+        client.start();
+    }
+
+    @AfterAll
+    public static void stopClient() throws Exception
+    {
+        client.stop();
     }
 
     /**
      * Test that aggregation of binary frames into a single message occurs
+     *
      * @throws Exception on test failure
      */
     @Test
     public void testBinaryAggregate() throws Exception
     {
-        BlockheadClient client = new BlockheadClient(server.getServerUri());
-        try
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
+
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        try (BlockheadConnection clientConn = connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT))
         {
-            client.connect();
-            client.sendStandardRequest();
-            client.expectUpgradeResponse();
-
             // Generate binary frames
-            byte buf1[] = new byte[128];
-            byte buf2[] = new byte[128];
-            byte buf3[] = new byte[128];
+            byte[] buf1 = new byte[128];
+            byte[] buf2 = new byte[128];
+            byte[] buf3 = new byte[128];
 
-            Arrays.fill(buf1,(byte)0xAA);
-            Arrays.fill(buf2,(byte)0xBB);
-            Arrays.fill(buf3,(byte)0xCC);
+            Arrays.fill(buf1, (byte)0xAA);
+            Arrays.fill(buf2, (byte)0xBB);
+            Arrays.fill(buf3, (byte)0xCC);
 
             WebSocketFrame bin;
 
             bin = new BinaryFrame().setPayload(buf1).setFin(false);
 
-            client.write(bin); // write buf1 (fin=false)
+            clientConn.write(bin); // write buf1 (fin=false)
 
             bin = new ContinuationFrame().setPayload(buf2).setFin(false);
 
-            client.write(bin); // write buf2 (fin=false)
+            clientConn.write(bin); // write buf2 (fin=false)
 
             bin = new ContinuationFrame().setPayload(buf3).setFin(true);
 
-            client.write(bin); // write buf3 (fin=true)
+            clientConn.write(bin); // write buf3 (fin=true)
 
             // Read frame echo'd back (hopefully a single binary frame)
-            EventQueue<WebSocketFrame> frames = client.readFrames(1,30,TimeUnit.SECONDS);
-            Frame binmsg = frames.poll();
+            LinkedBlockingQueue<WebSocketFrame> frames = clientConn.getFrameQueue();
+            Frame binmsg = frames.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
             int expectedSize = buf1.length + buf2.length + buf3.length;
-            Assert.assertThat("BinaryFrame.payloadLength",binmsg.getPayloadLength(),is(expectedSize));
+            assertThat("BinaryFrame.payloadLength", binmsg.getPayloadLength(), is(expectedSize));
 
             int aaCount = 0;
             int bbCount = 0;
@@ -149,84 +157,77 @@ public class WebSocketServletRFCTest
                         ccCount++;
                         break;
                     default:
-                        Assert.fail(String.format("Encountered invalid byte 0x%02X",(byte)(0xFF & b)));
+                        fail(String.format("Encountered invalid byte 0x%02X", (byte)(0xFF & b)));
                 }
             }
-            Assert.assertThat("Echoed data count for 0xAA",aaCount,is(buf1.length));
-            Assert.assertThat("Echoed data count for 0xBB",bbCount,is(buf2.length));
-            Assert.assertThat("Echoed data count for 0xCC",ccCount,is(buf3.length));
-        }
-        finally
-        {
-            client.close();
+            assertThat("Echoed data count for 0xAA", aaCount, is(buf1.length));
+            assertThat("Echoed data count for 0xBB", bbCount, is(buf2.length));
+            assertThat("Echoed data count for 0xCC", ccCount, is(buf3.length));
         }
     }
 
-    @Test(expected = NotUtf8Exception.class)
+    @Test
     public void testDetectBadUTF8()
     {
-        byte buf[] = new byte[]
-        { (byte)0xC2, (byte)0xC3 };
+        byte[] buf = new byte[]
+            {(byte)0xC2, (byte)0xC3};
 
         Utf8StringBuilder utf = new Utf8StringBuilder();
-        utf.append(buf,0,buf.length);
+        assertThrows(NotUtf8Exception.class, () ->
+        {
+            utf.append(buf, 0, buf.length);
+        });
     }
 
     /**
      * Test the requirement of issuing socket and receiving echo response
+     *
      * @throws Exception on test failure
      */
     @Test
     public void testEcho() throws Exception
     {
-        BlockheadClient client = new BlockheadClient(server.getServerUri());
-        try
-        {
-            client.connect();
-            client.sendStandardRequest();
-            client.expectUpgradeResponse();
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
 
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        try (BlockheadConnection clientConn = connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT))
+        {
             // Generate text frame
             String msg = "this is an echo ... cho ... ho ... o";
-            client.write(new TextFrame().setPayload(msg));
+            clientConn.write(new TextFrame().setPayload(msg));
 
             // Read frame (hopefully text frame)
-            EventQueue<WebSocketFrame> frames = client.readFrames(1,30,TimeUnit.SECONDS);
-            WebSocketFrame tf = frames.poll();
-            Assert.assertThat("Text Frame.status code",tf.getPayloadAsUTF8(),is(msg));
-        }
-        finally
-        {
-            client.close();
+            LinkedBlockingQueue<WebSocketFrame> frames = clientConn.getFrameQueue();
+            WebSocketFrame tf = frames.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+            assertThat("Text Frame.status code", tf.getPayloadAsUTF8(), is(msg));
         }
     }
 
     /**
      * Test the requirement of responding with server terminated close code 1011 when there is an unhandled (internal server error) being produced by the
      * WebSocket POJO.
+     *
      * @throws Exception on test failure
      */
     @Test
     public void testInternalError() throws Exception
     {
-        try (BlockheadClient client = new BlockheadClient(server.getServerUri());
-             StacklessLogging stackless=new StacklessLogging(EventDriver.class))
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
+
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        try (BlockheadConnection clientConn = connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT);
+             StacklessLogging ignore = new StacklessLogging(EventDriver.class))
         {
-            client.connect();
-            client.sendStandardRequest();
-            client.expectUpgradeResponse();
+            // Generate text frame
+            clientConn.write(new TextFrame().setPayload("CRASH"));
 
-            try (StacklessLogging context = new StacklessLogging(EventDriver.class))
-            {
-                // Generate text frame
-                client.write(new TextFrame().setPayload("CRASH"));
-
-                // Read frame (hopefully close frame)
-                EventQueue<WebSocketFrame> frames = client.readFrames(1,30,TimeUnit.SECONDS);
-                Frame cf = frames.poll();
-                CloseInfo close = new CloseInfo(cf);
-                Assert.assertThat("Close Frame.status code",close.getStatusCode(),is(StatusCode.SERVER_ERROR));
-            }
+            // Read frame (hopefully close frame)
+            LinkedBlockingQueue<WebSocketFrame> frames = clientConn.getFrameQueue();
+            Frame cf = frames.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+            CloseInfo close = new CloseInfo(cf);
+            assertThat("Close Frame.status code", close.getStatusCode(), is(StatusCode.SERVER_ERROR));
         }
     }
 
@@ -234,70 +235,60 @@ public class WebSocketServletRFCTest
      * Test http://tools.ietf.org/html/rfc6455#section-4.1 where server side upgrade handling is supposed to be case insensitive.
      * <p>
      * This test will simulate a client requesting upgrade with all lowercase headers.
+     *
      * @throws Exception on test failure
      */
     @Test
     public void testLowercaseUpgrade() throws Exception
     {
-        BlockheadClient client = new BlockheadClient(server.getServerUri());
-        try
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
+        request.header("upgrade", "websocket");
+        request.header("connection", "upgrade");
+        request.header("sec-websocket-key", REQUEST_HASH_KEY);
+        request.header("sec-websocket-origin", server.getServerUri().toASCIIString());
+        request.header("sec-websocket-protocol", "echo");
+        request.header("sec-websocket-version", "13");
+
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        try (BlockheadConnection clientConn = connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT))
         {
-            client.connect();
-
-            StringBuilder req = new StringBuilder();
-            req.append("GET ").append(client.getRequestPath()).append(" HTTP/1.1\r\n");
-            req.append("Host: ").append(client.getRequestHost()).append("\r\n");
-            req.append("Upgrade: websocket\r\n");
-            req.append("connection: upgrade\r\n");
-            req.append("sec-websocket-key: ").append(client.getRequestWebSocketKey()).append("\r\n");
-            req.append("sec-websocket-origin: ").append(client.getRequestWebSocketOrigin()).append("\r\n");
-            req.append("sec-websocket-protocol: echo\r\n");
-            req.append("sec-websocket-version: 13\r\n");
-            req.append("\r\n");
-            client.writeRaw(req.toString());
-
-            client.expectUpgradeResponse();
-
             // Generate text frame
             String msg = "this is an echo ... cho ... ho ... o";
-            client.write(new TextFrame().setPayload(msg));
+            clientConn.write(new TextFrame().setPayload(msg));
 
             // Read frame (hopefully text frame)
-            EventQueue<WebSocketFrame> frames = client.readFrames(1,30,TimeUnit.SECONDS);
-            WebSocketFrame tf = frames.poll();
-            Assert.assertThat("Text Frame.status code",tf.getPayloadAsUTF8(),is(msg));
-        }
-        finally
-        {
-            client.close();
+            LinkedBlockingQueue<WebSocketFrame> frames = clientConn.getFrameQueue();
+            WebSocketFrame tf = frames.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+            assertThat("Text Frame.status code", tf.getPayloadAsUTF8(), is(msg));
         }
     }
 
     @Test
     public void testTextNotUTF8() throws Exception
     {
-        try (StacklessLogging stackless=new StacklessLogging(Parser.class);
-             BlockheadClient client = new BlockheadClient(server.getServerUri()))
-        {
-            client.setProtocols("other");
-            client.connect();
-            client.sendStandardRequest();
-            client.expectUpgradeResponse();
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
+        request.header(HttpHeader.SEC_WEBSOCKET_SUBPROTOCOL, "other");
 
-            byte buf[] = new byte[]
-            { (byte)0xC2, (byte)0xC3 };
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        try (BlockheadConnection clientConn = connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT);
+             StacklessLogging ignore = new StacklessLogging(Parser.class))
+        {
+            byte[] buf = new byte[]
+                {(byte)0xC2, (byte)0xC3};
 
             WebSocketFrame txt = new TextFrame().setPayload(ByteBuffer.wrap(buf));
             txt.setMask(Hex.asByteArray("11223344"));
             ByteBuffer bbHeader = generator.generateHeaderBytes(txt);
-            client.writeRaw(bbHeader);
-            client.writeRaw(txt.getPayload());
+            clientConn.writeRaw(bbHeader);
+            clientConn.writeRaw(txt.getPayload());
 
-            EventQueue<WebSocketFrame> frames = client.readFrames(1,30,TimeUnit.SECONDS);
-            WebSocketFrame frame = frames.poll();
-            Assert.assertThat("frames[0].opcode",frame.getOpCode(),is(OpCode.CLOSE));
+            LinkedBlockingQueue<WebSocketFrame> frames = clientConn.getFrameQueue();
+            WebSocketFrame frame = frames.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+            assertThat("frames[0].opcode", frame.getOpCode(), is(OpCode.CLOSE));
             CloseInfo close = new CloseInfo(frame);
-            Assert.assertThat("Close Status Code",close.getStatusCode(),is(StatusCode.BAD_PAYLOAD));
+            assertThat("Close Status Code", close.getStatusCode(), is(StatusCode.BAD_PAYLOAD));
         }
     }
 
@@ -305,42 +296,32 @@ public class WebSocketServletRFCTest
      * Test http://tools.ietf.org/html/rfc6455#section-4.1 where server side upgrade handling is supposed to be case insensitive.
      * <p>
      * This test will simulate a client requesting upgrade with all uppercase headers.
+     *
      * @throws Exception on test failure
      */
     @Test
     public void testUppercaseUpgrade() throws Exception
     {
-        BlockheadClient client = new BlockheadClient(server.getServerUri());
-        try
+        BlockheadClientRequest request = client.newWsRequest(server.getServerUri());
+        request.header("UPGRADE", "WEBSOCKET");
+        request.header("CONNECTION", "UPGRADE");
+        request.header("SEC-WEBSOCKET-KEY", REQUEST_HASH_KEY.toUpperCase(Locale.US));
+        request.header("SEC-WEBSOCKET-ORIGIN", server.getServerUri().toASCIIString());
+        request.header("SEC-WEBSOCKET-PROTOCOL", "ECHO");
+        request.header("SEC-WEBSOCKET-VERSION", "13");
+
+        Future<BlockheadConnection> connFut = request.sendAsync();
+
+        try (BlockheadConnection clientConn = connFut.get(Timeouts.CONNECT, Timeouts.CONNECT_UNIT))
         {
-            client.connect();
-
-            StringBuilder req = new StringBuilder();
-            req.append("GET ").append(client.getRequestPath()).append(" HTTP/1.1\r\n");
-            req.append("HOST: ").append(client.getRequestHost()).append("\r\n");
-            req.append("UPGRADE: WEBSOCKET\r\n");
-            req.append("CONNECTION: UPGRADE\r\n");
-            req.append("SEC-WEBSOCKET-KEY: ").append(client.getRequestWebSocketKey()).append("\r\n");
-            req.append("SEC-WEBSOCKET-ORIGIN: ").append(client.getRequestWebSocketOrigin()).append("\r\n");
-            req.append("SEC-WEBSOCKET-PROTOCOL: ECHO\r\n");
-            req.append("SEC-WEBSOCKET-VERSION: 13\r\n");
-            req.append("\r\n");
-            client.writeRaw(req.toString());
-
-            client.expectUpgradeResponse();
-
             // Generate text frame
             String msg = "this is an echo ... cho ... ho ... o";
-            client.write(new TextFrame().setPayload(msg));
+            clientConn.write(new TextFrame().setPayload(msg));
 
             // Read frame (hopefully text frame)
-            EventQueue<WebSocketFrame> frames = client.readFrames(1,30,TimeUnit.SECONDS);
-            WebSocketFrame tf = frames.poll();
-            Assert.assertThat("Text Frame.status code",tf.getPayloadAsUTF8(),is(msg));
-        }
-        finally
-        {
-            client.close();
+            LinkedBlockingQueue<WebSocketFrame> frames = clientConn.getFrameQueue();
+            WebSocketFrame tf = frames.poll(Timeouts.POLL_EVENT, Timeouts.POLL_EVENT_UNIT);
+            assertThat("Text Frame.status code", tf.getPayloadAsUTF8(), is(msg));
         }
     }
 }

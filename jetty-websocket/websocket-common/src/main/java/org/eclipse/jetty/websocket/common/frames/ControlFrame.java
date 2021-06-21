@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -27,7 +27,9 @@ import org.eclipse.jetty.websocket.common.WebSocketFrame;
 
 public abstract class ControlFrame extends WebSocketFrame
 {
-    /** Maximum size of Control frame, per RFC 6455 */
+    /**
+     * Maximum size of Control frame, per RFC 6455
+     */
     public static final int MAX_CONTROL_PAYLOAD = 125;
 
     public ControlFrame(byte opcode)
@@ -35,14 +37,15 @@ public abstract class ControlFrame extends WebSocketFrame
         super(opcode);
     }
 
+    @Override
     public void assertValid()
     {
         if (isControlFrame())
         {
             if (getPayloadLength() > ControlFrame.MAX_CONTROL_PAYLOAD)
             {
-                throw new ProtocolException("Desired payload length [" + getPayloadLength() + "] exceeds maximum control payload length ["
-                        + MAX_CONTROL_PAYLOAD + "]");
+                throw new ProtocolException("Desired payload length [" + getPayloadLength() +
+                    "] exceeds maximum control payload length [" + MAX_CONTROL_PAYLOAD + "]");
             }
 
             if ((finRsvOp & 0x80) == 0)
@@ -98,17 +101,14 @@ public abstract class ControlFrame extends WebSocketFrame
         {
             return false;
         }
-        if (!Arrays.equals(mask,other.mask))
+        if (!Arrays.equals(mask, other.mask))
         {
             return false;
         }
-        if (masked != other.masked)
-        {
-            return false;
-        }
-        return true;
+        return masked == other.masked;
     }
 
+    @Override
     public boolean isControlFrame()
     {
         return true;

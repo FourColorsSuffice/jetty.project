@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,6 +23,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
@@ -38,10 +41,10 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
-
 import javax.servlet.ServletException;
 import javax.servlet.ServletInputStream;
 import javax.servlet.ServletOutputStream;
@@ -55,7 +58,6 @@ import org.eclipse.jetty.client.api.ContentProvider;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
-import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.client.util.BytesContentProvider;
 import org.eclipse.jetty.client.util.DeferredContentProvider;
 import org.eclipse.jetty.client.util.FutureResponseListener;
@@ -70,9 +72,8 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.eclipse.jetty.toolchain.test.OS;
-import org.eclipse.jetty.toolchain.test.TestTracker;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.Utf8StringBuilder;
@@ -81,22 +82,31 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.log.StacklessLogging;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.extension.ExtendWith;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@ExtendWith(WorkDirExtension.class)
 public class AsyncMiddleManServletTest
 {
     private static final Logger LOG = Log.getLogger(AsyncMiddleManServletTest.class);
-    @Rule
-    public final TestTracker tracker = new TestTracker();
+    private static final String PROXIED_HEADER = "X-Proxied";
+
+    public WorkDir workDir;
     private HttpClient client;
     private Server proxy;
     private ServerConnector proxyConnector;
+    private AsyncMiddleManServlet proxyServlet;
     private Server server;
     private ServerConnector serverConnector;
-    private StacklessLogging stackless;
 
     private void startServer(HttpServlet servlet) throws Exception
     {
@@ -115,7 +125,7 @@ public class AsyncMiddleManServletTest
 
     private void startProxy(AsyncMiddleManServlet proxyServlet) throws Exception
     {
-        startProxy(proxyServlet, new HashMap<String, String>());
+        startProxy(proxyServlet, new HashMap<>());
     }
 
     private void startProxy(AsyncMiddleManServlet proxyServlet, Map<String, String> initParams) throws Exception
@@ -129,18 +139,17 @@ public class AsyncMiddleManServletTest
         configuration.setSendServerVersion(false);
         String value = initParams.get("outputBufferSize");
         if (value != null)
-            configuration.setOutputBufferSize(Integer.valueOf(value));
+            configuration.setOutputBufferSize(Integer.parseInt(value));
         proxyConnector = new ServerConnector(proxy, new HttpConnectionFactory(configuration));
         proxy.addConnector(proxyConnector);
 
         ServletContextHandler proxyContext = new ServletContextHandler(proxy, "/", true, false);
+        this.proxyServlet = proxyServlet;
         ServletHolder proxyServletHolder = new ServletHolder(proxyServlet);
         proxyServletHolder.setInitParameters(initParams);
         proxyContext.addServlet(proxyServletHolder, "/*");
 
         proxy.start();
-        
-        stackless=new StacklessLogging(proxyServlet._log);
     }
 
     private void startClient() throws Exception
@@ -153,13 +162,12 @@ public class AsyncMiddleManServletTest
         client.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         client.stop();
         proxy.stop();
         server.stop();
-        stackless.close();
     }
 
     @Test
@@ -170,10 +178,10 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -190,7 +198,7 @@ public class AsyncMiddleManServletTest
         testClientRequestContentKnownLengthGzipped(1024 * 1024, true);
     }
 
-    private void testClientRequestContentKnownLengthGzipped(int length, final boolean expectChunked) throws Exception
+    private void testClientRequestContentKnownLengthGzipped(int length, boolean expectChunked) throws Exception
     {
         byte[] bytes = new byte[length];
         new Random().nextBytes(bytes);
@@ -202,9 +210,9 @@ public class AsyncMiddleManServletTest
             {
                 String transferEncoding = request.getHeader(HttpHeader.TRANSFER_ENCODING.asString());
                 if (expectChunked)
-                    Assert.assertNotNull(transferEncoding);
+                    assertNotNull(transferEncoding);
                 else
-                    Assert.assertNull(transferEncoding);
+                    assertNull(transferEncoding);
                 response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
                 super.service(request, response);
             }
@@ -214,7 +222,7 @@ public class AsyncMiddleManServletTest
             @Override
             protected ContentTransformer newClientRequestContentTransformer(HttpServletRequest clientRequest, Request proxyRequest)
             {
-                return new GZIPContentTransformer(ContentTransformer.IDENTITY);
+                return new GZIPContentTransformer(getHttpClient(), ContentTransformer.IDENTITY);
             }
         });
         startClient();
@@ -223,13 +231,13 @@ public class AsyncMiddleManServletTest
         ContentProvider gzipContent = new BytesContentProvider(gzipBytes);
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .header(HttpHeader.CONTENT_ENCODING, "gzip")
-                .content(gzipContent)
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .header(HttpHeader.CONTENT_ENCODING, "gzip")
+            .content(gzipContent)
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertArrayEquals(bytes, response.getContent());
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(bytes, response.getContent());
     }
 
     @Test
@@ -237,12 +245,12 @@ public class AsyncMiddleManServletTest
     {
         byte[] bytes = new byte[1024];
         new Random().nextBytes(bytes);
-        final byte[] gzipBytes = gzip(bytes);
+        byte[] gzipBytes = gzip(bytes);
 
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
                 response.getOutputStream().write(gzipBytes);
@@ -259,11 +267,11 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertArrayEquals(bytes, response.getContent());
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(bytes, response.getContent());
     }
 
     @Test
@@ -298,13 +306,13 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .header(HttpHeader.CONTENT_ENCODING, "gzip")
-                .content(new BytesContentProvider(gzip(bytes)))
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .header(HttpHeader.CONTENT_ENCODING, "gzip")
+            .content(new BytesContentProvider(gzip(bytes)))
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertArrayEquals(bytes, response.getContent());
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(bytes, response.getContent());
     }
 
     @Test
@@ -313,7 +321,7 @@ public class AsyncMiddleManServletTest
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
 
@@ -345,22 +353,24 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .header(HttpHeader.CONTENT_ENCODING, "gzip")
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .header(HttpHeader.CONTENT_ENCODING, "gzip")
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
 
         String expectedStr = "<a href=\"http://webtide.com/\">Webtide</a>";
         byte[] expected = expectedStr.getBytes(StandardCharsets.UTF_8);
-        Assert.assertArrayEquals(expected, response.getContent());
+        assertArrayEquals(expected, response.getContent());
     }
 
     @Test
     public void testManySequentialTransformations() throws Exception
     {
         for (int i = 0; i < 8; ++i)
+        {
             testTransformUpstreamAndDownstreamKnownContentLengthGzipped();
+        }
     }
 
     @Test
@@ -389,16 +399,16 @@ public class AsyncMiddleManServletTest
         Request request = client.newRequest("localhost", serverConnector.getLocalPort());
         FutureResponseListener listener = new FutureResponseListener(request);
         request.header(HttpHeader.CONTENT_ENCODING, "gzip")
-                .content(content)
-                .send(listener);
+            .content(content)
+            .send(listener);
         byte[] bytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".getBytes(StandardCharsets.UTF_8);
         content.offer(ByteBuffer.wrap(gzip(bytes)));
         sleep(1000);
         content.close();
 
         ContentResponse response = listener.get(5, TimeUnit.SECONDS);
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertArrayEquals(bytes, response.getContent());
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(bytes, response.getContent());
     }
 
     @Test
@@ -407,7 +417,7 @@ public class AsyncMiddleManServletTest
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
 
@@ -433,29 +443,29 @@ public class AsyncMiddleManServletTest
 
         byte[] bytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".getBytes(StandardCharsets.UTF_8);
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .header(HttpHeader.CONTENT_ENCODING, "gzip")
-                .content(new BytesContentProvider(gzip(bytes)))
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .header(HttpHeader.CONTENT_ENCODING, "gzip")
+            .content(new BytesContentProvider(gzip(bytes)))
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertArrayEquals(bytes, response.getContent());
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(bytes, response.getContent());
     }
 
     @Test
     public void testDiscardUpstreamAndDownstreamKnownContentLengthGzipped() throws Exception
     {
-        final byte[] bytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".getBytes(StandardCharsets.UTF_8);
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 // decode input stream thru gzip
                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
                 IO.copy(new GZIPInputStream(request.getInputStream()), bos);
                 // ensure decompressed is 0 length
-                Assert.assertEquals(0, bos.toByteArray().length);
+                assertEquals(0, bos.toByteArray().length);
                 response.setHeader(HttpHeader.CONTENT_ENCODING.asString(), "gzip");
                 response.getOutputStream().write(gzip(bytes));
             }
@@ -477,13 +487,13 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .header(HttpHeader.CONTENT_ENCODING, "gzip")
-                .content(new BytesContentProvider(gzip(bytes)))
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .header(HttpHeader.CONTENT_ENCODING, "gzip")
+            .content(new BytesContentProvider(gzip(bytes)))
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        Assert.assertEquals(0, response.getContent().length);
+        assertEquals(200, response.getStatus());
+        assertEquals(0, response.getContent().length);
     }
 
     @Test
@@ -495,75 +505,70 @@ public class AsyncMiddleManServletTest
             @Override
             protected ContentTransformer newClientRequestContentTransformer(HttpServletRequest clientRequest, Request proxyRequest)
             {
+                return (input, finished, output) ->
+                {
+                    throw new NullPointerException("explicitly_thrown_by_test");
+                };
+            }
+        });
+        startClient();
+
+        try (StacklessLogging ignored = new StacklessLogging(proxyServlet._log))
+        {
+            byte[] bytes = new byte[1024];
+            ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
+                .content(new BytesContentProvider(bytes))
+                .timeout(5, TimeUnit.SECONDS)
+                .send();
+
+            assertEquals(500, response.getStatus());
+        }
+    }
+
+    @Test
+    public void testUpstreamTransformationThrowsAfterCommittingProxyRequest() throws Exception
+    {
+        startServer(new EchoHttpServlet());
+        startProxy(new AsyncMiddleManServlet()
+        {
+            @Override
+            protected ContentTransformer newClientRequestContentTransformer(HttpServletRequest clientRequest, Request proxyRequest)
+            {
                 return new ContentTransformer()
                 {
+                    private int count;
+
                     @Override
-                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
+                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output)
                     {
-                        throw new NullPointerException("explicitly_thrown_by_test");
+                        if (++count < 2)
+                            output.add(input);
+                        else
+                            throw new NullPointerException("explicitly_thrown_by_test");
                     }
                 };
             }
         });
         startClient();
 
-        byte[] bytes = new byte[1024];
-        ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .content(new BytesContentProvider(bytes))
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
-
-        Assert.assertEquals(500, response.getStatus());
-    }
-
-    @Test
-    public void testUpstreamTransformationThrowsAfterCommittingProxyRequest() throws Exception
-    {
-        try (StacklessLogging scope = new StacklessLogging(HttpChannel.class))
+        try (StacklessLogging ignored = new StacklessLogging(proxyServlet._log))
         {
-            startServer(new EchoHttpServlet());
-            startProxy(new AsyncMiddleManServlet()
-            {
-                @Override
-                protected ContentTransformer newClientRequestContentTransformer(HttpServletRequest clientRequest, Request proxyRequest)
-                {
-                    return new ContentTransformer()
-                    {
-                        private int count;
-
-                        @Override
-                        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
-                        {
-                            if (++count < 2)
-                                output.add(input);
-                            else
-                                throw new NullPointerException("explicitly_thrown_by_test");
-                        }
-                    };
-                }
-            });
-            startClient();
-
-            final CountDownLatch latch = new CountDownLatch(1);
+            CountDownLatch latch = new CountDownLatch(1);
             DeferredContentProvider content = new DeferredContentProvider();
             client.newRequest("localhost", serverConnector.getLocalPort())
-            .content(content)
-            .send(new Response.CompleteListener()
-            {
-                @Override
-                public void onComplete(Result result)
+                .content(content)
+                .send(result ->
                 {
                     if (result.isSucceeded() && result.getResponse().getStatus() == 502)
                         latch.countDown();
-                }
-            });
+                });
 
             content.offer(ByteBuffer.allocate(512));
             sleep(1000);
             content.offer(ByteBuffer.allocate(512));
             content.close();
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
@@ -573,7 +578,7 @@ public class AsyncMiddleManServletTest
         testDownstreamTransformationThrows(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 // To trigger the test failure we need that onContent()
                 // is called twice, so the second time the test throws.
@@ -592,7 +597,7 @@ public class AsyncMiddleManServletTest
         testDownstreamTransformationThrows(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 // To trigger the test failure we need that onContent()
                 // is called only once, so the the test throws from onSuccess().
@@ -616,7 +621,7 @@ public class AsyncMiddleManServletTest
                     private int count;
 
                     @Override
-                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
+                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output)
                     {
                         if (++count < 2)
                             output.add(input);
@@ -628,11 +633,14 @@ public class AsyncMiddleManServletTest
         });
         startClient();
 
-        ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
+        try (StacklessLogging ignored = new StacklessLogging(proxyServlet._log))
+        {
+            ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
                 .timeout(5, TimeUnit.SECONDS)
                 .send();
 
-        Assert.assertEquals(502, response.getStatus());
+            assertEquals(502, response.getStatus());
+        }
     }
 
     @Test
@@ -647,7 +655,7 @@ public class AsyncMiddleManServletTest
         testLargeChunkedBufferedDownstreamTransformation(true);
     }
 
-    private void testLargeChunkedBufferedDownstreamTransformation(final boolean gzipped) throws Exception
+    private void testLargeChunkedBufferedDownstreamTransformation(boolean gzipped) throws Exception
     {
         // Tests the race between a incomplete write performed from ProxyResponseListener.onSuccess()
         // and ProxyResponseListener.onComplete() being called before the write has completed.
@@ -655,7 +663,7 @@ public class AsyncMiddleManServletTest
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 OutputStream output = response.getOutputStream();
                 if (gzipped)
@@ -687,30 +695,22 @@ public class AsyncMiddleManServletTest
         });
         startClient();
 
-        final CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch latch = new CountDownLatch(1);
         client.newRequest("localhost", serverConnector.getLocalPort())
-                .onResponseContent(new Response.ContentListener()
-                {
-                    @Override
-                    public void onContent(Response response, ByteBuffer content)
-                    {
-                        // Slow down the reader so that the
-                        // write from the proxy gets congested.
-                        sleep(1);
-                    }
-                })
-                .send(new Response.CompleteListener()
-                {
-                    @Override
-                    public void onComplete(Result result)
-                    {
-                        Assert.assertTrue(result.isSucceeded());
-                        Assert.assertEquals(200, result.getResponse().getStatus());
-                        latch.countDown();
-                    }
-                });
+            .onResponseContent((response, content) ->
+            {
+                // Slow down the reader so that the
+                // write from the proxy gets congested.
+                sleep(1);
+            })
+            .send(result ->
+            {
+                assertTrue(result.isSucceeded());
+                assertEquals(200, result.getResponse().getStatus());
+                latch.countDown();
+            });
 
-        Assert.assertTrue(latch.await(15, TimeUnit.SECONDS));
+        assertTrue(latch.await(15, TimeUnit.SECONDS));
     }
 
     @Test
@@ -719,7 +719,7 @@ public class AsyncMiddleManServletTest
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 byte[] chunk = new byte[1024];
                 int contentLength = 2 * chunk.length;
@@ -736,24 +736,20 @@ public class AsyncMiddleManServletTest
             @Override
             protected ContentTransformer newServerResponseContentTransformer(HttpServletRequest clientRequest, HttpServletResponse proxyResponse, Response serverResponse)
             {
-                return new ContentTransformer()
+                return (input, finished, output) ->
                 {
-                    @Override
-                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
-                    {
-                        if (!finished)
-                            output.add(input);
-                    }
+                    if (!finished)
+                        output.add(input);
                 };
             }
         });
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -770,32 +766,28 @@ public class AsyncMiddleManServletTest
         });
         startClient();
 
-        final CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch latch = new CountDownLatch(1);
         DeferredContentProvider content = new DeferredContentProvider();
         client.newRequest("localhost", serverConnector.getLocalPort())
-                .content(content)
-                .send(new Response.CompleteListener()
-                {
-                    @Override
-                    public void onComplete(Result result)
-                    {
-                        System.err.println(result);
-                        if (result.getResponse().getStatus() == 500)
-                            latch.countDown();
-                    }
-                });
+            .content(content)
+            .send(result ->
+            {
+                System.err.println(result);
+                if (result.getResponse().getStatus() == 500)
+                    latch.countDown();
+            });
         content.offer(ByteBuffer.allocate(512));
         sleep(1000);
         content.offer(ByteBuffer.allocate(512));
         content.close();
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 
     @Test
     public void testClientRequestReadFailsOnSecondRead() throws Exception
     {
-        try (StacklessLogging scope = new StacklessLogging(HttpChannel.class))
+        try (StacklessLogging ignored = new StacklessLogging(HttpChannel.class))
         {
             startServer(new EchoHttpServlet());
             startProxy(new AsyncMiddleManServlet()
@@ -813,25 +805,21 @@ public class AsyncMiddleManServletTest
             });
             startClient();
 
-            final CountDownLatch latch = new CountDownLatch(1);
+            CountDownLatch latch = new CountDownLatch(1);
             DeferredContentProvider content = new DeferredContentProvider();
             client.newRequest("localhost", serverConnector.getLocalPort())
-            .content(content)
-            .send(new Response.CompleteListener()
-            {
-                @Override
-                public void onComplete(Result result)
+                .content(content)
+                .send(result ->
                 {
                     if (result.getResponse().getStatus() == 502)
                         latch.countDown();
-                }
-            });
+                });
             content.offer(ByteBuffer.allocate(512));
             sleep(1000);
             content.offer(ByteBuffer.allocate(512));
             content.close();
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
         }
     }
 
@@ -847,12 +835,12 @@ public class AsyncMiddleManServletTest
         testProxyResponseWriteFails(2);
     }
 
-    private void testProxyResponseWriteFails(final int writeCount) throws Exception
+    private void testProxyResponseWriteFails(int writeCount) throws Exception
     {
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 ServletOutputStream output = response.getOutputStream();
                 output.write(new byte[512]);
@@ -876,29 +864,29 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(502, response.getStatus());
+        assertEquals(502, response.getStatus());
     }
 
     @Test
     public void testAfterContentTransformer() throws Exception
     {
-        final String key0 = "id";
+        String key0 = "id";
         long value0 = 1;
-        final String key1 = "channel";
+        String key1 = "channel";
         String value1 = "foo";
-        final String json = "{ \"" + key0 + "\":" + value0 + ", \"" + key1 + "\":\"" + value1 + "\" }";
+        String json = "{ \"" + key0 + "\":" + value0 + ", \"" + key1 + "\":\"" + value1 + "\" }";
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
             }
         });
-        final String key2 = "c";
+        String key2 = "c";
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -911,7 +899,7 @@ public class AsyncMiddleManServletTest
                     {
                         InputStream input = source.getInputStream();
                         @SuppressWarnings("unchecked")
-                        Map<String, Object> obj = (Map<String, Object>)JSON.parse(new InputStreamReader(input, "UTF-8"));
+                        Map<String, Object> obj = (Map<String, Object>)JSON.parse(new InputStreamReader(input, StandardCharsets.UTF_8));
                         // Transform the object.
                         obj.put(key2, obj.remove(key1));
                         try (OutputStream output = sink.getOutputStream())
@@ -926,16 +914,16 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
         Map<String, Object> obj = (Map<String, Object>)JSON.parse(response.getContentAsString());
-        Assert.assertNotNull(obj);
-        Assert.assertEquals(2, obj.size());
-        Assert.assertEquals(value0, obj.get(key0));
-        Assert.assertEquals(value1, obj.get(key2));
+        assertNotNull(obj);
+        assertEquals(2, obj.size());
+        assertEquals(value0, obj.get(key0));
+        assertEquals(value1, obj.get(key2));
     }
 
     @Test
@@ -950,13 +938,13 @@ public class AsyncMiddleManServletTest
         testAfterContentTransformerInputStreamReset(true);
     }
 
-    private void testAfterContentTransformerInputStreamReset(final boolean overflow) throws Exception
+    private void testAfterContentTransformerInputStreamReset(boolean overflow) throws Exception
     {
-        final byte[] data = new byte[]{'c', 'o', 'f', 'f', 'e', 'e'};
+        byte[] data = new byte[]{'c', 'o', 'f', 'f', 'e', 'e'};
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 // Write the content in two chunks.
                 int chunk = data.length / 2;
@@ -995,35 +983,35 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
-        Assert.assertArrayEquals(data, response.getContent());
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+        assertArrayEquals(data, response.getContent());
     }
 
     @Test
     public void testAfterContentTransformerOverflowingToDisk() throws Exception
     {
         // Make sure the temporary directory we use exists and it's empty.
-        final Path targetTestsDir = prepareTargetTestsDir();
+        Path targetTestsDir = workDir.getEmptyPathDir();
 
-        final String key0 = "id";
+        String key0 = "id";
         long value0 = 1;
-        final String key1 = "channel";
+        String key1 = "channel";
         String value1 = "foo";
-        final String json = "{ \"" + key0 + "\":" + value0 + ", \"" + key1 + "\":\"" + value1 + "\" }";
+        String json = "{ \"" + key0 + "\":" + value0 + ", \"" + key1 + "\":\"" + value1 + "\" }";
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
             }
         });
-        final String inputPrefix = "in_";
-        final String outputPrefix = "out_";
-        final String key2 = "c";
+        String inputPrefix = "in_";
+        String outputPrefix = "out_";
+        String key2 = "c";
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1036,7 +1024,7 @@ public class AsyncMiddleManServletTest
                     {
                         InputStream input = source.getInputStream();
                         @SuppressWarnings("unchecked")
-                        Map<String, Object> obj = (Map<String, Object>)JSON.parse(new InputStreamReader(input, "UTF-8"));
+                        Map<String, Object> obj = (Map<String, Object>)JSON.parse(new InputStreamReader(input, StandardCharsets.UTF_8));
                         // Transform the object.
                         obj.put(key2, obj.remove(key1));
                         try (OutputStream output = sink.getOutputStream())
@@ -1057,47 +1045,86 @@ public class AsyncMiddleManServletTest
         });
         startClient();
 
-        ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
+        try
+        {
+            ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
+                .timeout(15, TimeUnit.SECONDS)
                 .send();
 
-        Assert.assertEquals(200, response.getStatus());
-        @SuppressWarnings("unchecked")
-        Map<String, Object> obj = (Map<String, Object>)JSON.parse(response.getContentAsString());
-        Assert.assertNotNull(obj);
-        Assert.assertEquals(2, obj.size());
-        Assert.assertEquals(value0, obj.get(key0));
-        Assert.assertEquals(value1, obj.get(key2));
-        // Make sure the files do not exist.
-        try (DirectoryStream<Path> paths = Files.newDirectoryStream(targetTestsDir, inputPrefix + "*.*"))
-        {
-            Assert.assertFalse(paths.iterator().hasNext());
-        }
+            assertEquals(200, response.getStatus());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> obj = (Map<String, Object>)JSON.parse(response.getContentAsString());
+            assertNotNull(obj);
+            assertEquals(2, obj.size());
+            assertEquals(value0, obj.get(key0));
+            assertEquals(value1, obj.get(key2));
 
-        // File deletion is delayed on windows, testing for deletion is not going to work
-        if(!OS.IS_WINDOWS)
-        {
-            try (DirectoryStream<Path> paths = Files.newDirectoryStream(targetTestsDir, outputPrefix + "*.*"))
+            // File deletion is delayed on windows, testing for deletion is not going to work
+            if (!OS.WINDOWS.isCurrentOs())
             {
-                Assert.assertFalse(paths.iterator().hasNext());
+                try (DirectoryStream<Path> paths = Files.newDirectoryStream(targetTestsDir, outputPrefix + "*.*"))
+                {
+                    assertFalse(paths.iterator().hasNext());
+                }
             }
         }
+        catch (TimeoutException e)
+        {
+            LOG.warn("Client Dump");
+            QueuedThreadPool qtp = (QueuedThreadPool)client.getExecutor();
+            qtp.setDetailedDump(true);
+            client.dumpStdErr();
+            LOG.warn("Server Dump");
+            qtp = (QueuedThreadPool)server.getThreadPool();
+            qtp.setDetailedDump(true);
+            server.dumpStdErr();
+            LOG.warn("Thread Dump");
+            System.err.println(generateThreadDump());
+            throw e;
+        }
+    }
+
+    public static String generateThreadDump()
+    {
+        StringBuilder dump = new StringBuilder();
+        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
+        for (ThreadInfo thread : threadMXBean.getThreadInfo(threadMXBean.getAllThreadIds(), 400))
+        {
+            dump.append('"').append(thread.getThreadName()).append("\" ");
+            dump.append(" #").append(thread.getThreadId());
+            dump.append("\n   java.lang.Thread.State: ");
+            Thread.State state = thread.getThreadState();
+            dump.append(state.name());
+            if (state == Thread.State.BLOCKED || state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING)
+            {
+                dump.append(" (locked on ");
+                dump.append(thread.getLockInfo());
+                dump.append(')');
+            }
+            for (StackTraceElement stackTraceElement : thread.getStackTrace())
+            {
+                dump.append("\n\tat ");
+                dump.append(stackTraceElement);
+            }
+            dump.append("\n\n");
+        }
+        return dump.toString();
     }
 
     @Test
     public void testAfterContentTransformerClosingFilesOnClientRequestException() throws Exception
     {
-        final Path targetTestsDir = prepareTargetTestsDir();
+        Path targetTestsDir = workDir.getEmptyPathDir();
 
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 IO.copy(request.getInputStream(), IO.getNullStream());
             }
         });
-        final CountDownLatch destroyLatch = new CountDownLatch(1);
+        CountDownLatch destroyLatch = new CountDownLatch(1);
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1132,33 +1159,33 @@ public class AsyncMiddleManServletTest
         startClient();
 
         // Send only part of the content; the proxy will idle timeout.
-        final byte[] data = new byte[]{'c', 'a', 'f', 'e'};
+        byte[] data = new byte[]{'c', 'a', 'f', 'e'};
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .content(new BytesContentProvider(data)
+            .content(new BytesContentProvider(data)
+            {
+                @Override
+                public long getLength()
                 {
-                    @Override
-                    public long getLength()
-                    {
-                        return data.length + 1;
-                    }
-                })
-                .timeout(5 * idleTimeout, TimeUnit.MILLISECONDS)
-                .send();
+                    return data.length + 1;
+                }
+            })
+            .timeout(15 * idleTimeout, TimeUnit.MILLISECONDS)
+            .send();
 
-        Assert.assertTrue(destroyLatch.await(5 * idleTimeout, TimeUnit.MILLISECONDS));
-        Assert.assertEquals(HttpStatus.REQUEST_TIMEOUT_408, response.getStatus());
+        assertTrue(destroyLatch.await(5 * idleTimeout, TimeUnit.MILLISECONDS));
+        assertEquals(HttpStatus.REQUEST_TIMEOUT_408, response.getStatus());
     }
 
     @Test
     public void testAfterContentTransformerClosingFilesOnServerResponseException() throws Exception
     {
-        final Path targetTestsDir = prepareTargetTestsDir();
+        Path targetTestsDir = workDir.getEmptyPathDir();
 
-        final CountDownLatch serviceLatch = new CountDownLatch(1);
+        CountDownLatch serviceLatch = new CountDownLatch(1);
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.setHeader(HttpHeader.CONNECTION.asString(), HttpHeaderValue.CLOSE.asString());
                 response.setContentLength(2);
@@ -1169,7 +1196,7 @@ public class AsyncMiddleManServletTest
                 serviceLatch.countDown();
             }
         });
-        final CountDownLatch destroyLatch = new CountDownLatch(1);
+        CountDownLatch destroyLatch = new CountDownLatch(1);
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1202,12 +1229,12 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(15, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertTrue(serviceLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(destroyLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertEquals(HttpStatus.BAD_GATEWAY_502, response.getStatus());
+        assertTrue(serviceLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(destroyLatch.await(5, TimeUnit.SECONDS));
+        assertEquals(HttpStatus.BAD_GATEWAY_502, response.getStatus());
     }
 
     @Test
@@ -1222,17 +1249,17 @@ public class AsyncMiddleManServletTest
         testAfterContentTransformerDoNoTransform(true, true);
     }
 
-    private void testAfterContentTransformerDoNoTransform(final boolean readSource, final boolean useDisk) throws Exception
+    private void testAfterContentTransformerDoNoTransform(boolean readSource, boolean useDisk) throws Exception
     {
-        final String key0 = "id";
+        String key0 = "id";
         long value0 = 1;
-        final String key1 = "channel";
+        String key1 = "channel";
         String value1 = "foo";
-        final String json = "{ \"" + key0 + "\":" + value0 + ", \"" + key1 + "\":\"" + value1 + "\" }";
+        String json = "{ \"" + key0 + "\":" + value0 + ", \"" + key1 + "\":\"" + value1 + "\" }";
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 response.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
             }
@@ -1255,7 +1282,7 @@ public class AsyncMiddleManServletTest
                         if (readSource)
                         {
                             InputStream input = source.getInputStream();
-                            JSON.parse(new InputStreamReader(input, "UTF-8"));
+                            JSON.parse(new InputStreamReader(input, StandardCharsets.UTF_8));
                         }
                         // No transformation.
                         return false;
@@ -1266,16 +1293,16 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(200, response.getStatus());
+        assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
         Map<String, Object> obj = (Map<String, Object>)JSON.parse(response.getContentAsString());
-        Assert.assertNotNull(obj);
-        Assert.assertEquals(2, obj.size());
-        Assert.assertEquals(value0, obj.get(key0));
-        Assert.assertEquals(value1, obj.get(key1));
+        assertNotNull(obj);
+        assertEquals(2, obj.size());
+        assertEquals(value0, obj.get(key0));
+        assertEquals(value1, obj.get(key1));
     }
 
     @Test
@@ -1284,13 +1311,13 @@ public class AsyncMiddleManServletTest
         startServer(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response)
             {
                 response.setStatus(HttpStatus.UNAUTHORIZED_401);
                 response.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), "Basic realm=\"test\"");
             }
         });
-        final AtomicBoolean transformed = new AtomicBoolean();
+        AtomicBoolean transformed = new AtomicBoolean();
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1299,7 +1326,7 @@ public class AsyncMiddleManServletTest
                 return new AfterContentTransformer()
                 {
                     @Override
-                    public boolean transform(Source source, Sink sink) throws IOException
+                    public boolean transform(Source source, Sink sink)
                     {
                         transformed.set(true);
                         return false;
@@ -1310,18 +1337,18 @@ public class AsyncMiddleManServletTest
         startClient();
 
         ContentResponse response = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertEquals(HttpStatus.UNAUTHORIZED_401, response.getStatus());
-        Assert.assertFalse(transformed.get());
+        assertEquals(HttpStatus.UNAUTHORIZED_401, response.getStatus());
+        assertFalse(transformed.get());
     }
 
     @Test
     public void testProxyRequestHeadersSentWhenDiscardingContent() throws Exception
     {
         startServer(new EchoHttpServlet());
-        final CountDownLatch proxyRequestLatch = new CountDownLatch(1);
+        CountDownLatch proxyRequestLatch = new CountDownLatch(1);
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1341,35 +1368,35 @@ public class AsyncMiddleManServletTest
 
         DeferredContentProvider content = new DeferredContentProvider();
         Request request = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .content(content);
+            .timeout(5, TimeUnit.SECONDS)
+            .content(content);
         FutureResponseListener listener = new FutureResponseListener(request);
         request.send(listener);
 
         // Send one chunk of content, the proxy request must not be sent.
         ByteBuffer chunk1 = ByteBuffer.allocate(1024);
         content.offer(chunk1);
-        Assert.assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         // Send another chunk of content, the proxy request must not be sent.
         ByteBuffer chunk2 = ByteBuffer.allocate(512);
         content.offer(chunk2);
-        Assert.assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         // Finish the content, request must be sent.
         content.close();
-        Assert.assertTrue(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertTrue(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         ContentResponse response = listener.get(5, TimeUnit.SECONDS);
-        Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
-        Assert.assertEquals(0, response.getContent().length);
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+        assertEquals(0, response.getContent().length);
     }
 
     @Test
     public void testProxyRequestHeadersNotSentUntilContent() throws Exception
     {
         startServer(new EchoHttpServlet());
-        final CountDownLatch proxyRequestLatch = new CountDownLatch(1);
+        CountDownLatch proxyRequestLatch = new CountDownLatch(1);
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1389,35 +1416,35 @@ public class AsyncMiddleManServletTest
 
         DeferredContentProvider content = new DeferredContentProvider();
         Request request = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .content(content);
+            .timeout(5, TimeUnit.SECONDS)
+            .content(content);
         FutureResponseListener listener = new FutureResponseListener(request);
         request.send(listener);
 
         // Send one chunk of content, the proxy request must not be sent.
         ByteBuffer chunk1 = ByteBuffer.allocate(1024);
         content.offer(chunk1);
-        Assert.assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         // Send another chunk of content, the proxy request must not be sent.
         ByteBuffer chunk2 = ByteBuffer.allocate(512);
         content.offer(chunk2);
-        Assert.assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         // Finish the content, request must be sent.
         content.close();
-        Assert.assertTrue(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertTrue(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         ContentResponse response = listener.get(5, TimeUnit.SECONDS);
-        Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
-        Assert.assertEquals(chunk1.capacity() + chunk2.capacity(), response.getContent().length);
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+        assertEquals(chunk1.capacity() + chunk2.capacity(), response.getContent().length);
     }
 
     @Test
     public void testProxyRequestHeadersNotSentUntilFirstContent() throws Exception
     {
         startServer(new EchoHttpServlet());
-        final CountDownLatch proxyRequestLatch = new CountDownLatch(1);
+        CountDownLatch proxyRequestLatch = new CountDownLatch(1);
         startProxy(new AsyncMiddleManServlet()
         {
             @Override
@@ -1428,7 +1455,7 @@ public class AsyncMiddleManServletTest
                     private ByteBuffer buffer;
 
                     @Override
-                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
+                    public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output)
                     {
                         // Buffer only the first chunk.
                         if (buffer == null)
@@ -1460,42 +1487,64 @@ public class AsyncMiddleManServletTest
 
         DeferredContentProvider content = new DeferredContentProvider();
         Request request = client.newRequest("localhost", serverConnector.getLocalPort())
-                .timeout(5, TimeUnit.SECONDS)
-                .content(content);
+            .timeout(5, TimeUnit.SECONDS)
+            .content(content);
         FutureResponseListener listener = new FutureResponseListener(request);
         request.send(listener);
 
         // Send one chunk of content, the proxy request must not be sent.
         ByteBuffer chunk1 = ByteBuffer.allocate(1024);
         content.offer(chunk1);
-        Assert.assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
+        assertFalse(proxyRequestLatch.await(1, TimeUnit.SECONDS));
 
         // Send another chunk of content, the proxy request must be sent.
         ByteBuffer chunk2 = ByteBuffer.allocate(512);
         content.offer(chunk2);
-        Assert.assertTrue(proxyRequestLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(proxyRequestLatch.await(5, TimeUnit.SECONDS));
 
         // Finish the content.
         content.close();
 
         ContentResponse response = listener.get(5, TimeUnit.SECONDS);
-        Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
-        Assert.assertEquals(chunk1.capacity() + chunk2.capacity(), response.getContent().length);
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+        assertEquals(chunk1.capacity() + chunk2.capacity(), response.getContent().length);
     }
 
-    private Path prepareTargetTestsDir() throws IOException
+    @Test
+    public void testTransparentProxyWithIdentityContentTransformer() throws Exception
     {
-        final Path targetTestsDir = MavenTestingUtils.getTargetTestingDir().toPath();
-        Files.createDirectories(targetTestsDir);
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(targetTestsDir, "*.*"))
+        String target = "/test";
+        startServer(new HttpServlet()
         {
-            for (Path file : files)
+            @Override
+            protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             {
-                if (!Files.isDirectory(file))
-                    Files.delete(file);
+                if (req.getHeader("Via") != null)
+                    resp.addHeader(PROXIED_HEADER, "true");
+                resp.setStatus(target.equals(req.getRequestURI()) ? 200 : 404);
             }
-        }
-        return targetTestsDir;
+        });
+        String proxyTo = "http://localhost:" + serverConnector.getLocalPort();
+        AsyncMiddleManServlet proxyServlet = new AsyncMiddleManServlet.Transparent()
+        {
+            @Override
+            protected ContentTransformer newServerResponseContentTransformer(HttpServletRequest clientRequest, HttpServletResponse proxyResponse, Response serverResponse)
+            {
+                return ContentTransformer.IDENTITY;
+            }
+        };
+        Map<String, String> initParams = new HashMap<>();
+        initParams.put("proxyTo", proxyTo);
+        startProxy(proxyServlet, initParams);
+        startClient();
+
+        // Make the request to the proxy, it should transparently forward to the server
+        ContentResponse response = client.newRequest("localhost", proxyConnector.getLocalPort())
+            .path(target)
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
+        assertEquals(200, response.getStatus());
+        assertTrue(response.getHeaders().containsKey(PROXIED_HEADER));
     }
 
     private void sleep(long delay)
@@ -1520,7 +1569,7 @@ public class AsyncMiddleManServletTest
         return out.toByteArray();
     }
 
-    private static abstract class HrefTransformer implements AsyncMiddleManServlet.ContentTransformer
+    private abstract static class HrefTransformer implements AsyncMiddleManServlet.ContentTransformer
     {
         private static final String PREFIX = "http://localhost/q=";
         private final HrefParser parser = new HrefParser();
@@ -1559,7 +1608,9 @@ public class AsyncMiddleManServletTest
                         // Transform the matches.
                         Utf8StringBuilder builder = new Utf8StringBuilder();
                         for (ByteBuffer buffer : matches)
+                        {
                             builder.append(buffer);
+                        }
                         String transformed = transform(builder.toString());
                         output.add(ByteBuffer.wrap(transformed.getBytes(StandardCharsets.UTF_8)));
                         output.add(slice);
@@ -1649,7 +1700,7 @@ public class AsyncMiddleManServletTest
         private final List<ByteBuffer> buffers = new ArrayList<>();
 
         @Override
-        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
+        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output)
         {
             if (input.hasRemaining())
             {
@@ -1660,7 +1711,7 @@ public class AsyncMiddleManServletTest
 
             if (finished)
             {
-                Assert.assertFalse(buffers.isEmpty());
+                assertFalse(buffers.isEmpty());
                 output.addAll(buffers);
                 buffers.clear();
             }
@@ -1675,7 +1726,7 @@ public class AsyncMiddleManServletTest
         private StringBuilder head = new StringBuilder();
 
         @Override
-        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
+        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output)
         {
             if (input.hasRemaining() && head != null)
             {
@@ -1683,12 +1734,12 @@ public class AsyncMiddleManServletTest
                 if (lnPos == -1)
                 {
                     // no linefeed found, copy it all
-                    copyHeadBytes(input,input.limit());
+                    copyHeadBytes(input, input.limit());
                 }
                 else
                 {
                     // found linefeed
-                    copyHeadBytes(input,lnPos);
+                    copyHeadBytes(input, lnPos);
                     output.addAll(getHeadBytes());
                     // mark head as sent
                     head = null;
@@ -1724,7 +1775,7 @@ public class AsyncMiddleManServletTest
 
         private List<ByteBuffer> getHeadBytes()
         {
-            ByteBuffer buf = BufferUtil.toBuffer(head.toString(),StandardCharsets.UTF_8);
+            ByteBuffer buf = BufferUtil.toBuffer(head.toString(), StandardCharsets.UTF_8);
             return Collections.singletonList(buf);
         }
     }
@@ -1732,7 +1783,7 @@ public class AsyncMiddleManServletTest
     private static class DiscardContentTransformer implements AsyncMiddleManServlet.ContentTransformer
     {
         @Override
-        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output) throws IOException
+        public void transform(ByteBuffer input, boolean finished, List<ByteBuffer> output)
         {
         }
     }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,11 +18,10 @@
 
 package org.eclipse.jetty.websocket.common.message;
 
-import static org.hamcrest.Matchers.is;
-
 import java.util.Arrays;
 
-import org.eclipse.jetty.toolchain.test.TestTracker;
+import org.eclipse.jetty.io.ByteBufferPool;
+import org.eclipse.jetty.io.MappedByteBufferPool;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.websocket.api.WebSocketPolicy;
@@ -33,51 +32,44 @@ import org.eclipse.jetty.websocket.common.io.FramePipes;
 import org.eclipse.jetty.websocket.common.io.LocalWebSocketSession;
 import org.eclipse.jetty.websocket.common.scopes.SimpleContainerScope;
 import org.eclipse.jetty.websocket.common.scopes.WebSocketContainerScope;
-import org.eclipse.jetty.websocket.common.test.LeakTrackingBufferPoolRule;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TestName;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
 public class MessageWriterTest
 {
     private static final Logger LOG = Log.getLogger(MessageWriterTest.class);
 
-    @Rule
-    public TestTracker testtracker = new TestTracker();
-
-    @Rule
-    public TestName testname = new TestName();
-
-    @Rule
-    public LeakTrackingBufferPoolRule bufferPool = new LeakTrackingBufferPoolRule("Test");
+    public ByteBufferPool bufferPool = new MappedByteBufferPool();
 
     private WebSocketPolicy policy;
     private TrackingSocket socket;
     private LocalWebSocketSession session;
 
-    @After
+    @AfterEach
     public void closeSession() throws Exception
     {
         session.close();
         session.stop();
     }
 
-    @Before
-    public void setupSession() throws Exception
+    @BeforeEach
+    public void setupSession(TestInfo testInfo) throws Exception
     {
         policy = WebSocketPolicy.newServerPolicy();
         policy.setInputBufferSize(1024);
         policy.setMaxTextMessageBufferSize(1024);
 
         // Container
-        WebSocketContainerScope containerScope = new SimpleContainerScope(policy,bufferPool);
-    
+        WebSocketContainerScope containerScope = new SimpleContainerScope(policy, bufferPool);
+
         // Event Driver factory
         EventDriverFactory factory = new EventDriverFactory(containerScope);
-    
+
         // local socket
         EventDriver driver = factory.wrap(new TrackingSocket("local"));
 
@@ -85,7 +77,8 @@ public class MessageWriterTest
         socket = new TrackingSocket("remote");
         OutgoingFrames socketPipe = FramePipes.to(factory.wrap(socket));
 
-        session = new LocalWebSocketSession(containerScope,testname,driver);
+        String id = testInfo.getDisplayName();
+        session = new LocalWebSocketSession(containerScope, id, driver);
 
         session.setPolicy(policy);
         // talk to our remote socket
@@ -106,9 +99,9 @@ public class MessageWriterTest
             stream.write("World");
         }
 
-        Assert.assertThat("Socket.messageQueue.size",socket.messageQueue.size(),is(1));
+        assertThat("Socket.messageQueue.size", socket.messageQueue.size(), is(1));
         String msg = socket.messageQueue.poll();
-        Assert.assertThat("Message",msg,is("Hello World"));
+        assertThat("Message", msg, is("Hello World"));
     }
 
     @Test
@@ -119,19 +112,19 @@ public class MessageWriterTest
             stream.append("Hello World");
         }
 
-        Assert.assertThat("Socket.messageQueue.size",socket.messageQueue.size(),is(1));
+        assertThat("Socket.messageQueue.size", socket.messageQueue.size(), is(1));
         String msg = socket.messageQueue.poll();
-        Assert.assertThat("Message",msg,is("Hello World"));
+        assertThat("Message", msg, is("Hello World"));
     }
 
     @Test
     public void testWriteMultipleBuffers() throws Exception
     {
         int bufsize = (int)(policy.getMaxTextMessageBufferSize() * 2.5);
-        char buf[] = new char[bufsize];
+        char[] buf = new char[bufsize];
         if (LOG.isDebugEnabled())
-            LOG.debug("Buffer size: {}",bufsize);
-        Arrays.fill(buf,'x');
+            LOG.debug("Buffer size: {}", bufsize);
+        Arrays.fill(buf, 'x');
         buf[bufsize - 1] = 'o'; // mark last entry for debugging
 
         try (MessageWriter stream = new MessageWriter(session))
@@ -139,9 +132,9 @@ public class MessageWriterTest
             stream.write(buf);
         }
 
-        Assert.assertThat("Socket.messageQueue.size",socket.messageQueue.size(),is(1));
+        assertThat("Socket.messageQueue.size", socket.messageQueue.size(), is(1));
         String msg = socket.messageQueue.poll();
         String expected = new String(buf);
-        Assert.assertThat("Message",msg,is(expected));
+        assertThat("Message", msg, is(expected));
     }
 }

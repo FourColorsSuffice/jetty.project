@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,8 +24,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.AdvancedRunner;
-import org.eclipse.jetty.toolchain.test.annotation.Stress;
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.websocket.api.StatusCode;
 import org.eclipse.jetty.websocket.common.CloseInfo;
@@ -36,13 +34,12 @@ import org.eclipse.jetty.websocket.common.frames.ContinuationFrame;
 import org.eclipse.jetty.websocket.common.frames.DataFrame;
 import org.eclipse.jetty.websocket.common.frames.TextFrame;
 import org.eclipse.jetty.websocket.common.test.Fuzzer;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.eclipse.jetty.websocket.common.test.Timeouts;
+import org.junit.jupiter.api.Test;
 
 /**
  * Big frame/message tests
  */
-@RunWith(AdvancedRunner.class)
 public class TestABCase9 extends AbstractABCase
 {
     private static final int KBYTE = 1024;
@@ -65,22 +62,21 @@ public class TestABCase9 extends AbstractABCase
 
     private void assertMultiFrameEcho(byte opcode, int overallMsgSize, int fragmentSize) throws Exception
     {
-        byte msg[] = new byte[overallMsgSize];
-        Arrays.fill(msg,(byte)'M');
+        byte[] msg = new byte[overallMsgSize];
+        Arrays.fill(msg, (byte)'M');
 
         List<WebSocketFrame> send = new ArrayList<>();
-        byte frag[];
+        byte[] frag;
         int remaining = msg.length;
         int offset = 0;
         boolean fin;
         ByteBuffer buf;
-        ;
         byte op = opcode;
         while (remaining > 0)
         {
-            int len = Math.min(remaining,fragmentSize);
+            int len = Math.min(remaining, fragmentSize);
             frag = new byte[len];
-            System.arraycopy(msg,offset,frag,0,len);
+            System.arraycopy(msg, offset, frag, 0, len);
             remaining -= len;
             fin = (remaining <= 0);
             buf = ByteBuffer.wrap(frag);
@@ -96,19 +92,19 @@ public class TestABCase9 extends AbstractABCase
         expect.add(toDataFrame(opcode).setPayload(copyOf(msg)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,8,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 8, TimeUnit.SECONDS);
         }
     }
 
     private void assertSlowFrameEcho(byte opcode, int overallMsgSize, int segmentSize) throws Exception
     {
-        byte msg[] = new byte[overallMsgSize];
-        Arrays.fill(msg,(byte)'M');
+        byte[] msg = new byte[overallMsgSize];
+        Arrays.fill(msg, (byte)'M');
         ByteBuffer buf = ByteBuffer.wrap(msg);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -119,26 +115,27 @@ public class TestABCase9 extends AbstractABCase
         expect.add(toDataFrame(opcode).setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.SLOW);
             fuzzer.setSlowSendSegmentSize(segmentSize);
             fuzzer.send(send);
-            fuzzer.expect(expect,8,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 8, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 64KB text message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase9_1_1() throws Exception
+    public void testCase911() throws Exception
     {
-        byte utf[] = new byte[64 * KBYTE];
-        Arrays.fill(utf,(byte)'y');
-        String msg = StringUtil.toUTF8String(utf,0,utf.length);
+        byte[] utf = new byte[64 * KBYTE];
+        Arrays.fill(utf, (byte)'y');
+        String msg = StringUtil.toUTF8String(utf, 0, utf.length);
 
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new TextFrame().setPayload(msg));
@@ -148,7 +145,7 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new TextFrame().setPayload(msg));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -159,13 +156,14 @@ public class TestABCase9 extends AbstractABCase
 
     /**
      * Echo 256KB text message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase9_1_2() throws Exception
+    public void testCase912() throws Exception
     {
-        byte utf[] = new byte[256 * KBYTE];
-        Arrays.fill(utf,(byte)'y');
+        byte[] utf = new byte[256 * KBYTE];
+        Arrays.fill(utf, (byte)'y');
         ByteBuffer buf = ByteBuffer.wrap(utf);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -176,24 +174,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new TextFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect);
+            fuzzer.expect(expect, Timeouts.POLL_EVENT * 2, Timeouts.POLL_EVENT_UNIT);
         }
     }
 
     /**
      * Echo 1MB text message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase9_1_3() throws Exception
+    public void testCase913() throws Exception
     {
-        byte utf[] = new byte[1 * MBYTE];
-        Arrays.fill(utf,(byte)'y');
+        byte[] utf = new byte[1 * MBYTE];
+        Arrays.fill(utf, (byte)'y');
         ByteBuffer buf = ByteBuffer.wrap(utf);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -204,24 +203,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new TextFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,4,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 4, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 4MB text message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase9_1_4() throws Exception
+    public void testCase914() throws Exception
     {
-        byte utf[] = new byte[4 * MBYTE];
-        Arrays.fill(utf,(byte)'y');
+        byte[] utf = new byte[4 * MBYTE];
+        Arrays.fill(utf, (byte)'y');
         ByteBuffer buf = ByteBuffer.wrap(utf);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -232,25 +232,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new TextFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,8,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 8, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 8MB text message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_1_5() throws Exception
+    public void testCase915() throws Exception
     {
-        byte utf[] = new byte[8 * MBYTE];
-        Arrays.fill(utf,(byte)'y');
+        byte[] utf = new byte[8 * MBYTE];
+        Arrays.fill(utf, (byte)'y');
         ByteBuffer buf = ByteBuffer.wrap(utf);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -261,25 +261,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new TextFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,16,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 16, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 16MB text message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_1_6() throws Exception
+    public void testCase916() throws Exception
     {
-        byte utf[] = new byte[16 * MBYTE];
-        Arrays.fill(utf,(byte)'y');
+        byte[] utf = new byte[16 * MBYTE];
+        Arrays.fill(utf, (byte)'y');
         ByteBuffer buf = ByteBuffer.wrap(utf);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -290,24 +290,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new TextFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,32,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 32, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 64KB binary message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase9_2_1() throws Exception
+    public void testCase921() throws Exception
     {
-        byte data[] = new byte[64 * KBYTE];
-        Arrays.fill(data,(byte)0x21);
+        byte[] data = new byte[64 * KBYTE];
+        Arrays.fill(data, (byte)0x21);
 
         List<WebSocketFrame> send = new ArrayList<>();
         send.add(new BinaryFrame().setPayload(data));
@@ -317,7 +318,7 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new BinaryFrame().setPayload(copyOf(data)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -328,13 +329,14 @@ public class TestABCase9 extends AbstractABCase
 
     /**
      * Echo 256KB binary message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    public void testCase9_2_2() throws Exception
+    public void testCase922() throws Exception
     {
-        byte data[] = new byte[256 * KBYTE];
-        Arrays.fill(data,(byte)0x22);
+        byte[] data = new byte[256 * KBYTE];
+        Arrays.fill(data, (byte)0x22);
         ByteBuffer buf = ByteBuffer.wrap(data);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -345,7 +347,7 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new BinaryFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
@@ -356,14 +358,14 @@ public class TestABCase9 extends AbstractABCase
 
     /**
      * Echo 1MB binary message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_2_3() throws Exception
+    public void testCase923() throws Exception
     {
-        byte data[] = new byte[1 * MBYTE];
-        Arrays.fill(data,(byte)0x23);
+        byte[] data = new byte[1 * MBYTE];
+        Arrays.fill(data, (byte)0x23);
         ByteBuffer buf = ByteBuffer.wrap(data);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -374,25 +376,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new BinaryFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,4,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 4, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 4MB binary message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_2_4() throws Exception
+    public void testCase924() throws Exception
     {
-        byte data[] = new byte[4 * MBYTE];
-        Arrays.fill(data,(byte)0x24);
+        byte[] data = new byte[4 * MBYTE];
+        Arrays.fill(data, (byte)0x24);
         ByteBuffer buf = ByteBuffer.wrap(data);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -403,25 +405,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new BinaryFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,8,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 8, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 8MB binary message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_2_5() throws Exception
+    public void testCase925() throws Exception
     {
-        byte data[] = new byte[8 * MBYTE];
-        Arrays.fill(data,(byte)0x25);
+        byte[] data = new byte[8 * MBYTE];
+        Arrays.fill(data, (byte)0x25);
         ByteBuffer buf = ByteBuffer.wrap(data);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -432,25 +434,25 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new BinaryFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,16,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 16, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Echo 16MB binary message (1 frame)
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_2_6() throws Exception
+    public void testCase926() throws Exception
     {
-        byte data[] = new byte[16 * MBYTE];
-        Arrays.fill(data,(byte)0x26);
+        byte[] data = new byte[16 * MBYTE];
+        Arrays.fill(data, (byte)0x26);
         ByteBuffer buf = ByteBuffer.wrap(data);
 
         List<WebSocketFrame> send = new ArrayList<>();
@@ -461,342 +463,342 @@ public class TestABCase9 extends AbstractABCase
         expect.add(new BinaryFrame().setPayload(clone(buf)));
         expect.add(new CloseInfo(StatusCode.NORMAL).asFrame());
 
-        try(Fuzzer fuzzer = new Fuzzer(this))
+        try (Fuzzer fuzzer = new Fuzzer(this))
         {
             fuzzer.connect();
             fuzzer.setSendMode(Fuzzer.SendMode.BULK);
             fuzzer.send(send);
-            fuzzer.expect(expect,32,TimeUnit.SECONDS);
+            fuzzer.expect(expect, 32, TimeUnit.SECONDS);
         }
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_1() throws Exception
+    public void testCase931() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,64);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 64);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_2() throws Exception
+    public void testCase932() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,256);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 256);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_3() throws Exception
+    public void testCase933() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,1 * KBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 1 * KBYTE);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_4() throws Exception
+    public void testCase934() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,4 * KBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 4 * KBYTE);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_5() throws Exception
+    public void testCase935() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,16 * KBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 16 * KBYTE);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_6() throws Exception
+    public void testCase936() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,64 * KBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 64 * KBYTE);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_7() throws Exception
+    public void testCase937() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,256 * KBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 256 * KBYTE);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_8() throws Exception
+    public void testCase938() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,1 * MBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 1 * MBYTE);
     }
 
     /**
      * Send 4MB text message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_3_9() throws Exception
+    public void testCase939() throws Exception
     {
-        assertMultiFrameEcho(OpCode.TEXT,4 * MBYTE,4 * MBYTE);
+        assertMultiFrameEcho(OpCode.TEXT, 4 * MBYTE, 4 * MBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_1() throws Exception
+    public void testCase941() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,64);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 64);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_2() throws Exception
+    public void testCase942() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,256);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 256);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_3() throws Exception
+    public void testCase943() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,1 * KBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 1 * KBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_4() throws Exception
+    public void testCase944() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,4 * KBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 4 * KBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_5() throws Exception
+    public void testCase945() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,16 * KBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 16 * KBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_6() throws Exception
+    public void testCase946() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,64 * KBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 64 * KBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_7() throws Exception
+    public void testCase947() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,256 * KBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 256 * KBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_8() throws Exception
+    public void testCase948() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,1 * MBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 1 * MBYTE);
     }
 
     /**
      * Send 4MB binary message in multiple frames.
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_4_9() throws Exception
+    public void testCase949() throws Exception
     {
-        assertMultiFrameEcho(OpCode.BINARY,4 * MBYTE,4 * MBYTE);
+        assertMultiFrameEcho(OpCode.BINARY, 4 * MBYTE, 4 * MBYTE);
     }
 
     /**
      * Send 1MB text message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_5_1() throws Exception
+    public void testCase951() throws Exception
     {
-        assertSlowFrameEcho(OpCode.TEXT,1 * MBYTE,64);
+        assertSlowFrameEcho(OpCode.TEXT, 1 * MBYTE, 64);
     }
 
     /**
      * Send 1MB text message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_5_2() throws Exception
+    public void testCase952() throws Exception
     {
-        assertSlowFrameEcho(OpCode.TEXT,1 * MBYTE,128);
+        assertSlowFrameEcho(OpCode.TEXT, 1 * MBYTE, 128);
     }
 
     /**
      * Send 1MB text message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_5_3() throws Exception
+    public void testCase953() throws Exception
     {
-        assertSlowFrameEcho(OpCode.TEXT,1 * MBYTE,256);
+        assertSlowFrameEcho(OpCode.TEXT, 1 * MBYTE, 256);
     }
 
     /**
      * Send 1MB text message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_5_4() throws Exception
+    public void testCase954() throws Exception
     {
-        assertSlowFrameEcho(OpCode.TEXT,1 * MBYTE,512);
+        assertSlowFrameEcho(OpCode.TEXT, 1 * MBYTE, 512);
     }
 
     /**
      * Send 1MB text message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_5_5() throws Exception
+    public void testCase955() throws Exception
     {
-        assertSlowFrameEcho(OpCode.TEXT,1 * MBYTE,1024);
+        assertSlowFrameEcho(OpCode.TEXT, 1 * MBYTE, 1024);
     }
 
     /**
      * Send 1MB text message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_5_6() throws Exception
+    public void testCase956() throws Exception
     {
-        assertSlowFrameEcho(OpCode.TEXT,1 * MBYTE,2048);
+        assertSlowFrameEcho(OpCode.TEXT, 1 * MBYTE, 2048);
     }
 
     /**
      * Send 1MB binary message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_6_1() throws Exception
+    public void testCase961() throws Exception
     {
-        assertSlowFrameEcho(OpCode.BINARY,1 * MBYTE,64);
+        assertSlowFrameEcho(OpCode.BINARY, 1 * MBYTE, 64);
     }
 
     /**
      * Send 1MB binary message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_6_2() throws Exception
+    public void testCase962() throws Exception
     {
-        assertSlowFrameEcho(OpCode.BINARY,1 * MBYTE,128);
+        assertSlowFrameEcho(OpCode.BINARY, 1 * MBYTE, 128);
     }
 
     /**
      * Send 1MB binary message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_6_3() throws Exception
+    public void testCase963() throws Exception
     {
-        assertSlowFrameEcho(OpCode.BINARY,1 * MBYTE,256);
+        assertSlowFrameEcho(OpCode.BINARY, 1 * MBYTE, 256);
     }
 
     /**
      * Send 1MB binary message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_6_4() throws Exception
+    public void testCase964() throws Exception
     {
-        assertSlowFrameEcho(OpCode.BINARY,1 * MBYTE,512);
+        assertSlowFrameEcho(OpCode.BINARY, 1 * MBYTE, 512);
     }
 
     /**
      * Send 1MB binary message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_6_5() throws Exception
+    public void testCase965() throws Exception
     {
-        assertSlowFrameEcho(OpCode.BINARY,1 * MBYTE,1024);
+        assertSlowFrameEcho(OpCode.BINARY, 1 * MBYTE, 1024);
     }
 
     /**
      * Send 1MB binary message in 1 frame, but slowly
+     *
      * @throws Exception on test failure
      */
     @Test
-    @Stress("High I/O use")
-    public void testCase9_6_6() throws Exception
+    public void testCase966() throws Exception
     {
-        assertSlowFrameEcho(OpCode.BINARY,1 * MBYTE,2048);
+        assertSlowFrameEcho(OpCode.BINARY, 1 * MBYTE, 2048);
     }
 }

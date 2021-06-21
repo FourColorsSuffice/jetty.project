@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -32,8 +32,11 @@ import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Promise;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class SessionFailureTest extends AbstractTest
 {
@@ -57,7 +60,7 @@ public class SessionFailureTest extends AbstractTest
             output.write(0x0);
             output.flush();
 
-            Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             // The server will reply with a GOAWAY frame, and then shutdown.
             // Read until EOF.
@@ -81,8 +84,8 @@ public class SessionFailureTest extends AbstractTest
             @Override
             public Stream.Listener onNewStream(Stream stream, HeadersFrame frame)
             {
-                // Forcibly close the connection.
-                ((HTTP2Session)stream.getSession()).getEndPoint().close();
+                // Forcibly shutdown the output to fail the write below.
+                ((HTTP2Session)stream.getSession()).getEndPoint().shutdownOutput();
                 // Now try to write something: it should fail.
                 stream.headers(frame, new Callback()
                 {
@@ -115,15 +118,15 @@ public class SessionFailureTest extends AbstractTest
         Promise<Stream> promise = new Promise.Adapter<>();
         session.newStream(frame, promise, null);
 
-        Assert.assertTrue(writeLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(serverFailureLatch.await(5, TimeUnit.SECONDS));
-        Assert.assertTrue(clientFailureLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(writeLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(serverFailureLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(clientFailureLatch.await(5, TimeUnit.SECONDS));
         long start = System.nanoTime();
         long now = System.nanoTime();
         while (((HTTP2Session)session).getEndPoint().isOpen())
         {
-            if (TimeUnit.NANOSECONDS.toSeconds(now-start)>5)
-                Assert.fail();
+            assertThat(TimeUnit.NANOSECONDS.toSeconds(now - start), lessThanOrEqualTo(5L));
+
             Thread.sleep(10);
             now = System.nanoTime();
         }

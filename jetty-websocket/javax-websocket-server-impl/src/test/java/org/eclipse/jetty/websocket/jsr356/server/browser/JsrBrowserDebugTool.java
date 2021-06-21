@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,13 +19,9 @@
 package org.eclipse.jetty.websocket.jsr356.server.browser;
 
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.Objects;
-
-import javax.servlet.ServletException;
-import javax.websocket.DeploymentException;
 
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
@@ -37,7 +33,6 @@ import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.resource.Resource;
-import org.eclipse.jetty.websocket.jsr356.server.ServerContainer;
 import org.eclipse.jetty.websocket.jsr356.server.deploy.WebSocketServerContainerInitializer;
 
 /**
@@ -67,7 +62,9 @@ public class JsrBrowserDebugTool
         {
             JsrBrowserDebugTool tool = new JsrBrowserDebugTool();
             tool.setupServer(port);
-            tool.runForever();
+            tool.server.start();
+            LOG.info("Server available at {}", tool.server.getURI());
+            tool.server.join();
         }
         catch (Throwable t)
         {
@@ -77,41 +74,33 @@ public class JsrBrowserDebugTool
 
     private Server server;
 
-    private void runForever() throws Exception
-    {
-        server.start();
-        server.dumpStdErr();
-        LOG.info("Server available.");
-        server.join();
-    }
-
-    private void setupServer(int port) throws DeploymentException, ServletException, URISyntaxException, MalformedURLException, IOException
+    private void setupServer(int port) throws URISyntaxException, IOException
     {
         server = new Server();
-        
+
         HttpConfiguration httpConf = new HttpConfiguration();
         httpConf.setSendServerVersion(true);
-        
+
         ServerConnector connector = new ServerConnector(server, new HttpConnectionFactory(httpConf));
         connector.setPort(port);
         server.addConnector(connector);
 
         String resourcePath = "/jsr-browser-debug-tool/index.html";
         URL urlStatics = JsrBrowserDebugTool.class.getResource(resourcePath);
-        Objects.requireNonNull(urlStatics,"Unable to find " + resourcePath + " in classpath");
-        String urlBase = urlStatics.toURI().toASCIIString().replaceFirst("/[^/]*$","/");
+        Objects.requireNonNull(urlStatics, "Unable to find " + resourcePath + " in classpath");
+        String urlBase = urlStatics.toURI().toASCIIString().replaceFirst("/[^/]*$", "/");
 
         ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
         context.setContextPath("/");
         context.setBaseResource(Resource.newResource(urlBase));
 
-        ServletHolder holder = context.addServlet(DefaultServlet.class,"/");
-        holder.setInitParameter("dirAllowed","true");
+        ServletHolder holder = context.addServlet(DefaultServlet.class, "/");
+        holder.setInitParameter("dirAllowed", "true");
         server.setHandler(context);
 
-        ServerContainer container = WebSocketServerContainerInitializer.configureContext(context);
-        container.addEndpoint(JsrBrowserSocket.class);
+        WebSocketServerContainerInitializer.configure(context,
+            (servletContext, container) -> container.addEndpoint(JsrBrowserSocket.class));
 
-        LOG.info("{} setup on port {}",this.getClass().getName(),port);
+        LOG.info("{} setup on port {}", this.getClass().getName(), port);
     }
 }

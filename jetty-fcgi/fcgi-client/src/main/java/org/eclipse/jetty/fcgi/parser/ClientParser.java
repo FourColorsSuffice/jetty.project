@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -45,9 +45,9 @@ public class ClientParser extends Parser
 
     public interface Listener extends Parser.Listener
     {
-        public void onBegin(int request, int code, String reason);
+        void onBegin(int request, int code, String reason);
 
-        public static class Adapter extends Parser.Listener.Adapter implements Listener
+        class Adapter extends Parser.Listener.Adapter implements Listener
         {
             @Override
             public void onBegin(int request, int code, String reason)
@@ -80,9 +80,9 @@ public class ClientParser extends Parser
         }
 
         @Override
-        public void onHeaders(int request)
+        public boolean onHeaders(int request)
         {
-            listener.onHeaders(request);
+            return listener.onHeaders(request);
         }
 
         @Override
@@ -96,7 +96,9 @@ public class ClientParser extends Parser
         {
             listener.onEnd(request);
             for (StreamContentParser streamParser : streamParsers)
+            {
                 streamParser.end(request);
+            }
         }
 
         @Override
@@ -104,7 +106,9 @@ public class ClientParser extends Parser
         {
             listener.onFailure(request, failure);
             for (StreamContentParser streamParser : streamParsers)
+            {
                 streamParser.end(request);
+            }
         }
     }
 }

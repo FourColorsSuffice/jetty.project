@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,7 +19,6 @@
 package org.eclipse.jetty.security.jaspi;
 
 import java.util.Map;
-
 import javax.security.auth.Subject;
 import javax.security.auth.message.AuthException;
 import javax.security.auth.message.MessageInfo;
@@ -40,34 +39,40 @@ public class SimpleAuthConfig implements ServerAuthConfig
         this._serverAuthContext = serverAuthContext;
     }
 
+    @Override
     public ServerAuthContext getAuthContext(String authContextID, Subject serviceSubject, Map properties) throws AuthException
     {
         return _serverAuthContext;
     }
 
     // supposed to be of form host-name<space>context-path
+    @Override
     public String getAppContext()
     {
         return _appContext;
     }
 
     // not used yet
+    @Override
     public String getAuthContextID(MessageInfo messageInfo) throws IllegalArgumentException
     {
         return null;
     }
 
+    @Override
     public String getMessageLayer()
     {
         return HTTP_SERVLET;
     }
 
+    @Override
     public boolean isProtected()
     {
         return true;
     }
 
-    public void refresh() 
+    @Override
+    public void refresh()
     {
     }
 }

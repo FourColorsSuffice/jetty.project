@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,6 +14,7 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[qos-filter]]
 === Quality of Service Filter
@@ -23,7 +25,6 @@
 * Classname: `org.eclipse.jetty.servlets.QoSFilter`
 * Maven Artifact: org.eclipse.jetty:jetty-servlets
 * Javadoc: {JDURL}/org/eclipse/jetty/servlets/QoSFilter.html
-* Xref: {JXURL}/org/eclipse/jetty/servlets/QoSFilter.html
 
 [[qos-filter-usage]]
 ==== Usage
@@ -82,7 +83,7 @@ Place the configuration in a webapp's `web.xml` or `jetty-web.xml`.
 The default configuration processes ten requests at a time, servicing more important requests first and queuing up the rest.
 This example processes fifty requests at a time:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <filter>
    <filter-name>QoSFilter</filter-name>
@@ -109,11 +110,11 @@ The maximum number of requests to be serviced at a time. The default is 10.
 maxPriority::
 The maximum valid priority that can be assigned to a request.
 A request with a high priority value is more important than a request with a low priority value. The default is 10.
-waitMS::
+waitMs::
 The length of time, in milliseconds, to wait while trying to accept a new request.
 Used when the maxRequests limit is reached.
 Default is 50 ms.
-suspendMS::
+suspendMs::
 Length of time, in milliseconds, that the request will be suspended if it is not accepted immediately.
 If not set, the container's default suspend period applies. Default is -1 ms.
 managedAttr::
@@ -125,7 +126,7 @@ This allows a context external mechanism (for example, JMX via `ContextHandler.M
 You can use the `<filter-mapping>` syntax to map the QoSFilter to a servlet, either by using the servlet name, or by using a URL pattern.
 In this example, a URL pattern applies the QoSFilter to every request within the web application context:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
 <filter-mapping>
    <filter-name>QoSFilter</filter-name>
@@ -146,7 +147,7 @@ To customize the priority, subclass QoSFilter and then override the `getPriority
 You can then use this subclass as your QoS filter.
 Here's an example:
 
-[source, java, subs="{sub-order}"]
+[source, java]
 ----
 public class ParsePriorityQoSFilter extends QoSFilter
  {

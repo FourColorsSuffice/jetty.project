@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,7 +18,6 @@
 
 package org.eclipse.jetty.http2.server;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
@@ -33,13 +32,14 @@ import org.eclipse.jetty.http2.frames.GoAwayFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
 import org.eclipse.jetty.http2.frames.PushPromiseFrame;
 import org.eclipse.jetty.http2.frames.ResetFrame;
-import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.io.EofException;
+import org.eclipse.jetty.io.QuietException;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.NegotiatingServerConnection.CipherDiscriminator;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.annotation.Name;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -55,7 +55,7 @@ public class HTTP2ServerConnectionFactory extends AbstractHTTP2ServerConnectionF
 
     public HTTP2ServerConnectionFactory(@Name("config") HttpConfiguration httpConfiguration, @Name("protocols") String... protocols)
     {
-        super(httpConfiguration,protocols);
+        super(httpConfiguration, protocols);
     }
 
     @Override
@@ -70,7 +70,7 @@ public class HTTP2ServerConnectionFactory extends AbstractHTTP2ServerConnectionF
         // Implement 9.2.2 for draft 14
         boolean acceptable = "h2-14".equals(protocol) || !(HTTP2Cipher.isBlackListProtocol(tlsProtocol) && HTTP2Cipher.isBlackListCipher(tlsCipher));
         if (LOG.isDebugEnabled())
-            LOG.debug("proto={} tls={} cipher={} 9.2.2-acceptable={}",protocol,tlsProtocol,tlsCipher,acceptable);
+            LOG.debug("proto={} tls={} cipher={} 9.2.2-acceptable={}", protocol, tlsProtocol, tlsCipher, acceptable);
         return acceptable;
     }
 
@@ -93,14 +93,7 @@ public class HTTP2ServerConnectionFactory extends AbstractHTTP2ServerConnectionF
         @Override
         public Map<Integer, Integer> onPreface(Session session)
         {
-            Map<Integer, Integer> settings = new HashMap<>();
-            settings.put(SettingsFrame.HEADER_TABLE_SIZE, getMaxDynamicTableSize());
-            settings.put(SettingsFrame.INITIAL_WINDOW_SIZE, getInitialStreamRecvWindow());
-            int maxConcurrentStreams = getMaxConcurrentStreams();
-            if (maxConcurrentStreams >= 0)
-                settings.put(SettingsFrame.MAX_CONCURRENT_STREAMS, maxConcurrentStreams);
-            settings.put(SettingsFrame.MAX_HEADER_LIST_SIZE, getHttpConfiguration().getRequestHeaderSize());
-            return settings;
+            return newSettings();
         }
 
         @Override
@@ -122,21 +115,19 @@ public class HTTP2ServerConnectionFactory extends AbstractHTTP2ServerConnectionF
         }
 
         @Override
-        public void onClose(Session session, GoAwayFrame frame)
+        public void onClose(Session session, GoAwayFrame frame, Callback callback)
         {
-            ErrorCode error = ErrorCode.from(frame.getError());
-            if (error == null)
-                error = ErrorCode.STREAM_CLOSED_ERROR;
             String reason = frame.tryConvertPayload();
-            if (reason != null && !reason.isEmpty())
+            if (!StringUtil.isEmpty(reason))
                 reason = " (" + reason + ")";
-            getConnection().onSessionFailure(new EofException("HTTP/2 " + error + reason));
+            EofException failure = new EofException(String.format("Close %s/%s", ErrorCode.toString(frame.getError(), null), reason));
+            onFailure(session, failure, callback);
         }
 
         @Override
-        public void onFailure(Session session, Throwable failure)
+        public void onFailure(Session session, Throwable failure, Callback callback)
         {
-            getConnection().onSessionFailure(failure);
+            getConnection().onSessionFailure(failure, callback);
         }
 
         @Override
@@ -163,12 +154,23 @@ public class HTTP2ServerConnectionFactory extends AbstractHTTP2ServerConnectionF
         }
 
         @Override
-        public void onReset(Stream stream, ResetFrame frame)
+        public void onReset(Stream stream, ResetFrame frame, Callback callback)
         {
-            ErrorCode error = ErrorCode.from(frame.getError());
-            if (error == null)
-                error = ErrorCode.CANCEL_STREAM_ERROR;
-            getConnection().onStreamFailure((IStream)stream, new EofException("HTTP/2 " + error));
+            EofException failure = new EofException("Reset " + ErrorCode.toString(frame.getError(), null));
+            onFailure(stream, failure, callback);
+        }
+
+        @Override
+        public void onFailure(Stream stream, int error, String reason, Throwable failure, Callback callback)
+        {
+            if (!(failure instanceof QuietException))
+                failure = new EofException(failure);
+            onFailure(stream, failure, callback);
+        }
+
+        private void onFailure(Stream stream, Throwable failure, Callback callback)
+        {
+            getConnection().onStreamFailure((IStream)stream, failure, callback);
         }
 
         @Override

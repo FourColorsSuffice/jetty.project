@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -41,7 +41,7 @@ public abstract class AbstractNetworkConnector extends AbstractConnector impleme
 
     public AbstractNetworkConnector(Server server, Executor executor, Scheduler scheduler, ByteBufferPool pool, int acceptors, ConnectionFactory... factories)
     {
-        super(server,executor,scheduler,pool,acceptors,factories);
+        super(server, executor, scheduler, pool, acceptors, factories);
     }
 
     public void setHost(String host)
@@ -96,10 +96,7 @@ public abstract class AbstractNetworkConnector extends AbstractConnector impleme
     @Override
     public void close()
     {
-        // Interrupting is often sufficient to close the channel
-        interruptAcceptors();
     }
-    
 
     @Override
     public Future<Void> shutdown()
@@ -109,17 +106,20 @@ public abstract class AbstractNetworkConnector extends AbstractConnector impleme
     }
 
     @Override
-    protected boolean isAccepting()
+    protected boolean handleAcceptFailure(Throwable ex)
     {
-        return super.isAccepting() && isOpen();
+        if (isOpen())
+            return super.handleAcceptFailure(ex);
+        LOG.ignore(ex);
+        return false;
     }
 
     @Override
     public String toString()
     {
         return String.format("%s{%s:%d}",
-                super.toString(),
-                getHost() == null ? "0.0.0.0" : getHost(),
-                getLocalPort() <= 0 ? getPort() : getLocalPort());
+            super.toString(),
+            getHost() == null ? "0.0.0.0" : getHost(),
+            getLocalPort() <= 0 ? getPort() : getLocalPort());
     }
 }

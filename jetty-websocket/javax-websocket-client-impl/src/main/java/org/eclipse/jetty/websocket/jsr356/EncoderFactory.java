@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,6 @@ package org.eclipse.jetty.websocket.jsr356;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-
 import javax.websocket.Encoder;
 import javax.websocket.EndpointConfig;
 
@@ -63,28 +62,35 @@ public class EncoderFactory implements Configurable
         {
             this.encoder.init(config);
         }
+
+        @Override
+        public void destroy()
+        {
+            this.encoder.destroy();
+        }
     }
 
     private static final Logger LOG = Log.getLogger(EncoderFactory.class);
 
     private final EncoderMetadataSet metadatas;
     private final WebSocketContainerScope containerScope;
-    private EncoderFactory parentFactory;
-    private Map<Class<?>, Wrapper> activeWrappers;
+    private final Map<Class<?>, Wrapper> activeWrappers;
+    private final EncoderFactory parentFactory;
+    private EndpointConfig endpointConfig;
 
     public EncoderFactory(WebSocketContainerScope containerScope, EncoderMetadataSet metadatas)
     {
-        this(containerScope,metadatas,null);
+        this(containerScope, metadatas, null);
     }
 
     public EncoderFactory(WebSocketSessionScope sessionScope, EncoderMetadataSet metadatas, EncoderFactory parentFactory)
     {
-        this(sessionScope.getContainerScope(),metadatas,parentFactory);
+        this(sessionScope.getContainerScope(), metadatas, parentFactory);
     }
 
     protected EncoderFactory(WebSocketContainerScope containerScope, EncoderMetadataSet metadatas, EncoderFactory parentFactory)
     {
-        Objects.requireNonNull(containerScope,"Container Scope cannot be null");
+        Objects.requireNonNull(containerScope, "Container Scope cannot be null");
         this.containerScope = containerScope;
         this.metadatas = metadatas;
         this.activeWrappers = new ConcurrentHashMap<>();
@@ -105,7 +111,7 @@ public class EncoderFactory implements Configurable
     {
         if (LOG.isDebugEnabled())
         {
-            LOG.debug("getMetadataFor({})",type);
+            LOG.debug("getMetadataFor({})", type);
         }
         EncoderMetadata metadata = metadatas.getMetadataByType(type);
 
@@ -144,7 +150,7 @@ public class EncoderFactory implements Configurable
                 }
                 wrapper = newWrapper(metadata);
                 // track wrapper
-                activeWrappers.put(type,wrapper);
+                activeWrappers.put(type, wrapper);
             }
 
             return wrapper;
@@ -154,36 +160,44 @@ public class EncoderFactory implements Configurable
     @Override
     public void init(EndpointConfig config)
     {
+        this.endpointConfig = config;
         if (LOG.isDebugEnabled())
-        {
-            LOG.debug("init({})",config);
-        }
+            LOG.debug("init({})", endpointConfig);
 
         // Instantiate all declared encoders
         for (EncoderMetadata metadata : metadatas)
         {
             Wrapper wrapper = newWrapper(metadata);
-            activeWrappers.put(metadata.getObjectType(),wrapper);
+            activeWrappers.put(metadata.getObjectType(), wrapper);
         }
+    }
 
-        // Initialize all encoders
+    @Override
+    public void destroy()
+    {
         for (Wrapper wrapper : activeWrappers.values())
         {
-            wrapper.encoder.init(config);
+            wrapper.encoder.destroy();
         }
+
+        activeWrappers.clear();
     }
 
     private Wrapper newWrapper(EncoderMetadata metadata)
     {
+        if (endpointConfig == null)
+            throw new IllegalStateException("EndpointConfig not set");
+
         Class<? extends Encoder> encoderClass = metadata.getCoderClass();
         try
         {
             Encoder encoder = containerScope.getObjectFactory().createInstance(encoderClass);
-            return new Wrapper(encoder,metadata);
+            encoder.init(endpointConfig);
+            return new Wrapper(encoder, metadata);
         }
-        catch (InstantiationException | IllegalAccessException e)
+        catch (Exception e)
         {
-            throw new IllegalStateException("Unable to instantiate Encoder: " + encoderClass.getName());
+            throw new IllegalStateException("Unable to instantiate Encoder: " + encoderClass.getName(), e);
         }
     }
 }

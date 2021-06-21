@@ -1,165 +1,153 @@
 #!groovy
 
-node {
-  // System Dependent Locations
-  def mvntool = tool name: 'maven3', type: 'hudson.tasks.Maven$MavenInstallation'
-  def jdktool = tool name: 'jdk8', type: 'hudson.model.JDK'
+pipeline {
+  agent any
+  // save some io during the build
+  options { durabilityHint('PERFORMANCE_OPTIMIZED') }
+  stages {
+    stage("Parallel Stage") {
+      parallel {
+        stage("Build / Test - JDK8") {
+          agent { node { label 'linux' } }
+          steps {
+            container('jetty-build') {
+              timeout( time: 240, unit: 'MINUTES' ) {
+                mavenBuild( "jdk8", "clean install", "maven3")
+                // Collect up the jacoco execution results (only on main build)
+                jacoco inclusionPattern: '**/org/eclipse/jetty/**/*.class',
+                       exclusionPattern: '' +
+                               // build tools
+                               '**/org/eclipse/jetty/ant/**' + ',**/org/eclipse/jetty/maven/**' +
+                               ',**/org/eclipse/jetty/jspc/**' +
+                               // example code / documentation
+                               ',**/org/eclipse/jetty/embedded/**' + ',**/org/eclipse/jetty/asyncrest/**' +
+                               ',**/org/eclipse/jetty/demo/**' +
+                               // special environments / late integrations
+                               ',**/org/eclipse/jetty/gcloud/**' + ',**/org/eclipse/jetty/infinispan/**' +
+                               ',**/org/eclipse/jetty/osgi/**' + ',**/org/eclipse/jetty/spring/**' +
+                               ',**/org/eclipse/jetty/http/spi/**' +
+                               // test classes
+                               ',**/org/eclipse/jetty/tests/**' + ',**/org/eclipse/jetty/test/**',
+                       execPattern: '**/target/jacoco.exec',
+                       classPattern: '**/target/classes',
+                       sourcePattern: '**/src/main/java'
+                recordIssues id: "jdk8", name: "Static Analysis jdk8", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle(), spotBugs(), pmdParser()]
+              }
+            }
+          }
+        }
 
-  // Environment
-  List mvnEnv = ["PATH+MVN=${mvntool}/bin", "PATH+JDK=${jdktool}/bin", "JAVA_HOME=${jdktool}/", "MAVEN_HOME=${mvntool}"]
-  mvnEnv.add("MAVEN_OPTS=-Xms256m -Xmx1024m -Djava.awt.headless=true")
+        stage("Build / Test - JDK11") {
+          agent { node { label 'linux' } }
+          steps {
+            container( 'jetty-build' ) {
+              timeout( time: 240, unit: 'MINUTES' ) {
+                mavenBuild( "jdk11", "clean install -Djacoco.skip=true -Perrorprone", "maven3")
+                recordIssues id: "jdk11", name: "Static Analysis jdk11", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle(), spotBugs(), pmdParser(), errorProne()]
+              }
+            }
+          }
+        }
 
-  try
-  {
-    stage('Checkout') {
-      checkout scm
-    }
-  } catch (Exception e) {
-    notifyBuild("Checkout Failure")
-    throw e
-  }
+        stage("Build / Test - JDK16") {
+          agent { node { label 'linux' } }
+          steps {
+            container( 'jetty-build' ) {
+              timeout( time: 240, unit: 'MINUTES' ) {
+                mavenBuild( "jdk16", "clean install -Djacoco.skip=true", "maven3")
+                recordIssues id: "jdk16", name: "Static Analysis jdk16", aggregatingResults: true, enabledForFailure: true, tools: [mavenConsole(), java(), checkStyle(), spotBugs(), pmdParser()]
+              }
+            }
+          }
+        }
 
-  try
-  {
-    stage('Compile') {
-      withEnv(mvnEnv) {
-        timeout(time: 15, unit: 'MINUTES') {
-          sh "mvn -B clean install -Dtest=None"
+        stage("Build Javadoc") {
+          agent { node { label 'linux' } }
+          steps {
+            container( 'jetty-build' ) {
+              timeout( time: 120, unit: 'MINUTES' ) {
+                mavenBuild( "jdk11",
+                            "install javadoc:javadoc javadoc:aggregate-jar -DskipTests -Dpmd.skip=true -Dcheckstyle.skip=true",
+                            "maven3")
+                recordIssues id: "javadoc", enabledForFailure: true, tools: [javaDoc()]
+              }
+            }
+          }
+        }
+
+        stage("Build Compact3") {
+          agent { node { label 'linux' } }
+          steps {
+            container( 'jetty-build' ) {
+              timeout( time: 120, unit: 'MINUTES' ) {
+                mavenBuild( "jdk8", "-Pcompact3 clean install -DskipTests", "maven3")
+              }
+            }
+          }
         }
       }
     }
-  } catch(Exception e) {
-    notifyBuild("Compile Failure")
-    throw e
   }
-
-  try
-  {
-    stage('Javadoc') {
-      withEnv(mvnEnv) {
-        timeout(time: 20, unit: 'MINUTES') {
-          sh "mvn --offline -B javadoc:javadoc"
-        }
-      }
+  post {
+    failure {
+      slackNotif()
     }
-  } catch(Exception e) {
-    notifyBuild("Javadoc Failure")
-    throw e
+    unstable {
+      slackNotif()
+    }
+    fixed {
+      slackNotif()
+    }
   }
+}
 
-  try
-  {
-    stage('Test') {
-      withEnv(mvnEnv) {
-        timeout(time: 90, unit: 'MINUTES') {
-          // Run test phase / ignore test failures
-          sh "mvn -B install -Dmaven.test.failure.ignore=true"
-          // Report failures in the jenkins UI
-          step([$class: 'JUnitResultArchiver', 
-              testResults: '**/target/surefire-reports/TEST-*.xml'])
-          // Collect up the jacoco execution results
-          def jacocoExcludes = 
-              // build tools
-              "**/org/eclipse/jetty/ant/**" +
-              ",**/org/eclipse/jetty/maven/**" +
-              ",**/org/eclipse/jetty/jspc/**" +
-              // example code / documentation
-              ",**/org/eclipse/jetty/embedded/**" +
-              ",**/org/eclipse/jetty/asyncrest/**" +
-              ",**/org/eclipse/jetty/demo/**" +
-              // special environments / late integrations
-              ",**/org/eclipse/jetty/gcloud/**" +
-              ",**/org/eclipse/jetty/infinispan/**" +
-              ",**/org/eclipse/jetty/osgi/**" +
-              ",**/org/eclipse/jetty/spring/**" +
-              ",**/org/eclipse/jetty/http/spi/**" +
-              // test classes
-              ",**/org/eclipse/jetty/tests/**" +
-              ",**/org/eclipse/jetty/test/**";
-          step([$class: 'JacocoPublisher', 
-              inclusionPattern: '**/org/eclipse/jetty/**/*.class',
-              exclusionPattern: jacocoExcludes,
-              execPattern: '**/target/jacoco.exec', 
-              classPattern: '**/target/classes', 
-              sourcePattern: '**/src/main/java'])
-          // Report on Maven and Javadoc warnings
-          step([$class: 'WarningsPublisher', 
-              consoleParsers: [
-                  [parserName: 'Maven'],
-                  [parserName: 'JavaDoc'],
-                  [parserName: 'JavaC']
-              ]])
-        }
-        if(isUnstable())
+def slackNotif() {
+    script {
+      try
+      {
+        if ( env.BRANCH_NAME == 'jetty-10.0.x' || env.BRANCH_NAME == 'jetty-9.4.x' )
         {
-          notifyBuild("Unstable / Test Errors")
+          //BUILD_USER = currentBuild.rawBuild.getCause(Cause.UserIdCause).getUserId()
+          // by ${BUILD_USER}
+          COLOR_MAP = ['SUCCESS': 'good', 'FAILURE': 'danger', 'UNSTABLE': 'danger', 'ABORTED': 'danger']
+          slackSend channel: '#jenkins',
+                    color: COLOR_MAP[currentBuild.currentResult],
+                    message: "*${currentBuild.currentResult}:* Job ${env.JOB_NAME} build ${env.BUILD_NUMBER} - ${env.BUILD_URL}"
+        }
+      } catch (Exception e) {
+        e.printStackTrace()
+        echo "skip failure slack notification: " + e.getMessage()
+      }
+    }
+}
+
+/**
+ * To other developers, if you are using this method above, please use the following syntax.
+ *
+ * mavenBuild("<jdk>", "<profiles> <goals> <plugins> <properties>"
+ *
+ * @param jdk the jdk tool name (in jenkins) to use for this build
+ * @param cmdline the command line in "<profiles> <goals> <properties>"`format.
+ * @param consoleParsers array of console parsers to run
+ */
+def mavenBuild(jdk, cmdline, mvnName) {
+  script {
+    try {
+      withEnv(["JAVA_HOME=${ tool "$jdk" }",
+               "PATH+MAVEN=${env.JAVA_HOME}/bin:${tool "$mvnName"}/bin",
+               "MAVEN_OPTS=-Xms2g -Xmx4g -Djava.awt.headless=true"]) {
+        configFileProvider(
+                [configFile(fileId: 'oss-settings.xml', variable: 'GLOBAL_MVN_SETTINGS')]) {
+          sh "mvn --no-transfer-progress -s $GLOBAL_MVN_SETTINGS -Dmaven.repo.local=.repository -Pci -V -B -e -Djetty.testtracker.log=true $cmdline -Dunix.socket.tmp=/tmp/unixsocket"
         }
       }
     }
-  } catch(Exception e) {
-    notifyBuild("Test Failure")
-    throw e
-  }
-
-  try
-  {
-    stage 'Compact3'
-
-    dir("aggregates/jetty-all-compact3") {
-      withEnv(mvnEnv) {
-        sh "mvn -B -Pcompact3 clean install"
-      }
+    finally
+    {
+      junit testResults: '**/target/surefire-reports/*.xml,**/target/invoker-reports/TEST*.xml', allowEmptyResults: true
     }
-  } catch(Exception e) {
-    notifyBuild("Compact3 Failure")
-    throw e
   }
 }
 
-// True if this build is part of the "active" branches
-// for Jetty.
-def isActiveBranch()
-{
-  def branchName = "${env.BRANCH_NAME}"
-  return ( branchName == "master" ||
-           branchName.startsWith("jetty-") );
-}
-
-// Test if the Jenkins Pipeline or Step has marked the
-// current build as unstable
-def isUnstable()
-{
-  return currentBuild.result == "UNSTABLE"
-}
-
-// Send a notification about the build status
-def notifyBuild(String buildStatus)
-{
-  if ( !isActiveBranch() )
-  {
-    // don't send notifications on transient branches
-    return
-  }
-
-  // default the value
-  buildStatus = buildStatus ?: "UNKNOWN"
-
-  def email = "${env.EMAILADDRESS}"
-  def summary = "${env.JOB_NAME}#${env.BUILD_NUMBER} - ${buildStatus}"
-  def detail = """<h4>Job: <a href='${env.JOB_URL}'>${env.JOB_NAME}</a> [#${env.BUILD_NUMBER}]</h4>
-  <p><b>${buildStatus}</b></p>
-  <table>
-    <tr><td>Build</td><td><a href='${env.BUILD_URL}'>${env.BUILD_URL}</a></td><tr>
-    <tr><td>Console</td><td><a href='${env.BUILD_URL}console'>${env.BUILD_URL}console</a></td><tr>
-    <tr><td>Test Report</td><td><a href='${env.BUILD_URL}testReport/'>${env.BUILD_URL}testReport/</a></td><tr>
-  </table>
-  """
-
-  emailext (
-    to: email,
-    subject: summary,
-    body: detail
-  )
-}
 
 // vim: et:ts=2:sw=2:ft=groovy

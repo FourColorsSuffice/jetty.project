@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -32,7 +32,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.Loader;
-import org.eclipse.jetty.util.QuotedStringTokenizer;
 import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -51,7 +50,7 @@ import org.eclipse.jetty.util.log.Logger;
  *   null   --&gt; null
  *   bool   --&gt; Boolean
  * </pre>
-
+ *
  * The java to JSON mapping is:
  *
  * <pre>
@@ -81,7 +80,7 @@ import org.eclipse.jetty.util.log.Logger;
  * {@link #getConvertor(Class)}.
  * <p>
  * If a JSON object has a "class" field, then a java class for that name is
- * loaded and the method {@link #convertTo(Class,Map)} is used to find a
+ * loaded and the method {@link #convertTo(Class, Map)} is used to find a
  * {@link JSON.Convertor} for that class.
  * <p>
  * If a JSON object has a "x-class" field then a direct lookup for a
@@ -90,7 +89,7 @@ import org.eclipse.jetty.util.log.Logger;
 public class JSON
 {
     static final Logger LOG = Log.getLogger(JSON.class);
-    public final static JSON DEFAULT = new JSON();
+    public static final JSON DEFAULT = new JSON();
 
     private Map<String, Convertor> _convertors = new ConcurrentHashMap<String, Convertor>();
     private int _stringBufferSize = 1024;
@@ -100,8 +99,17 @@ public class JSON
     }
 
     /**
+     * Reset the default JSON behaviors to default
+     */
+    public static void reset()
+    {
+        DEFAULT._convertors.clear();
+        DEFAULT._stringBufferSize = 1024;
+    }
+
+    /**
      * @return the initial stringBuffer size to use when creating JSON strings
-     *         (default 1024)
+     * (default 1024)
      */
     public int getStringBufferSize()
     {
@@ -109,9 +117,8 @@ public class JSON
     }
 
     /**
-     * @param stringBufferSize
-     *            the initial stringBuffer size to use when creating JSON
-     *            strings (default 1024)
+     * @param stringBufferSize the initial stringBuffer size to use when creating JSON
+     * strings (default 1024)
      */
     public void setStringBufferSize(int stringBufferSize)
     {
@@ -121,14 +128,12 @@ public class JSON
     /**
      * Register a {@link Convertor} for a class or interface.
      *
-     * @param forClass
-     *            The class or interface that the convertor applies to
-     * @param convertor
-     *            the convertor
+     * @param forClass The class or interface that the convertor applies to
+     * @param convertor the convertor
      */
     public static void registerConvertor(Class forClass, Convertor convertor)
     {
-        DEFAULT.addConvertor(forClass,convertor);
+        DEFAULT.addConvertor(forClass, convertor);
     }
 
     public static JSON getDefault()
@@ -144,73 +149,66 @@ public class JSON
     public static String toString(Object object)
     {
         StringBuilder buffer = new StringBuilder(DEFAULT.getStringBufferSize());
-        DEFAULT.append(buffer,object);
+        DEFAULT.append(buffer, object);
         return buffer.toString();
     }
 
     public static String toString(Map object)
     {
         StringBuilder buffer = new StringBuilder(DEFAULT.getStringBufferSize());
-        DEFAULT.appendMap(buffer,object);
+        DEFAULT.appendMap(buffer, object);
         return buffer.toString();
     }
 
     public static String toString(Object[] array)
     {
         StringBuilder buffer = new StringBuilder(DEFAULT.getStringBufferSize());
-        DEFAULT.appendArray(buffer,array);
+        DEFAULT.appendArray(buffer, array);
         return buffer.toString();
     }
 
     /**
-     * @param s
-     *            String containing JSON object or array.
+     * @param s String containing JSON object or array.
      * @return A Map, Object array or primitive array parsed from the JSON.
      */
     public static Object parse(String s)
     {
-        return DEFAULT.parse(new StringSource(s),false);
+        return DEFAULT.parse(new StringSource(s), false);
     }
 
     /**
-     * @param s
-     *            String containing JSON object or array.
-     * @param stripOuterComment
-     *            If true, an outer comment around the JSON is ignored.
+     * @param s String containing JSON object or array.
+     * @param stripOuterComment If true, an outer comment around the JSON is ignored.
      * @return A Map, Object array or primitive array parsed from the JSON.
      */
     public static Object parse(String s, boolean stripOuterComment)
     {
-        return DEFAULT.parse(new StringSource(s),stripOuterComment);
+        return DEFAULT.parse(new StringSource(s), stripOuterComment);
     }
 
     /**
-     * @param in
-     *            Reader containing JSON object or array.
+     * @param in Reader containing JSON object or array.
      * @return A Map, Object array or primitive array parsed from the JSON.
      * @throws IOException if unable to parse
      */
     public static Object parse(Reader in) throws IOException
     {
-        return DEFAULT.parse(new ReaderSource(in),false);
+        return DEFAULT.parse(new ReaderSource(in), false);
     }
 
     /**
-     * @param in
-     *            Reader containing JSON object or array.
-     * @param stripOuterComment
-     *            If true, an outer comment around the JSON is ignored.
+     * @param in Reader containing JSON object or array.
+     * @param stripOuterComment If true, an outer comment around the JSON is ignored.
      * @return A Map, Object array or primitive array parsed from the JSON.
      * @throws IOException if unable to parse
      */
     public static Object parse(Reader in, boolean stripOuterComment) throws IOException
     {
-        return DEFAULT.parse(new ReaderSource(in),stripOuterComment);
+        return DEFAULT.parse(new ReaderSource(in), stripOuterComment);
     }
 
     /**
-     * @param in
-     *            Reader containing JSON object or array.
+     * @param in Reader containing JSON object or array.
      * @return A Map, Object array or primitive array parsed from the JSON.
      * @throws IOException if unable to parse
      * @deprecated use {@link #parse(Reader)}
@@ -218,14 +216,12 @@ public class JSON
     @Deprecated
     public static Object parse(InputStream in) throws IOException
     {
-        return DEFAULT.parse(new StringSource(IO.toString(in)),false);
+        return DEFAULT.parse(new StringSource(IO.toString(in)), false);
     }
 
     /**
-     * @param in
-     *            Stream containing JSON object or array.
-     * @param stripOuterComment
-     *            If true, an outer comment around the JSON is ignored.
+     * @param in Stream containing JSON object or array.
+     * @param stripOuterComment If true, an outer comment around the JSON is ignored.
      * @return A Map, Object array or primitive array parsed from the JSON.
      * @throws IOException if unable to parse
      * @deprecated use {@link #parse(Reader, boolean)}
@@ -233,28 +229,114 @@ public class JSON
     @Deprecated
     public static Object parse(InputStream in, boolean stripOuterComment) throws IOException
     {
-        return DEFAULT.parse(new StringSource(IO.toString(in)),stripOuterComment);
+        return DEFAULT.parse(new StringSource(IO.toString(in)), stripOuterComment);
+    }
+
+    private void quotedEscape(Appendable buffer, String input)
+    {
+        try
+        {
+            buffer.append('"');
+            if (input != null && !input.isEmpty())
+            {
+                escapeString(buffer, input);
+            }
+            buffer.append('"');
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void escapeString(Appendable buffer, String input) throws IOException
+    {
+        // default escaping here.
+
+        for (int i = 0; i < input.length(); ++i)
+        {
+            char c = input.charAt(i);
+
+            // ASCII printable range
+            if ((c >= 0x20) && (c <= 0x7E))
+            {
+                // Special cases for quotation-mark, reverse-solidus, and solidus
+                if ((c == '"') || (c == '\\')
+                  /* solidus is optional - per Carsten Bormann (IETF)
+                     || (c == '/') */)
+                {
+                    buffer.append('\\').append(c);
+                }
+                else
+                {
+                    // ASCII printable (that isn't escaped above)
+                    buffer.append(c);
+                }
+            }
+            else
+            {
+                // All other characters are escaped (in some way)
+
+                // First we deal with the special short-form escaping
+                if (c == '\b') // backspace
+                    buffer.append("\\b");
+                else if (c == '\f') // form-feed
+                    buffer.append("\\f");
+                else if (c == '\n') // line feed
+                    buffer.append("\\n");
+                else if (c == '\r') // carriage return
+                    buffer.append("\\r");
+                else if (c == '\t') // tab
+                    buffer.append("\\t");
+                else if (c < 0x20 || c == 0x7F) // all control characters
+                {
+                    // default behavior is to encode
+                    buffer.append(String.format("\\u%04x", (short)c));
+                }
+                else
+                {
+                    // optional behavior in JSON spec
+                    escapeUnicode(buffer, c);
+                }
+            }
+        }
+    }
+
+    /**
+     * Per spec, unicode characters are by default NOT escaped.
+     * This overridable allows for alternate behavior to escape those with your choice
+     * of encoding.
+     *
+     * <code>
+     * protected void escapeUnicode(Appendable buffer, char c) throws IOException
+     * {
+     * // Unicode is slash-u escaped
+     * buffer.append(String.format("\\u%04x", (int)c));
+     * }
+     * </code>
+     */
+    protected void escapeUnicode(Appendable buffer, char c) throws IOException
+    {
+        buffer.append(c);
     }
 
     /**
      * Convert Object to JSON
      *
-     * @param object
-     *            The object to convert
+     * @param object The object to convert
      * @return The JSON String
      */
     public String toJSON(Object object)
     {
         StringBuilder buffer = new StringBuilder(getStringBufferSize());
-        append(buffer,object);
+        append(buffer, object);
         return buffer.toString();
     }
 
     /**
      * Convert JSON to Object
      *
-     * @param json
-     *            The json to convert
+     * @param json The json to convert
      * @return The object
      */
     public Object fromJSON(String json)
@@ -266,16 +348,14 @@ public class JSON
     @Deprecated
     public void append(StringBuffer buffer, Object object)
     {
-        append((Appendable)buffer,object);
+        append((Appendable)buffer, object);
     }
 
     /**
      * Append object as JSON to string buffer.
      *
-     * @param buffer
-     *            the buffer to append to
-     * @param object
-     *            the object to append
+     * @param buffer the buffer to append to
+     * @param object the object to append
      */
     public void append(Appendable buffer, Object object)
     {
@@ -288,35 +368,35 @@ public class JSON
             // Most likely first
             else if (object instanceof Map)
             {
-                appendMap(buffer,(Map)object);
+                appendMap(buffer, (Map)object);
             }
             else if (object instanceof String)
             {
-                appendString(buffer,(String)object);
+                appendString(buffer, (String)object);
             }
             else if (object instanceof Number)
             {
-                appendNumber(buffer,(Number)object);
+                appendNumber(buffer, (Number)object);
             }
             else if (object instanceof Boolean)
             {
-                appendBoolean(buffer,(Boolean)object);
+                appendBoolean(buffer, (Boolean)object);
             }
             else if (object.getClass().isArray())
             {
-                appendArray(buffer,object);
+                appendArray(buffer, object);
             }
             else if (object instanceof Character)
             {
-                appendString(buffer,object.toString());
+                appendString(buffer, object.toString());
             }
             else if (object instanceof Convertible)
             {
-                appendJSON(buffer,(Convertible)object);
+                appendJSON(buffer, (Convertible)object);
             }
             else if (object instanceof Generator)
             {
-                appendJSON(buffer,(Generator)object);
+                appendJSON(buffer, (Generator)object);
             }
             else
             {
@@ -324,15 +404,15 @@ public class JSON
                 Convertor convertor = getConvertor(object.getClass());
                 if (convertor != null)
                 {
-                    appendJSON(buffer,convertor,object);
+                    appendJSON(buffer, convertor, object);
                 }
                 else if (object instanceof Collection)
                 {
-                    appendArray(buffer,(Collection)object);
+                    appendArray(buffer, (Collection)object);
                 }
                 else
                 {
-                    appendString(buffer,object.toString());
+                    appendString(buffer, object.toString());
                 }
             }
         }
@@ -363,20 +443,22 @@ public class JSON
     @Deprecated
     public void appendJSON(final StringBuffer buffer, final Convertor convertor, final Object object)
     {
-        appendJSON((Appendable)buffer,convertor,object);
+        appendJSON((Appendable)buffer, convertor, object);
     }
 
     public void appendJSON(final Appendable buffer, final Convertor convertor, final Object object)
     {
-        appendJSON(buffer,new Convertible()
+        appendJSON(buffer, new Convertible()
         {
+            @Override
             public void fromJSON(Map object)
             {
             }
 
+            @Override
             public void toJSON(Output out)
             {
-                convertor.toJSON(object,out);
+                convertor.toJSON(object, out);
             }
         });
     }
@@ -384,12 +466,12 @@ public class JSON
     @Deprecated
     public void appendJSON(final StringBuffer buffer, Convertible converter)
     {
-        appendJSON((Appendable)buffer,converter);
+        appendJSON((Appendable)buffer, converter);
     }
 
     public void appendJSON(final Appendable buffer, Convertible converter)
     {
-        ConvertableOutput out=new ConvertableOutput(buffer);
+        ConvertableOutput out = new ConvertableOutput(buffer);
         converter.toJSON(out);
         out.complete();
     }
@@ -406,12 +488,12 @@ public class JSON
     }
 
     @Deprecated
-    public void appendMap(StringBuffer buffer, Map<?,?> map)
+    public void appendMap(StringBuffer buffer, Map<?, ?> map)
     {
-        appendMap((Appendable)buffer,map);
+        appendMap((Appendable)buffer, map);
     }
 
-    public void appendMap(Appendable buffer, Map<?,?> map)
+    public void appendMap(Appendable buffer, Map<?, ?> map)
     {
         try
         {
@@ -425,10 +507,10 @@ public class JSON
             Iterator<?> iter = map.entrySet().iterator();
             while (iter.hasNext())
             {
-                Map.Entry<?,?> entry = (Map.Entry<?,?>)iter.next();
-                QuotedStringTokenizer.quote(buffer,entry.getKey().toString());
+                Map.Entry<?, ?> entry = (Map.Entry<?, ?>)iter.next();
+                quotedEscape(buffer, entry.getKey().toString());
                 buffer.append(':');
-                append(buffer,entry.getValue());
+                append(buffer, entry.getValue());
                 if (iter.hasNext())
                     buffer.append(',');
             }
@@ -444,7 +526,7 @@ public class JSON
     @Deprecated
     public void appendArray(StringBuffer buffer, Collection collection)
     {
-        appendArray((Appendable)buffer,collection);
+        appendArray((Appendable)buffer, collection);
     }
 
     public void appendArray(Appendable buffer, Collection collection)
@@ -466,7 +548,7 @@ public class JSON
                     buffer.append(',');
 
                 first = false;
-                append(buffer,iter.next());
+                append(buffer, iter.next());
             }
 
             buffer.append(']');
@@ -480,7 +562,7 @@ public class JSON
     @Deprecated
     public void appendArray(StringBuffer buffer, Object array)
     {
-    appendArray((Appendable)buffer,array);
+        appendArray((Appendable)buffer, array);
     }
 
     public void appendArray(Appendable buffer, Object array)
@@ -500,7 +582,7 @@ public class JSON
             {
                 if (i != 0)
                     buffer.append(',');
-                append(buffer,Array.get(array,i));
+                append(buffer, Array.get(array, i));
             }
 
             buffer.append(']');
@@ -514,7 +596,7 @@ public class JSON
     @Deprecated
     public void appendBoolean(StringBuffer buffer, Boolean b)
     {
-        appendBoolean((Appendable)buffer,b);
+        appendBoolean((Appendable)buffer, b);
     }
 
     public void appendBoolean(Appendable buffer, Boolean b)
@@ -526,7 +608,7 @@ public class JSON
                 appendNull(buffer);
                 return;
             }
-            buffer.append(b?"true":"false");
+            buffer.append(b ? "true" : "false");
         }
         catch (IOException e)
         {
@@ -537,7 +619,7 @@ public class JSON
     @Deprecated
     public void appendNumber(StringBuffer buffer, Number number)
     {
-        appendNumber((Appendable)buffer,number);
+        appendNumber((Appendable)buffer, number);
     }
 
     public void appendNumber(Appendable buffer, Number number)
@@ -560,7 +642,7 @@ public class JSON
     @Deprecated
     public void appendString(StringBuffer buffer, String string)
     {
-        appendString((Appendable)buffer,string);
+        appendString((Appendable)buffer, string);
     }
 
     public void appendString(Appendable buffer, String string)
@@ -571,14 +653,14 @@ public class JSON
             return;
         }
 
-        QuotedStringTokenizer.quote(buffer,string);
+        quotedEscape(buffer, string);
     }
 
     // Parsing utilities
 
     protected String toString(char[] buffer, int offset, int length)
     {
-        return new String(buffer,offset,length);
+        return new String(buffer, offset, length);
     }
 
     protected Map<String, Object> newMap()
@@ -607,7 +689,7 @@ public class JSON
         {
             try
             {
-                Convertible conv = (Convertible)type.newInstance();
+                Convertible conv = (Convertible)type.getDeclaredConstructor().newInstance();
                 conv.fromJSON(map);
                 return conv;
             }
@@ -628,14 +710,12 @@ public class JSON
     /**
      * Register a {@link Convertor} for a class or interface.
      *
-     * @param forClass
-     *            The class or interface that the convertor applies to
-     * @param convertor
-     *            the convertor
+     * @param forClass The class or interface that the convertor applies to
+     * @param convertor the convertor
      */
     public void addConvertor(Class forClass, Convertor convertor)
     {
-        _convertors.put(forClass.getName(),convertor);
+        _convertors.put(forClass.getName(), convertor);
     }
 
     /**
@@ -645,8 +725,7 @@ public class JSON
      * tried. If still no match is found, then the super class and it's
      * interfaces are tried recursively.
      *
-     * @param forClass
-     *            The class
+     * @param forClass The class
      * @return a {@link JSON.Convertor} or null if none were found.
      */
     protected Convertor getConvertor(Class forClass)
@@ -661,7 +740,9 @@ public class JSON
             Class[] ifs = cls.getInterfaces();
             int i = 0;
             while (convertor == null && ifs != null && i < ifs.length)
+            {
                 convertor = _convertors.get(ifs[i++].getName());
+            }
             if (convertor == null)
             {
                 cls = cls.getSuperclass();
@@ -674,21 +755,18 @@ public class JSON
     /**
      * Register a {@link JSON.Convertor} for a named class or interface.
      *
-     * @param name
-     *            name of a class or an interface that the convertor applies to
-     * @param convertor
-     *            the convertor
+     * @param name name of a class or an interface that the convertor applies to
+     * @param convertor the convertor
      */
     public void addConvertorFor(String name, Convertor convertor)
     {
-        _convertors.put(name,convertor);
+        _convertors.put(name, convertor);
     }
 
     /**
      * Lookup a convertor for a named class.
      *
-     * @param name
-     *            name of the class
+     * @param name name of the class
      * @return a {@link JSON.Convertor} or null if none were found.
      */
     public Convertor getConvertorFor(String name)
@@ -701,11 +779,11 @@ public class JSON
 
     public Object parse(Source source, boolean stripOuterComment)
     {
-        int comment_state = 0; // 0=no comment, 1="/", 2="/*", 3="/* *" -1="//"
+        int commentState = 0; // 0=no comment, 1="/", 2="/*", 3="/* *" -1="//"
         if (!stripOuterComment)
             return parse(source);
 
-        int strip_state = 1; // 0=no strip, 1=wait for /*, 2= wait for */
+        int stripState = 1; // 0=no strip, 1=wait for /*, 2= wait for */
 
         Object o = null;
         while (source.hasNext())
@@ -713,52 +791,53 @@ public class JSON
             char c = source.peek();
 
             // handle // or /* comment
-            if (comment_state == 1)
+            if (commentState == 1)
             {
                 switch (c)
                 {
                     case '/':
-                        comment_state = -1;
+                        commentState = -1;
                         break;
                     case '*':
-                        comment_state = 2;
-                        if (strip_state == 1)
+                        commentState = 2;
+                        if (stripState == 1)
                         {
-                            comment_state = 0;
-                            strip_state = 2;
+                            commentState = 0;
+                            stripState = 2;
                         }
                 }
             }
-            // handle /* */ comment
-            else if (comment_state > 1)
+            // handle  comment
+            else if (commentState > 1)
             {
                 switch (c)
                 {
                     case '*':
-                        comment_state = 3;
+                        commentState = 3;
                         break;
                     case '/':
-                        if (comment_state == 3)
+                        if (commentState == 3)
                         {
-                            comment_state = 0;
-                            if (strip_state == 2)
+                            commentState = 0;
+                            if (stripState == 2)
                                 return o;
                         }
                         else
-                            comment_state = 2;
+                            commentState = 2;
                         break;
                     default:
-                        comment_state = 2;
+                        commentState = 2;
                 }
             }
             // handle // comment
-            else if (comment_state < 0)
+            else if (commentState < 0)
             {
                 switch (c)
                 {
                     case '\r':
                     case '\n':
-                        comment_state = 0;
+                        commentState = 0;
+                        break;
                     default:
                         break;
                 }
@@ -769,9 +848,9 @@ public class JSON
                 if (!Character.isWhitespace(c))
                 {
                     if (c == '/')
-                        comment_state = 1;
+                        commentState = 1;
                     else if (c == '*')
-                        comment_state = 3;
+                        commentState = 3;
                     else if (o == null)
                     {
                         o = parse(source);
@@ -788,50 +867,50 @@ public class JSON
 
     public Object parse(Source source)
     {
-        int comment_state = 0; // 0=no comment, 1="/", 2="/*", 3="/* *" -1="//"
+        int commentState = 0; // 0=no comment, 1="/", 2="/*", 3="/* *" -1="//"
 
         while (source.hasNext())
         {
             char c = source.peek();
 
             // handle // or /* comment
-            if (comment_state == 1)
+            if (commentState == 1)
             {
                 switch (c)
                 {
                     case '/':
-                        comment_state = -1;
+                        commentState = -1;
                         break;
                     case '*':
-                        comment_state = 2;
+                        commentState = 2;
                 }
             }
-            // handle /* */ comment
-            else if (comment_state > 1)
+            // handle  comment
+            else if (commentState > 1)
             {
                 switch (c)
                 {
                     case '*':
-                        comment_state = 3;
+                        commentState = 3;
                         break;
                     case '/':
-                        if (comment_state == 3)
-                            comment_state = 0;
+                        if (commentState == 3)
+                            commentState = 0;
                         else
-                            comment_state = 2;
+                            commentState = 2;
                         break;
                     default:
-                        comment_state = 2;
+                        commentState = 2;
                 }
             }
             // handle // comment
-            else if (comment_state < 0)
+            else if (commentState < 0)
             {
                 switch (c)
                 {
                     case '\r':
                     case '\n':
-                        comment_state = 0;
+                        commentState = 0;
                         break;
                     default:
                         break;
@@ -852,23 +931,23 @@ public class JSON
                         return parseNumber(source);
 
                     case 'n':
-                        complete("null",source);
+                        complete("null", source);
                         return null;
                     case 't':
-                        complete("true",source);
+                        complete("true", source);
                         return Boolean.TRUE;
                     case 'f':
-                        complete("false",source);
+                        complete("false", source);
                         return Boolean.FALSE;
                     case 'u':
-                        complete("undefined",source);
+                        complete("undefined", source);
                         return null;
                     case 'N':
-                        complete("NaN",source);
+                        complete("NaN", source);
                         return null;
 
                     case '/':
-                        comment_state = 1;
+                        commentState = 1;
                         break;
 
                     default:
@@ -876,7 +955,7 @@ public class JSON
                             return parseNumber(source);
                         else if (Character.isWhitespace(c))
                             break;
-                        return handleUnknown(source,c);
+                        return handleUnknown(source, c);
                 }
             }
             source.next();
@@ -896,7 +975,7 @@ public class JSON
             throw new IllegalStateException();
         Map<String, Object> map = newMap();
 
-        char next = seekTo("\"}",source);
+        char next = seekTo("\"}", source);
 
         while (source.hasNext())
         {
@@ -907,18 +986,18 @@ public class JSON
             }
 
             String name = parseString(source);
-            seekTo(':',source);
+            seekTo(':', source);
             source.next();
 
             Object value = contextFor(name).parse(source);
-            map.put(name,value);
+            map.put(name, value);
 
-            seekTo(",}",source);
+            seekTo(",}", source);
             next = source.next();
             if (next == '}')
                 break;
             else
-                next = seekTo("\"}",source);
+                next = seekTo("\"}", source);
         }
 
         String xclassname = (String)map.get("x-class");
@@ -936,7 +1015,7 @@ public class JSON
             try
             {
                 Class c = Loader.loadClass(classname);
-                return convertTo(c,map);
+                return convertTo(c, map);
             }
             catch (ClassNotFoundException e)
             {
@@ -970,7 +1049,7 @@ public class JSON
                             return newArray(0);
                         case 1:
                             Object array = newArray(1);
-                            Array.set(array,0,item);
+                            Array.set(array, 0, item);
                             return array;
                         default:
                             return list.toArray(newArray(list.size()));
@@ -1007,7 +1086,6 @@ public class JSON
                         }
                     }
             }
-
         }
 
         throw new IllegalStateException("unexpected end of array");
@@ -1033,7 +1111,7 @@ public class JSON
                     // we have filled the scratch buffer, so we must
                     // use the StringBuffer for a large string
                     b = new StringBuilder(scratch.length * 2);
-                    b.append(scratch,0,i);
+                    b.append(scratch, 0, i);
                     break;
                 }
 
@@ -1069,8 +1147,8 @@ public class JSON
                             scratch[i++] = '\t';
                             break;
                         case 'u':
-                            char uc = (char)((TypeUtil.convertHexDigit((byte)source.next()) << 12) + (TypeUtil.convertHexDigit((byte)source.next()) << 8)
-                                    + (TypeUtil.convertHexDigit((byte)source.next()) << 4) + (TypeUtil.convertHexDigit((byte)source.next())));
+                            char uc = (char)((TypeUtil.convertHexDigit((byte)source.next()) << 12) + (TypeUtil.convertHexDigit((byte)source.next()) << 8) +
+                                (TypeUtil.convertHexDigit((byte)source.next()) << 4) + (TypeUtil.convertHexDigit((byte)source.next())));
                             scratch[i++] = uc;
                             break;
                         default:
@@ -1084,7 +1162,7 @@ public class JSON
                 else if (c == '\"')
                 {
                     // Return string that fits within scratch buffer
-                    return toString(scratch,0,i);
+                    return toString(scratch, 0, i);
                 }
                 else
                 {
@@ -1094,13 +1172,13 @@ public class JSON
 
             // Missing end quote, but return string anyway ?
             if (b == null)
-                return toString(scratch,0,i);
+                return toString(scratch, 0, i);
         }
         else
             b = new StringBuilder(getStringBufferSize());
 
         // parse large string into string buffer
-        final StringBuilder builder=b;
+        final StringBuilder builder = b;
         while (source.hasNext())
         {
             char c = source.next();
@@ -1135,8 +1213,8 @@ public class JSON
                         builder.append('\t');
                         break;
                     case 'u':
-                        char uc = (char)((TypeUtil.convertHexDigit((byte)source.next()) << 12) + (TypeUtil.convertHexDigit((byte)source.next()) << 8)
-                                + (TypeUtil.convertHexDigit((byte)source.next()) << 4) + (TypeUtil.convertHexDigit((byte)source.next())));
+                        char uc = (char)((TypeUtil.convertHexDigit((byte)source.next()) << 12) + (TypeUtil.convertHexDigit((byte)source.next()) << 8) +
+                            (TypeUtil.convertHexDigit((byte)source.next()) << 4) + (TypeUtil.convertHexDigit((byte)source.next())));
                         builder.append(uc);
                         break;
                     default:
@@ -1165,7 +1243,8 @@ public class JSON
         long number = 0;
         StringBuilder buffer = null;
 
-        longLoop: while (source.hasNext())
+        longLoop:
+        while (source.hasNext())
         {
             char c = source.peek();
             switch (c)
@@ -1211,7 +1290,8 @@ public class JSON
         if (buffer == null)
             return minus ? -1 * number : number;
 
-        doubleLoop: while (source.hasNext())
+        doubleLoop:
+        while (source.hasNext())
         {
             char c = source.peek();
             switch (c)
@@ -1240,7 +1320,6 @@ public class JSON
             }
         }
         return new Double(buffer.toString());
-
     }
 
     protected void seekTo(char seek, Source source)
@@ -1316,14 +1395,16 @@ public class JSON
             }
         }
 
+        @Override
         public void add(Object obj)
         {
             if (c == 0)
                 throw new IllegalStateException();
-            append(_buffer,obj);
+            append(_buffer, obj);
             c = 0;
         }
 
+        @Override
         public void addClass(Class type)
         {
             try
@@ -1332,7 +1413,7 @@ public class JSON
                     throw new IllegalStateException();
                 _buffer.append(c);
                 _buffer.append("\"class\":");
-                append(_buffer,type.getName());
+                append(_buffer, type.getName());
                 c = ',';
             }
             catch (IOException e)
@@ -1341,6 +1422,7 @@ public class JSON
             }
         }
 
+        @Override
         public void add(String name, Object value)
         {
             try
@@ -1348,9 +1430,9 @@ public class JSON
                 if (c == 0)
                     throw new IllegalStateException();
                 _buffer.append(c);
-                QuotedStringTokenizer.quote(_buffer,name);
+                quotedEscape(_buffer, name);
                 _buffer.append(':');
-                append(_buffer,value);
+                append(_buffer, value);
                 c = ',';
             }
             catch (IOException e)
@@ -1359,6 +1441,7 @@ public class JSON
             }
         }
 
+        @Override
         public void add(String name, double value)
         {
             try
@@ -1366,7 +1449,7 @@ public class JSON
                 if (c == 0)
                     throw new IllegalStateException();
                 _buffer.append(c);
-                QuotedStringTokenizer.quote(_buffer,name);
+                quotedEscape(_buffer, name);
                 _buffer.append(':');
                 appendNumber(_buffer, value);
                 c = ',';
@@ -1377,6 +1460,7 @@ public class JSON
             }
         }
 
+        @Override
         public void add(String name, long value)
         {
             try
@@ -1384,7 +1468,7 @@ public class JSON
                 if (c == 0)
                     throw new IllegalStateException();
                 _buffer.append(c);
-                QuotedStringTokenizer.quote(_buffer,name);
+                quotedEscape(_buffer, name);
                 _buffer.append(':');
                 appendNumber(_buffer, value);
                 c = ',';
@@ -1395,6 +1479,7 @@ public class JSON
             }
         }
 
+        @Override
         public void add(String name, boolean value)
         {
             try
@@ -1402,9 +1487,9 @@ public class JSON
                 if (c == 0)
                     throw new IllegalStateException();
                 _buffer.append(c);
-                QuotedStringTokenizer.quote(_buffer,name);
+                quotedEscape(_buffer, name);
                 _buffer.append(':');
-                appendBoolean(_buffer,value?Boolean.TRUE:Boolean.FALSE);
+                appendBoolean(_buffer, value ? Boolean.TRUE : Boolean.FALSE);
                 c = ',';
             }
             catch (IOException e)
@@ -1436,6 +1521,7 @@ public class JSON
             string = s;
         }
 
+        @Override
         public boolean hasNext()
         {
             if (index < string.length())
@@ -1444,11 +1530,13 @@ public class JSON
             return false;
         }
 
+        @Override
         public char next()
         {
             return string.charAt(index++);
         }
 
+        @Override
         public char peek()
         {
             return string.charAt(index);
@@ -1457,9 +1545,10 @@ public class JSON
         @Override
         public String toString()
         {
-            return string.substring(0,index) + "|||" + string.substring(index);
+            return string.substring(0, index) + "|||" + string.substring(index);
         }
 
+        @Override
         public char[] scratchBuffer()
         {
             if (scratch == null)
@@ -1485,6 +1574,7 @@ public class JSON
             _next = -1;
         }
 
+        @Override
         public boolean hasNext()
         {
             getNext();
@@ -1496,6 +1586,7 @@ public class JSON
             return true;
         }
 
+        @Override
         public char next()
         {
             getNext();
@@ -1504,6 +1595,7 @@ public class JSON
             return c;
         }
 
+        @Override
         public char peek()
         {
             getNext();
@@ -1525,13 +1617,13 @@ public class JSON
             }
         }
 
+        @Override
         public char[] scratchBuffer()
         {
             if (scratch == null)
                 scratch = new char[1024];
             return scratch;
         }
-
     }
 
     /**
@@ -1539,20 +1631,19 @@ public class JSON
      */
     public interface Output
     {
-        public void addClass(Class c);
+        void addClass(Class c);
 
-        public void add(Object obj);
+        void add(Object obj);
 
-        public void add(String name, Object value);
+        void add(String name, Object value);
 
-        public void add(String name, double value);
+        void add(String name, double value);
 
-        public void add(String name, long value);
+        void add(String name, long value);
 
-        public void add(String name, boolean value);
+        void add(String name, boolean value);
     }
 
-    /* ------------------------------------------------------------ */
     /**
      * JSON Convertible object. Object can implement this interface in a similar
      * way to the {@link Externalizable} interface is used to allow classes to
@@ -1563,13 +1654,12 @@ public class JSON
      * <p>
      * If the JSON is to be convertible back to an Object, then the method
      * {@link Output#addClass(Class)} must be called from within toJSON()
-     *
      */
     public interface Convertible
     {
-        public void toJSON(Output out);
+        void toJSON(Output out);
 
-        public void fromJSON(Map object);
+        void fromJSON(Map object);
     }
 
     /**
@@ -1585,9 +1675,9 @@ public class JSON
      */
     public interface Convertor
     {
-        public void toJSON(Object obj, Output out);
+        void toJSON(Object obj, Output out);
 
-        public Object fromJSON(Map object);
+        Object fromJSON(Map object);
     }
 
     /**
@@ -1597,7 +1687,7 @@ public class JSON
      */
     public interface Generator
     {
-        public void addJSON(Appendable buffer);
+        void addJSON(Appendable buffer);
     }
 
     /**
@@ -1613,8 +1703,7 @@ public class JSON
          * {@link JSON#toString(Object)}. If {@link Logger#isDebugEnabled()} is
          * true, the JSON will be parsed to check validity
          *
-         * @param json
-         *            A literal JSON string.
+         * @param json A literal JSON string.
          */
         public Literal(String json)
         {
@@ -1629,13 +1718,14 @@ public class JSON
             return _json;
         }
 
+        @Override
         public void addJSON(Appendable buffer)
         {
             try
             {
                 buffer.append(_json);
             }
-            catch(IOException e)
+            catch (IOException e)
             {
                 throw new RuntimeException(e);
             }

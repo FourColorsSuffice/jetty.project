@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,12 +19,12 @@
 package com.acme;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicReference;
-
 import javax.servlet.AsyncContext;
 import javax.servlet.AsyncEvent;
 import javax.servlet.AsyncListener;
@@ -46,6 +46,7 @@ public class ChatServlet extends HttpServlet
 
     private long asyncTimeout = 10000;
 
+    @Override
     public void init()
     {
         String parameter = getServletConfig().getInitParameter("asyncTimeout");
@@ -98,7 +99,6 @@ public class ChatServlet extends HttpServlet
 
     Map<String, Map<String, Member>> _rooms = new HashMap<>();
 
-
     // Handle Ajax calls from browser
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
@@ -111,7 +111,7 @@ public class ChatServlet extends HttpServlet
         LOG.debug("doPost called. join={},message={},username={}", join, message, username);
         if (username == null)
         {
-            LOG.debug("no paramter user set, sending 503");
+            LOG.debug("no parameter user set, sending 503");
             response.sendError(503, "user==null");
             return;
         }
@@ -132,7 +132,7 @@ public class ChatServlet extends HttpServlet
             synchronized (member)
             {
                 LOG.debug("Queue size: {}", member._queue.size());
-                if (member._queue.size() > 0)
+                if (!member._queue.isEmpty())
                 {
                     sendSingleMessage(response, member);
                 }
@@ -191,7 +191,7 @@ public class ChatServlet extends HttpServlet
         buf.append("\"chat\":\"");
         buf.append(returnMessage);
         buf.append("\"}");
-        byte[] bytes = buf.toString().getBytes("utf-8");
+        byte[] bytes = buf.toString().getBytes(StandardCharsets.UTF_8);
         response.setContentLength(bytes.length);
         response.getOutputStream().write(bytes);
     }
@@ -228,5 +228,4 @@ public class ChatServlet extends HttpServlet
         else
             getServletContext().getNamedDispatcher("default").forward(request, response);
     }
-
 }

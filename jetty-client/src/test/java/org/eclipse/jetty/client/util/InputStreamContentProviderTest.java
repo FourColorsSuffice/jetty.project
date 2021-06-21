@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,8 +26,12 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class InputStreamContentProviderTest
 {
@@ -54,20 +58,13 @@ public class InputStreamContentProviderTest
         InputStreamContentProvider provider = new InputStreamContentProvider(stream);
         Iterator<ByteBuffer> iterator = provider.iterator();
 
-        Assert.assertNotNull(iterator);
-        Assert.assertFalse(iterator.hasNext());
+        assertNotNull(iterator);
+        assertFalse(iterator.hasNext());
 
-        try
-        {
-            iterator.next();
-            Assert.fail();
-        }
-        catch (NoSuchElementException expected)
-        {
-        }
+        assertThrows(NoSuchElementException.class, () -> iterator.next());
 
-        Assert.assertFalse(iterator.hasNext());
-        Assert.assertTrue(closed.get());
+        assertFalse(iterator.hasNext());
+        assertTrue(closed.get());
     }
 
     @Test
@@ -87,23 +84,16 @@ public class InputStreamContentProviderTest
         InputStreamContentProvider provider = new InputStreamContentProvider(stream);
         Iterator<ByteBuffer> iterator = provider.iterator();
 
-        Assert.assertNotNull(iterator);
+        assertNotNull(iterator);
 
         ByteBuffer buffer = iterator.next();
 
-        Assert.assertNotNull(buffer);
+        assertNotNull(buffer);
 
-        try
-        {
-            iterator.next();
-            Assert.fail();
-        }
-        catch (NoSuchElementException expected)
-        {
-        }
+        assertThrows(NoSuchElementException.class, () -> iterator.next());
 
-        Assert.assertFalse(iterator.hasNext());
-        Assert.assertTrue(closed.get());
+        assertFalse(iterator.hasNext());
+        assertTrue(closed.get());
     }
 
     @Test
@@ -129,19 +119,12 @@ public class InputStreamContentProviderTest
         InputStreamContentProvider provider = new InputStreamContentProvider(stream);
         Iterator<ByteBuffer> iterator = provider.iterator();
 
-        Assert.assertNotNull(iterator);
+        assertNotNull(iterator);
 
-        try
-        {
-            iterator.next();
-            Assert.fail();
-        }
-        catch (NoSuchElementException expected)
-        {
-        }
+        assertThrows(NoSuchElementException.class, () -> iterator.next());
 
-        Assert.assertFalse(iterator.hasNext());
-        Assert.assertTrue(closed.get());
+        assertFalse(iterator.hasNext());
+        assertTrue(closed.get());
     }
 
     @Test
@@ -167,19 +150,12 @@ public class InputStreamContentProviderTest
         InputStreamContentProvider provider = new InputStreamContentProvider(stream);
         Iterator<ByteBuffer> iterator = provider.iterator();
 
-        Assert.assertNotNull(iterator);
-        Assert.assertTrue(iterator.hasNext());
+        assertNotNull(iterator);
+        assertTrue(iterator.hasNext());
 
-        try
-        {
-            iterator.next();
-            Assert.fail();
-        }
-        catch (NoSuchElementException expected)
-        {
-        }
+        assertThrows(NoSuchElementException.class, () -> iterator.next());
 
-        Assert.assertFalse(iterator.hasNext());
-        Assert.assertTrue(closed.get());
+        assertFalse(iterator.hasNext());
+        assertTrue(closed.get());
     }
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,24 +25,18 @@ public abstract class MultiplexHttpDestination extends HttpDestination
         super(client, origin);
     }
 
-    protected ConnectionPool newConnectionPool(HttpClient client)
-    {
-        return new MultiplexConnectionPool(this, client.getMaxConnectionsPerDestination(), this,
-                client.getMaxRequestsQueuedPerDestination());
-    }
-
     public int getMaxRequestsPerConnection()
     {
         ConnectionPool connectionPool = getConnectionPool();
-        if (connectionPool instanceof MultiplexConnectionPool)
-            return ((MultiplexConnectionPool)connectionPool).getMaxMultiplex();
+        if (connectionPool instanceof ConnectionPool.Multiplexable)
+            return ((ConnectionPool.Multiplexable)connectionPool).getMaxMultiplex();
         return 1;
     }
 
     public void setMaxRequestsPerConnection(int maxRequestsPerConnection)
     {
         ConnectionPool connectionPool = getConnectionPool();
-        if (connectionPool instanceof MultiplexConnectionPool)
-            ((MultiplexConnectionPool)connectionPool).setMaxMultiplex(maxRequestsPerConnection);
+        if (connectionPool instanceof ConnectionPool.Multiplexable)
+            ((ConnectionPool.Multiplexable)connectionPool).setMaxMultiplex(maxRequestsPerConnection);
     }
 }

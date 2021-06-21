@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,57 +19,45 @@
 package org.eclipse.jetty.maven.plugin;
 
 import java.io.File;
-import java.util.List;
+import java.io.IOException;
 
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
-import org.eclipse.jetty.util.PathWatcher;
-import org.eclipse.jetty.util.PathWatcher.PathWatchEvent;
+import org.apache.maven.plugins.annotations.Execute;
+import org.apache.maven.plugins.annotations.LifecyclePhase;
+import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.plugins.annotations.ResolutionScope;
 
 /**
- * 
- *  <p>
- *  This goal is used to assemble your webapp into an exploded war and automatically deploy it to Jetty.
- *  </p>
- *  <p>
- *  Once invoked, the plugin runs continuously, and can be configured to scan for changes in the pom.xml and 
- *  to WEB-INF/web.xml, WEB-INF/classes or WEB-INF/lib and hot redeploy when a change is detected. 
- *  </p>
- *  <p>
- *  You may also specify the location of a jetty.xml file whose contents will be applied before any plugin configuration.
- *  This can be used, for example, to deploy a static webapp that is not part of your maven build. 
- *  </p>
- *
- *@goal run-exploded
- *@requiresDependencyResolution compile+runtime
- *@execute phase=package
+ * <p>
+ * This goal is used to assemble your webapp into an exploded war and automatically deploy it to Jetty.
+ * </p>
+ * <p>
+ * Once invoked, the plugin runs continuously, and can be configured to scan for changes in the pom.xml and
+ * to WEB-INF/web.xml, WEB-INF/classes or WEB-INF/lib and hot redeploy when a change is detected.
+ * </p>
+ * <p>
+ * You may also specify the location of a jetty.xml file whose contents will be applied before any plugin configuration.
+ * This can be used, for example, to deploy a static webapp that is not part of your maven build.
+ * </p>
  */
+@Mojo(name = "run-exploded", requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
+@Execute(phase = LifecyclePhase.PACKAGE)
 public class JettyRunWarExplodedMojo extends AbstractJettyMojo
 {
 
-    
-    
     /**
      * The location of the war file.
-     * 
-     * @parameter default-value="${project.build.directory}/${project.build.finalName}"
-     * @required
      */
+    @Parameter(defaultValue = "${project.build.directory}/${project.build.finalName}", required = true)
     private File war;
 
-    
-   
-  
-   
-    /** 
-     * @see org.eclipse.jetty.maven.plugin.AbstractJettyMojo#execute()
-     */
-    public void execute () throws MojoExecutionException, MojoFailureException
+    @Override
+    public void execute() throws MojoExecutionException, MojoFailureException
     {
         super.execute();
     }
-    
-    
 
     @Override
     public void finishConfigurationBeforeStart() throws Exception
@@ -78,86 +66,57 @@ public class JettyRunWarExplodedMojo extends AbstractJettyMojo
         super.finishConfigurationBeforeStart();
     }
 
-    
-    /**
-     * 
-     * @see AbstractJettyMojo#checkPomConfiguration()
-     */
-    public void checkPomConfiguration() throws MojoExecutionException
-    {
-        return;
-    }
-
-    
-    
-    
-    /**
-     * @see AbstractJettyMojo#configureScanner()
-     */
+    @Override
     public void configureScanner() throws MojoExecutionException
     {
-        scanner.watch(project.getFile().toPath());
-        File webInfDir = new File(war,"WEB-INF");
-        File webXml = new File(webInfDir, "web.xml");
-        if (webXml.exists())
-            scanner.watch(webXml.toPath());
-        File jettyWebXmlFile = findJettyWebXmlFile(webInfDir);
-        if (jettyWebXmlFile != null)
-            scanner.watch(jettyWebXmlFile.toPath());
-        File jettyEnvXmlFile = new File(webInfDir, "jetty-env.xml");
-        if (jettyEnvXmlFile.exists())
-            scanner.watch(jettyEnvXmlFile.toPath());
-
-        File classes = new File(webInfDir, "classes");
-        if (classes.exists())
+        try
         {
-            PathWatcher.Config classesConfig = new PathWatcher.Config(classes.toPath());
-            classesConfig.setRecurseDepth(PathWatcher.Config.UNLIMITED_DEPTH);
-            scanner.watch(classesConfig);
-        }
+            scanner.addFile(project.getFile().toPath());
+            File webInfDir = new File(war, "WEB-INF");
+            File webXml = new File(webInfDir, "web.xml");
+            if (webXml.exists())
+                scanner.addFile(webXml.toPath());
+            File jettyWebXmlFile = findJettyWebXmlFile(webInfDir);
+            if (jettyWebXmlFile != null)
+                scanner.addFile(jettyWebXmlFile.toPath());
+            File jettyEnvXmlFile = new File(webInfDir, "jetty-env.xml");
+            if (jettyEnvXmlFile.exists())
+                scanner.addFile(jettyEnvXmlFile.toPath());
 
-        File lib = new File(webInfDir, "lib");
-        if (lib.exists())
-        {
-            PathWatcher.Config libConfig = new PathWatcher.Config(lib.toPath());
-            libConfig.setRecurseDepth(PathWatcher.Config.UNLIMITED_DEPTH);
-            scanner.watch(libConfig);   
-        }
-
-        scanner.addListener(new PathWatcher.EventListListener()
-        {
-
-            @Override
-            public void onPathWatchEvents(List<PathWatchEvent> events)
+            File classes = new File(webInfDir, "classes");
+            if (classes.exists())
             {
                 try
                 {
-                    boolean reconfigure = false;
-                    for (PathWatchEvent e:events)
-                    {
-                        if (e.getPath().equals(project.getFile().toPath()))
-                        {
-                            reconfigure = true;
-                            break;
-                        }
-                    }
-                    restartWebApp(reconfigure);
+                    scanner.addDirectory(classes.toPath());
                 }
-                catch (Exception e)
+                catch (IOException e)
                 {
-                    getLog().error("Error reconfiguring/restarting webapp after change in watched files",e);
+                    throw new MojoExecutionException("Error scanning classes", e);
                 }
             }
-        });
+
+            File lib = new File(webInfDir, "lib");
+            if (lib.exists())
+            {
+                try
+                {
+                    scanner.addDirectory(lib.toPath());
+                }
+                catch (IOException e)
+                {
+                    throw new MojoExecutionException("Error scanning lib", e);
+                }
+            }
+        }
+        catch (IOException e)
+        {
+            throw new MojoExecutionException("Error configuring scanner", e);
+        }
     }
 
-    
-    
-    
-    /** 
-     * @see org.eclipse.jetty.maven.plugin.AbstractJettyMojo#restartWebApp(boolean)
-     */
-    public void restartWebApp(boolean reconfigureScanner) throws Exception 
+    @Override
+    public void restartWebApp(boolean reconfigureScanner) throws Exception
     {
         getLog().info("Restarting webapp");
         getLog().debug("Stopping webapp ...");
@@ -182,15 +141,10 @@ public class JettyRunWarExplodedMojo extends AbstractJettyMojo
         getLog().info("Restart completed.");
     }
 
-   
-
-    
-    /** 
-     * @see org.eclipse.jetty.maven.plugin.AbstractJettyMojo#configureWebApplication()
-     */
-    public void configureWebApplication () throws Exception
+    @Override
+    public void configureWebApplication() throws Exception
     {
-        super.configureWebApplication();        
+        super.configureWebApplication();
         webApp.setWar(war.getCanonicalPath());
     }
 }

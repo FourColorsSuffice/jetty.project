@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,10 +19,11 @@
 package org.eclipse.jetty.client;
 
 import org.eclipse.jetty.client.api.Result;
+import org.eclipse.jetty.io.CyclicTimeouts;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
-public abstract class HttpChannel
+public abstract class HttpChannel implements CyclicTimeouts.Expirable
 {
     protected static final Logger LOG = Log.getLogger(HttpChannel.class);
 
@@ -31,7 +32,11 @@ public abstract class HttpChannel
 
     protected HttpChannel(HttpDestination destination)
     {
-        this._destination = destination;
+        _destination = destination;
+    }
+
+    public void destroy()
+    {
     }
 
     public HttpDestination getHttpDestination()
@@ -63,10 +68,14 @@ public abstract class HttpChannel
         }
 
         if (abort)
+        {
             exchange.getRequest().abort(new UnsupportedOperationException("Pipelined requests not supported"));
-
-        if (LOG.isDebugEnabled())
-            LOG.debug("{} associated {} to {}", exchange, result, this);
+        }
+        else
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("{} associated {} to {}", exchange, result, this);
+        }
 
         return result;
     }
@@ -98,11 +107,25 @@ public abstract class HttpChannel
         }
     }
 
+    @Override
+    public long getExpireNanoTime()
+    {
+        HttpExchange exchange = getHttpExchange();
+        return exchange != null ? exchange.getExpireNanoTime() : Long.MAX_VALUE;
+    }
+
     protected abstract HttpSender getHttpSender();
 
     protected abstract HttpReceiver getHttpReceiver();
 
-    public abstract void send();
+    public void send()
+    {
+        HttpExchange exchange = getHttpExchange();
+        if (exchange != null)
+            send(exchange);
+    }
+
+    public abstract void send(HttpExchange exchange);
 
     public abstract void release();
 

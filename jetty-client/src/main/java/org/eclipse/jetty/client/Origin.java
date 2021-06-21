@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,22 +20,35 @@ package org.eclipse.jetty.client;
 
 import java.util.Objects;
 
+import org.eclipse.jetty.util.HostPort;
 import org.eclipse.jetty.util.URIUtil;
 
 public class Origin
 {
     private final String scheme;
     private final Address address;
+    private final Object tag;
 
     public Origin(String scheme, String host, int port)
     {
-        this(scheme, new Address(host, port));
+        this(scheme, host, port, null);
+    }
+
+    public Origin(String scheme, String host, int port, Object tag)
+    {
+        this(scheme, new Address(host, port), tag);
     }
 
     public Origin(String scheme, Address address)
     {
+        this(scheme, address, null);
+    }
+
+    public Origin(String scheme, Address address, Object tag)
+    {
         this.scheme = Objects.requireNonNull(scheme);
         this.address = address;
+        this.tag = tag;
     }
 
     public String getScheme()
@@ -48,6 +61,11 @@ public class Origin
         return address;
     }
 
+    public Object getTag()
+    {
+        return tag;
+    }
+
     public String asString()
     {
         StringBuilder result = new StringBuilder();
@@ -58,17 +76,28 @@ public class Origin
     @Override
     public boolean equals(Object obj)
     {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
+        if (this == obj)
+            return true;
+        if (obj == null || getClass() != obj.getClass())
+            return false;
         Origin that = (Origin)obj;
-        return scheme.equals(that.scheme) && address.equals(that.address);
+        return scheme.equals(that.scheme) &&
+            address.equals(that.address) &&
+            Objects.equals(tag, that.tag);
     }
 
     @Override
     public int hashCode()
     {
-        int result = scheme.hashCode();
-        result = 31 * result + address.hashCode();
+        return Objects.hash(scheme, address, tag);
+    }
+
+    @Override
+    public String toString()
+    {
+        String result = asString();
+        if (tag != null)
+            result += "[tag=" + tag + "]";
         return result;
     }
 
@@ -79,7 +108,7 @@ public class Origin
 
         public Address(String host, int port)
         {
-            this.host = Objects.requireNonNull(host);
+            this.host = HostPort.normalizeHost(Objects.requireNonNull(host));
             this.port = port;
         }
 
@@ -96,8 +125,10 @@ public class Origin
         @Override
         public boolean equals(Object obj)
         {
-            if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
+            if (this == obj)
+                return true;
+            if (obj == null || getClass() != obj.getClass())
+                return false;
             Address that = (Address)obj;
             return host.equals(that.host) && port == that.port;
         }

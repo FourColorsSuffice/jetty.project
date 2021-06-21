@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -35,18 +35,16 @@ import java.net.URLClassLoader;
 public class FakeURLClassLoader extends URLClassLoader
 {
     private URL[] _jars;
-    
-    /* ------------------------------------------------------------ */
+
     public FakeURLClassLoader(ClassLoader osgiClassLoader, URL[] jars)
     {
-        super(new URL[] {},osgiClassLoader);
+        super(new URL[]{}, osgiClassLoader);
         _jars = jars;
     }
 
-    /* ------------------------------------------------------------ */
     /**
      * @return the jars that contains tlds so that TldLocationsCache or
-     *         TldScanner can find them.
+     * TldScanner can find them.
      */
     @Override
     public URL[] getURLs()
@@ -54,19 +52,20 @@ public class FakeURLClassLoader extends URLClassLoader
         return _jars;
     }
 
-    
-    /* ------------------------------------------------------------ */
-    /** 
+    /**
      * @see java.lang.Object#toString()
      */
+    @Override
     public String toString()
     {
         StringBuilder builder = new StringBuilder();
 
         if (_jars != null)
         {
-            for (URL u:_jars)
-                builder.append(" "+u.toString());
+            for (URL u : _jars)
+            {
+                builder.append(" " + u.toString());
+            }
             return builder.toString();
         }
         else

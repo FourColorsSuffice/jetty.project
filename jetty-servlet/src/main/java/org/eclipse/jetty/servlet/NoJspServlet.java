@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,7 +19,6 @@
 package org.eclipse.jetty.servlet;
 
 import java.io.IOException;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -29,17 +28,16 @@ public class NoJspServlet extends HttpServlet
 {
     private boolean _warned;
 
-    /* ------------------------------------------------------------ */
     /*
      * @see javax.servlet.http.HttpServlet#doGet(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
      */
+    @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse response) throws ServletException, IOException
     {
         if (!_warned)
             getServletContext().log("No JSP support.  Check that JSP jars are in lib/jsp and that the JSP option has been specified to start.jar");
-        _warned=true;
+        _warned = true;
 
-        response.sendError(500,"JSP support not configured");
+        response.sendError(500, "JSP support not configured");
     }
-
 }

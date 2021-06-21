@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,8 +19,7 @@
 package org.eclipse.jetty.security;
 
 import java.security.Principal;
-
-import org.eclipse.jetty.util.B64Code;
+import java.util.Base64;
 
 public class SpnegoUserPrincipal implements Principal
 {
@@ -28,18 +27,19 @@ public class SpnegoUserPrincipal implements Principal
     private byte[] _token;
     private String _encodedToken;
 
-    public SpnegoUserPrincipal( String name, String encodedToken )
+    public SpnegoUserPrincipal(String name, String encodedToken)
     {
         _name = name;
         _encodedToken = encodedToken;
     }
 
-    public SpnegoUserPrincipal( String name, byte[] token )
+    public SpnegoUserPrincipal(String name, byte[] token)
     {
         _name = name;
         _token = token;
     }
 
+    @Override
     public String getName()
     {
         return _name;
@@ -47,19 +47,15 @@ public class SpnegoUserPrincipal implements Principal
 
     public byte[] getToken()
     {
-        if ( _token == null )
-        {
-            _token = B64Code.decode(_encodedToken);
-        }
+        if (_token == null)
+            _token = Base64.getDecoder().decode(_encodedToken);
         return _token;
     }
 
     public String getEncodedToken()
     {
-        if ( _encodedToken == null )
-        {
-            _encodedToken = new String(B64Code.encode(_token,true));
-        }
+        if (_encodedToken == null)
+            _encodedToken = new String(Base64.getEncoder().encode(_token));
         return _encodedToken;
     }
 }

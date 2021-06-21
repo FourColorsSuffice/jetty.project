@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.server;
 
 import java.io.IOException;
 import java.util.List;
-
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 
@@ -39,7 +38,7 @@ public abstract class NegotiatingServerConnection extends AbstractConnection
     {
         boolean isAcceptable(String protocol, String tlsProtocol, String tlsCipher);
     }
-    
+
     private final Connector connector;
     private final SSLEngine engine;
     private final List<String> protocols;
@@ -55,27 +54,27 @@ public abstract class NegotiatingServerConnection extends AbstractConnection
         this.engine = engine;
     }
 
-    protected List<String> getProtocols()
+    public List<String> getProtocols()
     {
         return protocols;
     }
 
-    protected String getDefaultProtocol()
+    public String getDefaultProtocol()
     {
         return defaultProtocol;
     }
 
-    protected Connector getConnector()
+    public Connector getConnector()
     {
         return connector;
     }
-    
-    protected SSLEngine getSSLEngine()
+
+    public SSLEngine getSSLEngine()
     {
         return engine;
     }
 
-    protected String getProtocol()
+    public String getProtocol()
     {
         return protocol;
     }
@@ -121,7 +120,7 @@ public abstract class NegotiatingServerConnection extends AbstractConnection
                 if (connectionFactory == null)
                 {
                     LOG.info("{} application selected protocol '{}', but no correspondent {} has been configured",
-                             this, protocol, ConnectionFactory.class.getName());
+                        this, protocol, ConnectionFactory.class.getName());
                     close();
                 }
                 else

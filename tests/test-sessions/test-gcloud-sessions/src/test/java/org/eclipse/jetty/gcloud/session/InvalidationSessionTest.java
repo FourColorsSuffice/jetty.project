@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,34 +16,43 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.gcloud.session;
-
 
 import org.eclipse.jetty.server.session.AbstractClusteredInvalidationSessionTest;
 import org.eclipse.jetty.server.session.SessionDataStoreFactory;
-import org.junit.AfterClass;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * InvalidationSessionTest
- *
- *
  */
+@Testcontainers(disabledWithoutDocker = true)
 public class InvalidationSessionTest extends AbstractClusteredInvalidationSessionTest
 {
-    
-    @AfterClass
-    public static void teardown () throws Exception
+
+    public static GCloudSessionTestSupport __testSupport;
+
+    @BeforeAll
+    public static void setUp() throws Exception
     {
-        GCloudTestSuite.__testSupport.deleteSessions();
+        __testSupport = new GCloudSessionTestSupport();
+        __testSupport.setUp();
     }
 
-    /** 
+    @AfterAll
+    public static void tearDown() throws Exception
+    {
+        __testSupport.deleteSessions();
+        __testSupport.tearDown();
+    }
+
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
     public SessionDataStoreFactory createSessionDataStoreFactory()
     {
-        return GCloudSessionTestSupport.newSessionDataStoreFactory(GCloudTestSuite.__testSupport.getDatastore());
+        return GCloudSessionTestSupport.newSessionDataStoreFactory(__testSupport.getDatastore());
     }
 }

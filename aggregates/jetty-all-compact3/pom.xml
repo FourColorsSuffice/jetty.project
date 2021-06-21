@@ -2,14 +2,13 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.eclipse.jetty.aggregate</groupId>
   <artifactId>jetty-all-compact3</artifactId>
   <name>Jetty :: Aggregate :: All core Jetty suitable for Java 8 compact 3 profile</name>
-  <url>http://www.eclipse.org/jetty</url>
   <properties>
     <bundle-symbolic-name>${project.groupId}.all.compact3</bundle-symbolic-name>
   </properties>
@@ -20,8 +19,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <source>8</source>
-          <target>8</target>
           <compilerArgs>
             <arg>-profile</arg>
             <arg>compact3</arg>
@@ -39,8 +36,8 @@
             </goals>
             <configuration>
               <excludes>**/MANIFEST.MF,javax/**</excludes>
-              <excludeArtifactIds>javax</excludeArtifactIds>
-              <excludeGroupIds>javax,org.eclipse.jetty.orbit,org.slf4j,org.ow2.asm</excludeGroupIds>
+              <excludeArtifactIds>javax,jetty-test-helper</excludeArtifactIds>
+              <excludeGroupIds>javax,org.eclipse.jetty.orbit,org.slf4j,org.ow2.asm,org.junit,org.apiguardian,org.opentest4j,org.hamcrest</excludeGroupIds>
               <outputDirectory>${project.build.directory}/classes</outputDirectory>
               <overWriteReleases>false</overWriteReleases>
               <overWriteSnapshots>true</overWriteSnapshots>
@@ -54,9 +51,10 @@
             </goals>
             <configuration>
               <classifier>sources</classifier>
-              <includes>**/*</includes>
+              <includes>org/eclipse/jetty/**</includes>
               <excludes>
                 META-INF/**,
+                **/module-info.class,
                 **/Servlet3Continuation*,
                 **/Jetty6Continuation*,
                 **/AppContextLeakPreventer*.java,
@@ -68,8 +66,8 @@
                 **/ResourcesAnnotationHandler*.java
               </excludes>
               <includeGroupIds>org.eclipse.jetty,org.eclipse.jetty.websocket</includeGroupIds>
-              <excludeArtifactIds>javax</excludeArtifactIds>
-              <excludeGroupIds>javax,org.eclipse.jetty.orbit,org.slf4j,org.ow2.asm</excludeGroupIds>
+              <excludeArtifactIds>javax,jetty-test-helper</excludeArtifactIds>
+              <excludeGroupIds>javax,org.eclipse.jetty.orbit,org.slf4j,org.ow2.asm,org.junit,org.apiguardian,org.opentest4j,org.hamcrest</excludeGroupIds>
               <outputDirectory>${project.build.directory}/sources</outputDirectory>
               <overWriteReleases>true</overWriteReleases>
               <overWriteSnapshots>true</overWriteSnapshots>
@@ -82,8 +80,7 @@
         <artifactId>maven-jar-plugin</artifactId>
         <configuration>
           <archive>
-            <manifest>
-            </manifest>
+            <manifest></manifest>
             <manifestEntries>
               <mode>development</mode>
               <url>https://eclipse.org/jetty</url>
@@ -99,7 +96,9 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
         <configuration>
-          <additionalparam>-Xdoclint:none &#45;&#45;allow-script-in-comments</additionalparam>
+          <!-- up to date javadoc syntax isn't supported under the compact3 limitations -->
+          <additionalOptions>-Xdoclint:none</additionalOptions>
+          <additionalJOption>-Xdoclint:none</additionalJOption>
         </configuration>
         <executions>
           <execution>
@@ -112,17 +111,6 @@
         </executions>
       </plugin>
     </plugins>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-pmd-plugin</artifactId>
-          <configuration>
-            <skip>true</skip>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
   </build>
 
   <dependencies>

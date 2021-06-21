@@ -2,15 +2,15 @@
   <parent>
     <groupId>org.eclipse.jetty</groupId>
     <artifactId>jetty-project</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-server</artifactId>
   <name>Jetty :: Server Core</name>
   <description>The core jetty server artifact.</description>
-  <url>http://www.eclipse.org/jetty</url>
   <properties>
     <bundle-symbolic-name>${project.groupId}.server</bundle-symbolic-name>
+    <spotbugs.onlyAnalyze>org.eclipse.jetty.server.*</spotbugs.onlyAnalyze>
   </properties>
   <build>
     <plugins>
@@ -25,13 +25,6 @@
             </goals>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>findbugs-maven-plugin</artifactId>
-        <configuration>
-          <onlyAnalyze>org.eclipse.jetty.server.*</onlyAnalyze>
-        </configuration>
       </plugin>
     </plugins>
   </build>
@@ -72,6 +65,12 @@
       <artifactId>jetty-http</artifactId>
       <version>${project.version}</version>
       <classifier>tests</classifier>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-util-ajax</artifactId>
+      <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -35,7 +35,8 @@ public enum FrameType
     CONTINUATION(9),
     // Synthetic frames only needed by the implementation.
     PREFACE(10),
-    DISCONNECT(11);
+    DISCONNECT(11),
+    FAILURE(12);
 
     public static FrameType from(int type)
     {
@@ -44,7 +45,7 @@ public enum FrameType
 
     private final int type;
 
-    private FrameType(int type)
+    FrameType(int type)
     {
         this.type = type;
         Types.types.put(type, this);

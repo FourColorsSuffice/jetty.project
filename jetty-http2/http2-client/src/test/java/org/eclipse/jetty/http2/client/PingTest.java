@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,8 +26,10 @@ import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.frames.PingFrame;
 import org.eclipse.jetty.util.Callback;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class PingTest extends AbstractTest
 {
@@ -44,8 +46,8 @@ public class PingTest extends AbstractTest
             @Override
             public void onPing(Session session, PingFrame frame)
             {
-                Assert.assertTrue(frame.isReply());
-                Assert.assertArrayEquals(payload, frame.getPayload());
+                assertTrue(frame.isReply());
+                assertArrayEquals(payload, frame.getPayload());
                 latch.countDown();
             }
         });
@@ -53,6 +55,6 @@ public class PingTest extends AbstractTest
         PingFrame frame = new PingFrame(payload, false);
         session.ping(frame, Callback.NOOP);
 
-        Assert.assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
     }
 }

@@ -3,14 +3,13 @@
   <parent>
     <groupId>org.eclipse.jetty.tests</groupId>
     <artifactId>test-webapps-parent</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.eclipse.jetty</groupId>
   <artifactId>test-jetty-webapp</artifactId>
   <name>Test :: Jetty Test Webapp</name>
-  <url>http://www.eclipse.org/jetty</url>
   <packaging>war</packaging>
   <properties>
     <bundle-symbolic-name>${project.groupId}.tests.webapp</bundle-symbolic-name>
@@ -93,16 +92,16 @@
         <artifactId>jetty-maven-plugin</artifactId>
         <version>${project.version}</version>
         <dependencies>
-            <dependency>
-                <groupId>org.eclipse.jetty</groupId>
-                <artifactId>jetty-client</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty</groupId>
-                <artifactId>jetty-servlets</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+          <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-client</artifactId>
+            <version>${project.version}</version>
+          </dependency>
+          <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-servlets</artifactId>
+            <version>${project.version}</version>
+          </dependency>
         </dependencies>
         <configuration>
           <stopPort>8087</stopPort>
@@ -196,7 +195,7 @@
     <dependency>
       <groupId>javax.servlet.jsp</groupId>
       <artifactId>jsp-api</artifactId>
-      <version>2.1</version>
+      <version>2.2</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
@@ -217,36 +216,36 @@
       <id>precompile-jsp</id>
       <build>
         <plugins>
-         <plugin>
-          <groupId>org.eclipse.jetty</groupId>
-          <artifactId>jetty-jspc-maven-plugin</artifactId>
-          <version>${project.version}</version>
-          <executions>
-            <execution>
-              <id>jspc</id>
-              <goals>
-                <goal>jspc</goal>
-              </goals>
-             <!-- example configuration
-              <configuration>
-                <includes>**/*.foo</includes>
-                <excludes>**/*.fff</excludes>
-                <sourceVersion>1.8</sourceVersion>
-                <targetVersion>1.8</targetVersion>
-              </configuration>
-              -->
-            </execution>
-          </executions>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-war-plugin</artifactId>
-          <configuration>
-            <webXml>${basedir}/target/web.xml</webXml>
-          </configuration>
-        </plugin>
-       </plugins>
-     </build>
+          <plugin>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-jspc-maven-plugin</artifactId>
+            <version>${project.version}</version>
+            <executions>
+              <execution>
+                <id>jspc</id>
+                <goals>
+                  <goal>jspc</goal>
+                </goals>
+                <!-- example configuration
+                 <configuration>
+                   <includes>**/*.foo</includes>
+                   <excludes>**/*.fff</excludes>
+                   <sourceVersion>1.8</sourceVersion>
+                   <targetVersion>1.8</targetVersion>
+                 </configuration>
+                 -->
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-war-plugin</artifactId>
+            <configuration>
+              <webXml>${basedir}/target/web.xml</webXml>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 </project>

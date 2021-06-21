@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,13 +14,14 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[configuring-deployment]]
 == Deploying to Jetty
 
 This chapter discusses various ways to deploy applications with Jetty.
 Topics range from deployment bindings to deploying third party products.
-It also includes information about the Deployment Manager, WebApp Provider, and Overlay Deployer.
+It also includes information about the Deployment Manager and WebApp Provider.
 
 include::anatomy-of-a-webapp.adoc[]
 include::automatic-webapp-deployment.adoc[]
@@ -29,4 +31,3 @@ include::static-content-deployment.adoc[]
 include::hot-deployment.adoc[]
 include::deployment-architecture.adoc[]
 include::quickstart-webapp.adoc[]
-//include::overlay-deployer.adoc[]

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,7 +19,6 @@
 package org.eclipse.jetty.security.authentication;
 
 import java.io.IOException;
-
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
@@ -35,6 +34,10 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.security.Constraint;
 
+/**
+ * @deprecated use {@link ConfigurableSpnegoAuthenticator} instead.
+ */
+@Deprecated
 public class SpnegoAuthenticator extends LoginAuthenticator
 {
     private static final Logger LOG = Log.getLogger(SpnegoAuthenticator.class);
@@ -45,10 +48,11 @@ public class SpnegoAuthenticator extends LoginAuthenticator
     }
 
     /**
-     * Allow for a custom authMethod value to be set for instances where SPENGO may not be appropriate
+     * Allow for a custom authMethod value to be set for instances where SPNEGO may not be appropriate
+     *
      * @param authMethod the auth method
      */
-    public SpnegoAuthenticator( String authMethod )
+    public SpnegoAuthenticator(String authMethod)
     {
         _authMethod = authMethod;
     }
@@ -66,45 +70,87 @@ public class SpnegoAuthenticator extends LoginAuthenticator
         HttpServletResponse res = (HttpServletResponse)response;
 
         String header = req.getHeader(HttpHeader.AUTHORIZATION.asString());
+        String authScheme = getAuthSchemeFromHeader(header);
 
         if (!mandatory)
         {
             return new DeferredAuthentication(this);
         }
 
-        // check to see if we have authorization headers required to continue
-        if ( header == null )
-        {
-            try
-            {
-                 if (DeferredAuthentication.isDeferred(res))
-                 {
-                     return Authentication.UNAUTHENTICATED;
-                 }
-
-                LOG.debug("SpengoAuthenticator: sending challenge");
-                res.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), HttpHeader.NEGOTIATE.asString());
-                res.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-                return Authentication.SEND_CONTINUE;
-            }
-            catch (IOException ioe)
-            {
-                throw new ServerAuthException(ioe);
-            }
-        }
-        else if (header != null && header.startsWith(HttpHeader.NEGOTIATE.asString()))
+        // The client has responded to the challenge we sent previously
+        if (header != null && isAuthSchemeNegotiate(authScheme))
         {
             String spnegoToken = header.substring(10);
 
-            UserIdentity user = login(null,spnegoToken, request);
+            UserIdentity user = login(null, spnegoToken, request);
 
-            if ( user != null )
+            if (user != null)
             {
-                return new UserAuthentication(getAuthMethod(),user);
+                return new UserAuthentication(getAuthMethod(), user);
             }
         }
 
-        return Authentication.UNAUTHENTICATED;
+        // A challenge should be sent if any of the following cases are true:
+        //   1. There was no Authorization header provided
+        //   2. There was an Authorization header for a type other than Negotiate
+        try
+        {
+            if (DeferredAuthentication.isDeferred(res))
+            {
+                return Authentication.UNAUTHENTICATED;
+            }
+
+            LOG.debug("Sending challenge");
+            res.setHeader(HttpHeader.WWW_AUTHENTICATE.asString(), HttpHeader.NEGOTIATE.asString());
+            res.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            return Authentication.SEND_CONTINUE;
+        }
+        catch (IOException ioe)
+        {
+            throw new ServerAuthException(ioe);
+        }
+    }
+
+    /**
+     * Extracts the auth_scheme from the HTTP Authorization header, {@code Authorization: <auth_scheme> <token>}.
+     *
+     * @param header The HTTP Authorization header or null.
+     * @return The parsed auth scheme from the header, or the empty string.
+     */
+    String getAuthSchemeFromHeader(String header)
+    {
+        // No header provided, return the empty string
+        if (header == null || header.isEmpty())
+        {
+            return "";
+        }
+        // Trim any leading whitespace
+        String trimmedHeader = header.trim();
+        // Find the first space, all characters prior should be the auth_scheme
+        int index = trimmedHeader.indexOf(' ');
+        if (index > 0)
+        {
+            return trimmedHeader.substring(0, index);
+        }
+        // If we don't find a space, this is likely malformed, just return the entire value
+        return trimmedHeader;
+    }
+
+    /**
+     * Determines if provided auth scheme text from the Authorization header is case-insensitively
+     * equal to {@code negotiate}.
+     *
+     * @param authScheme The auth scheme component of the Authorization header
+     * @return True if the auth scheme component is case-insensitively equal to {@code negotiate}, False otherwise.
+     */
+    boolean isAuthSchemeNegotiate(String authScheme)
+    {
+        if (authScheme == null || authScheme.length() != HttpHeader.NEGOTIATE.asString().length())
+        {
+            return false;
+        }
+        // Headers should be treated case-insensitively, so we have to jump through some extra hoops.
+        return authScheme.equalsIgnoreCase(HttpHeader.NEGOTIATE.asString());
     }
 
     @Override
@@ -112,5 +158,4 @@ public class SpnegoAuthenticator extends LoginAuthenticator
     {
         return true;
     }
-
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,23 +20,24 @@ package org.eclipse.jetty.embedded;
 
 import java.lang.management.ManagementFactory;
 
+import org.eclipse.jetty.io.ConnectionStatistics;
 import org.eclipse.jetty.jmx.MBeanContainer;
 import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.ServerConnectionStatistics;
 import org.eclipse.jetty.servlet.DefaultServlet;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 
 public class OneServletContextJmxStats
 {
-    public static void main( String[] args ) throws Exception
+    public static Server createServer(int port)
     {
-        Server server = new Server(8080);
+        Server server = new Server(port);
+
         // Add JMX tracking to Server
         server.addBean(new MBeanContainer(ManagementFactory
-                .getPlatformMBeanServer()));
+            .getPlatformMBeanServer()));
 
         ServletContextHandler context = new ServletContextHandler(
-                ServletContextHandler.SESSIONS);
+            ServletContextHandler.SESSIONS);
         context.setContextPath("/");
         server.setHandler(context);
 
@@ -44,7 +45,14 @@ public class OneServletContextJmxStats
         context.addServlet(DefaultServlet.class, "/");
 
         // Add Connector Statistics tracking to all connectors
-        ServerConnectionStatistics.addToAllConnectors(server);
+        server.addBeanToAllConnectors(new ConnectionStatistics());
+        return server;
+    }
+
+    public static void main(String[] args) throws Exception
+    {
+        int port = ExampleUtil.getPort(args, "jetty.http.port", 8080);
+        Server server = createServer(port);
 
         server.start();
         server.join();

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,6 +21,8 @@ package org.eclipse.jetty.websocket.client;
 import java.util.concurrent.Executor;
 
 import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.io.ByteBufferPool;
+import org.eclipse.jetty.io.MappedByteBufferPool;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.websocket.common.scopes.WebSocketContainerScope;
@@ -31,18 +33,22 @@ class DefaultHttpClientProvider
     {
         SslContextFactory sslContextFactory = null;
         Executor executor = null;
-        
+        ByteBufferPool bufferPool = null;
+
         if (scope != null)
         {
             sslContextFactory = scope.getSslContextFactory();
             executor = scope.getExecutor();
+            bufferPool = scope.getBufferPool();
         }
-        
+
         if (sslContextFactory == null)
         {
-            sslContextFactory = new SslContextFactory();
+            sslContextFactory = new SslContextFactory.Client();
+            sslContextFactory.setTrustAll(false);
+            sslContextFactory.setEndpointIdentificationAlgorithm("HTTPS");
         }
-        
+
         HttpClient client = new HttpClient(sslContextFactory);
         if (executor == null)
         {
@@ -53,6 +59,13 @@ class DefaultHttpClientProvider
             executor = threadPool;
         }
         client.setExecutor(executor);
+
+        if (bufferPool == null)
+        {
+            bufferPool = new MappedByteBufferPool();
+        }
+        client.setByteBufferPool(bufferPool);
+
         return client;
     }
 }

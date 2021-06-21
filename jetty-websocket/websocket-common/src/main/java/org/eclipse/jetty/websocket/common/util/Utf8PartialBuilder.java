@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.websocket.common.util;
 
 import java.nio.ByteBuffer;
 
-import org.eclipse.jetty.util.Utf8Appendable;
 import org.eclipse.jetty.util.Utf8StringBuilder;
 
 /**
@@ -30,22 +29,13 @@ import org.eclipse.jetty.util.Utf8StringBuilder;
  * A call to {@link #toPartialString(ByteBuffer)} will return the section of the String from the start to the last
  * completed UTF8 sequence. Leaving incomplete sequences for a subsequent call to complete.
  */
+@Deprecated
 public class Utf8PartialBuilder
 {
-    private final StringBuilder str;
-    private final Utf8Appendable utf8;
+    private final Utf8StringBuilder utf8 = new Utf8StringBuilder();
 
     public Utf8PartialBuilder()
     {
-        this.str = new StringBuilder();
-        this.utf8 = new Utf8Appendable(str)
-        {
-            @Override
-            public int length()
-            {
-                return str.length();
-            }
-        };
     }
 
     public String toPartialString(ByteBuffer buf)
@@ -56,8 +46,6 @@ public class Utf8PartialBuilder
             return "";
         }
         utf8.append(buf);
-        String ret = str.toString();
-        str.setLength(0);
-        return ret;
+        return utf8.takePartialString();
     }
 }

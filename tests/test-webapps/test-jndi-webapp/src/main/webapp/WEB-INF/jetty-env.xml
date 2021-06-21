@@ -1,5 +1,4 @@
-<?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Mort Bay Consulting//DTD Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
+<?xml version="1.0"?><!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
 
 <Configure id='wac' class="org.eclipse.jetty.webapp.WebAppContext">
 
@@ -27,7 +26,18 @@
   </New>
 
 
-
+ <New class="org.eclipse.jetty.plus.jndi.EnvEntry">
+   <Arg><Ref refid='wac'/></Arg>
+   <Arg>svr</Arg>
+   <Arg type="java.lang.String">
+     <Ref refid="Server">
+       <Get name="class">
+         <Get name="name"/>
+       </Get>
+     </Ref>
+   </Arg>
+   <Arg type="boolean">true</Arg>
+ </New>
 
 
 </Configure>

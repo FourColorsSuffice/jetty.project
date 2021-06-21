@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,31 +18,26 @@
 
 package org.eclipse.jetty.server.session;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * ClusteredOrphanedSessionTest
  */
+@Testcontainers(disabledWithoutDocker = true)
 public class ClusteredOrphanedSessionTest extends AbstractClusteredOrphanedSessionTest
 {
-    /** 
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
     public SessionDataStoreFactory createSessionDataStoreFactory()
     {
-       return JdbcTestHelper.newSessionDataStoreFactory();
+        return JdbcTestHelper.newSessionDataStoreFactory();
     }
 
-    @Test
-    public void testOrphanedSession() throws Exception
-    {
-        super.testOrphanedSession();
-    }
-    
-    @After
-    public void tearDown() throws Exception 
+    @AfterEach
+    public void tearDown() throws Exception
     {
         JdbcTestHelper.shutdown(null);
     }

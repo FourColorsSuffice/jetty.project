@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,11 +21,10 @@ package org.eclipse.jetty.server;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
-
+import java.util.concurrent.TimeUnit;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -40,19 +39,20 @@ import org.eclipse.jetty.io.SocketChannelEndPoint;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
 
 /**
  * Extended Server Tester.
  */
 public class ExtendedServerTest extends HttpServerTestBase
 {
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
-        startServer(new ServerConnector(_server,new HttpConnectionFactory()
+        startServer(new ServerConnector(_server, new HttpConnectionFactory()
         {
             @Override
             public Connection newConnection(Connector connector, EndPoint endPoint)
@@ -64,9 +64,8 @@ public class ExtendedServerTest extends HttpServerTestBase
             @Override
             protected ChannelEndPoint newEndPoint(SocketChannel channel, ManagedSelector selectSet, SelectionKey key) throws IOException
             {
-                return new ExtendedEndPoint(channel,selectSet,key, getScheduler());
+                return new ExtendedEndPoint(channel, selectSet, key, getScheduler());
             }
-
         });
     }
 
@@ -74,20 +73,15 @@ public class ExtendedServerTest extends HttpServerTestBase
     {
         private volatile long _lastSelected;
 
-        public ExtendedEndPoint(SelectableChannel channel, ManagedSelector selector, SelectionKey key, Scheduler scheduler)
-        {
-            super(channel,selector,key,scheduler);
-        }
-
         public ExtendedEndPoint(SocketChannel channel, ManagedSelector selector, SelectionKey key, Scheduler scheduler)
         {
-            super(channel,selector,key,scheduler);
+            super(channel, selector, key, scheduler);
         }
 
         @Override
         public Runnable onSelected()
         {
-            _lastSelected=System.currentTimeMillis();
+            _lastSelected = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
             return super.onSelected();
         }
 
@@ -101,7 +95,7 @@ public class ExtendedServerTest extends HttpServerTestBase
     {
         public ExtendedHttpConnection(HttpConfiguration config, Connector connector, EndPoint endPoint)
         {
-            super(config,connector,endPoint,HttpCompliance.RFC7230,false);
+            super(config, connector, endPoint, HttpCompliance.RFC7230_LEGACY, false);
         }
 
         @Override
@@ -112,8 +106,8 @@ public class ExtendedServerTest extends HttpServerTestBase
                 @Override
                 public boolean startRequest(String method, String uri, HttpVersion version)
                 {
-                    getRequest().setAttribute("DispatchedAt",((ExtendedEndPoint)getEndPoint()).getLastSelected());
-                    return super.startRequest(method,uri,version);
+                    getRequest().setAttribute("DispatchedAt", ((ExtendedEndPoint)getEndPoint()).getLastSelected());
+                    return super.startRequest(method, uri, version);
                 }
             };
         }
@@ -128,28 +122,27 @@ public class ExtendedServerTest extends HttpServerTestBase
         {
             OutputStream os = client.getOutputStream();
 
-            long start=System.currentTimeMillis();
+            long start = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
             os.write("GET / HTTP/1.0\r\n".getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
             Thread.sleep(200);
-            long end=System.currentTimeMillis();
+            long end = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
             os.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
-            
+
             // Read the response.
             String response = readResponse(client);
 
-            Assert.assertThat(response, Matchers.containsString("HTTP/1.1 200 OK"));
-            Assert.assertThat(response, Matchers.containsString("DispatchedAt="));
-            
-            String s=response.substring(response.indexOf("DispatchedAt=")+13);
-            s=s.substring(0,s.indexOf('\n'));
-            long dispatched=Long.valueOf(s);
-            
-            Assert.assertThat(dispatched, Matchers.greaterThanOrEqualTo(start));
-            Assert.assertThat(dispatched, Matchers.lessThan(end));
+            assertThat(response, Matchers.containsString("HTTP/1.1 200 OK"));
+            assertThat(response, Matchers.containsString("DispatchedAt="));
+
+            String s = response.substring(response.indexOf("DispatchedAt=") + 13);
+            s = s.substring(0, s.indexOf('\n'));
+            long dispatched = Long.parseLong(s);
+
+            assertThat(dispatched, Matchers.greaterThanOrEqualTo(start));
+            assertThat(dispatched, Matchers.lessThan(end));
         }
     }
-    
 
     protected static class DispatchedAtHandler extends AbstractHandler
     {
@@ -158,7 +151,7 @@ public class ExtendedServerTest extends HttpServerTestBase
         {
             baseRequest.setHandled(true);
             response.setStatus(200);
-            response.getOutputStream().print("DispatchedAt="+request.getAttribute("DispatchedAt")+"\r\n");
+            response.getOutputStream().print("DispatchedAt=" + request.getAttribute("DispatchedAt") + "\r\n");
         }
     }
 }

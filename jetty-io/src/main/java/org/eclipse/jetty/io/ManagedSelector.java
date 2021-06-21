@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -23,34 +23,38 @@ import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Queue;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.util.annotation.ManagedAttribute;
+import org.eclipse.jetty.util.annotation.ManagedOperation;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
+import org.eclipse.jetty.util.component.DumpableCollection;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
+import org.eclipse.jetty.util.statistic.SampleStatistic;
 import org.eclipse.jetty.util.thread.ExecutionStrategy;
-import org.eclipse.jetty.util.thread.Invocable;
-import org.eclipse.jetty.util.thread.Invocable.InvocationType;
-import org.eclipse.jetty.util.thread.Locker;
 import org.eclipse.jetty.util.thread.Scheduler;
 import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
-import org.eclipse.jetty.util.thread.strategy.ExecuteProduceConsume;
-import org.eclipse.jetty.util.thread.strategy.ProduceExecuteConsume;
 
 /**
  * <p>{@link ManagedSelector} wraps a {@link Selector} simplifying non-blocking operations on channels.</p>
@@ -61,14 +65,31 @@ import org.eclipse.jetty.util.thread.strategy.ProduceExecuteConsume;
 public class ManagedSelector extends ContainerLifeCycle implements Dumpable
 {
     private static final Logger LOG = Log.getLogger(ManagedSelector.class);
+    private static final boolean FORCE_SELECT_NOW;
 
-    private final Locker _locker = new Locker();
-    private boolean _selecting = false;
-    private final Queue<Runnable> _actions = new ArrayDeque<>();
+    static
+    {
+        String property = System.getProperty("org.eclipse.jetty.io.forceSelectNow");
+        if (property != null)
+        {
+            FORCE_SELECT_NOW = Boolean.parseBoolean(property);
+        }
+        else
+        {
+            property = System.getProperty("os.name");
+            FORCE_SELECT_NOW = property != null && property.toLowerCase(Locale.ENGLISH).contains("windows");
+        }
+    }
+
+    private final AtomicBoolean _started = new AtomicBoolean(false);
+    private boolean _selecting;
     private final SelectorManager _selectorManager;
     private final int _id;
     private final ExecutionStrategy _strategy;
     private Selector _selector;
+    private Deque<SelectorUpdate> _updates = new ArrayDeque<>();
+    private Deque<SelectorUpdate> _updateable = new ArrayDeque<>();
+    private final SampleStatistic _keyStats = new SampleStatistic();
 
     public ManagedSelector(SelectorManager selectorManager, int id)
     {
@@ -76,9 +97,14 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         _id = id;
         SelectorProducer producer = new SelectorProducer();
         Executor executor = selectorManager.getExecutor();
-        _strategy = new EatWhatYouKill(producer,executor);            
-        addBean(_strategy);
+        _strategy = new EatWhatYouKill(producer, executor);
+        addBean(_strategy, true);
         setStopTimeout(5000);
+    }
+
+    public Selector getSelector()
+    {
+        return _selector;
     }
 
     @Override
@@ -94,6 +120,143 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         // The normal strategy obtains the produced task, schedules
         // a new thread to produce more, runs the task and then exits.
         _selectorManager.execute(_strategy::produce);
+
+        // Set started only if we really are started
+        Start start = new Start();
+        submit(start);
+        start._started.await();
+    }
+
+    @Override
+    protected void doStop() throws Exception
+    {
+        // doStop might be called for a failed managedSelector,
+        // We do not want to wait twice, so we only stop once for each start
+        if (_started.compareAndSet(true, false) && _selector != null)
+        {
+            // Close connections, but only wait a single selector cycle for it to take effect
+            CloseConnections closeConnections = new CloseConnections();
+            submit(closeConnections);
+            closeConnections._complete.await();
+
+            // Wait for any remaining endpoints to be closed and the selector to be stopped
+            StopSelector stopSelector = new StopSelector();
+            submit(stopSelector);
+            stopSelector._stopped.await();
+        }
+
+        super.doStop();
+    }
+
+    @ManagedAttribute(value = "Total number of keys", readonly = true)
+    public int getTotalKeys()
+    {
+        return _selector.keys().size();
+    }
+
+    @ManagedAttribute(value = "Average number of selected keys", readonly = true)
+    public double getAverageSelectedKeys()
+    {
+        return _keyStats.getMean();
+    }
+
+    @ManagedAttribute(value = "Maximum number of selected keys", readonly = true)
+    public double getMaxSelectedKeys()
+    {
+        return _keyStats.getMax();
+    }
+
+    @ManagedAttribute(value = "Total number of select() calls", readonly = true)
+    public long getSelectCount()
+    {
+        return _keyStats.getCount();
+    }
+
+    @ManagedOperation(value = "Resets the statistics", impact = "ACTION")
+    public void resetStats()
+    {
+        _keyStats.reset();
+    }
+
+    protected int nioSelect(Selector selector, boolean now) throws IOException
+    {
+        return now ? selector.selectNow() : selector.select();
+    }
+
+    protected int select(Selector selector) throws IOException
+    {
+        try
+        {
+            int selected = nioSelect(selector, false);
+            if (selected == 0)
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Selector {} woken with none selected", selector);
+
+                if (Thread.interrupted() && !isRunning())
+                    throw new ClosedSelectorException();
+
+                if (FORCE_SELECT_NOW)
+                    selected = nioSelect(selector, true);
+            }
+            return selected;
+        }
+        catch (ClosedSelectorException x)
+        {
+            throw x;
+        }
+        catch (Throwable x)
+        {
+            handleSelectFailure(selector, x);
+            return 0;
+        }
+    }
+
+    protected void handleSelectFailure(Selector selector, Throwable failure) throws IOException
+    {
+        LOG.info("Caught select() failure, trying to recover: {}", failure.toString());
+        if (LOG.isDebugEnabled())
+            LOG.debug(failure);
+
+        Selector newSelector = _selectorManager.newSelector();
+        for (SelectionKey oldKey : selector.keys())
+        {
+            SelectableChannel channel = oldKey.channel();
+            int interestOps = safeInterestOps(oldKey);
+            if (interestOps >= 0)
+            {
+                try
+                {
+                    Object attachment = oldKey.attachment();
+                    SelectionKey newKey = channel.register(newSelector, interestOps, attachment);
+                    if (attachment instanceof Selectable)
+                        ((Selectable)attachment).replaceKey(newKey);
+                    oldKey.cancel();
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Transferred {} iOps={} att={}", channel, interestOps, attachment);
+                }
+                catch (Throwable t)
+                {
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Could not transfer {}", channel, t);
+                    IO.close(channel);
+                }
+            }
+            else
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("Invalid interestOps for {}", channel);
+                IO.close(channel);
+            }
+        }
+
+        IO.close(selector);
+        _selector = newSelector;
+    }
+
+    protected void onSelectFailed(Throwable cause)
+    {
+        // override to change behavior
     }
 
     public int size()
@@ -101,45 +264,233 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         Selector s = _selector;
         if (s == null)
             return 0;
-        return s.keys().size();
+        Set<SelectionKey> keys = s.keys();
+        if (keys == null)
+            return 0;
+        return keys.size();
     }
 
-    @Override
-    protected void doStop() throws Exception
+    /**
+     * Submit an {@link SelectorUpdate} to be acted on between calls to {@link Selector#select()}
+     *
+     * @param update The selector update to apply at next wakeup
+     */
+    public void submit(SelectorUpdate update)
     {
-        if (LOG.isDebugEnabled())
-            LOG.debug("Stopping {}", this);
-        CloseEndPoints close_endps = new CloseEndPoints();
-        submit(close_endps);
-        close_endps.await(getStopTimeout());
-        CloseSelector close_selector = new CloseSelector();
-        submit(close_selector);
-        close_selector.await(getStopTimeout());
-
-        super.doStop();
-        
-        if (LOG.isDebugEnabled())
-            LOG.debug("Stopped {}", this);
+        submit(update, false);
     }
 
-    public void submit(Runnable change)
+    private void submit(SelectorUpdate update, boolean lazy)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("Queued change {} on {}", change, this);
+            LOG.debug("Queued change lazy={} {} on {}", lazy, update, this);
 
         Selector selector = null;
-        try (Locker.Lock lock = _locker.lock())
+        synchronized (ManagedSelector.this)
         {
-            _actions.offer(change);
-            if (_selecting)
+            _updates.offer(update);
+
+            if (_selecting && !lazy)
             {
                 selector = _selector;
                 // To avoid the extra select wakeup.
                 _selecting = false;
             }
         }
+
+        if (selector != null)
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("Wakeup on submit {}", this);
+            selector.wakeup();
+        }
+    }
+
+    private void wakeup()
+    {
+        if (LOG.isDebugEnabled())
+            LOG.debug("Wakeup {}", this);
+
+        Selector selector = null;
+        synchronized (ManagedSelector.this)
+        {
+            if (_selecting)
+            {
+                selector = _selector;
+                _selecting = false;
+            }
+        }
+
         if (selector != null)
             selector.wakeup();
+    }
+
+    private void execute(Runnable task)
+    {
+        try
+        {
+            _selectorManager.execute(task);
+        }
+        catch (RejectedExecutionException x)
+        {
+            if (task instanceof Closeable)
+                IO.close((Closeable)task);
+        }
+    }
+
+    private void processConnect(SelectionKey key, Connect connect)
+    {
+        SelectableChannel channel = key.channel();
+        try
+        {
+            key.attach(connect.attachment);
+            boolean connected = _selectorManager.doFinishConnect(channel);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Connected {} {}", connected, channel);
+            if (connected)
+            {
+                if (connect.timeout.cancel())
+                {
+                    key.interestOps(0);
+                    execute(new CreateEndPoint(connect, key));
+                }
+                else
+                {
+                    throw new SocketTimeoutException("Concurrent Connect Timeout");
+                }
+            }
+            else
+            {
+                throw new ConnectException();
+            }
+        }
+        catch (Throwable x)
+        {
+            connect.failed(x);
+        }
+    }
+
+    protected void endPointOpened(EndPoint endPoint)
+    {
+        _selectorManager.endPointOpened(endPoint);
+    }
+
+    protected void endPointClosed(EndPoint endPoint)
+    {
+        _selectorManager.endPointClosed(endPoint);
+    }
+
+    private void createEndPoint(SelectableChannel channel, SelectionKey selectionKey) throws IOException
+    {
+        EndPoint endPoint = _selectorManager.newEndPoint(channel, this, selectionKey);
+        Connection connection = _selectorManager.newConnection(channel, endPoint, selectionKey.attachment());
+        endPoint.setConnection(connection);
+        submit(selector ->
+        {
+            SelectionKey key = selectionKey;
+            if (key.selector() != selector)
+            {
+                key = channel.keyFor(selector);
+                if (key != null && endPoint instanceof Selectable)
+                    ((Selectable)endPoint).replaceKey(key);
+            }
+            if (key != null)
+                key.attach(endPoint);
+        }, true);
+        endPoint.onOpen();
+        endPointOpened(endPoint);
+        _selectorManager.connectionOpened(connection);
+        if (LOG.isDebugEnabled())
+            LOG.debug("Created {}", endPoint);
+    }
+
+    void destroyEndPoint(EndPoint endPoint)
+    {
+        // Waking up the selector is necessary to clean the
+        // cancelled-key set and tell the TCP stack that the
+        // socket is closed (so that senders receive RST).
+        wakeup();
+        execute(new DestroyEndPoint(endPoint));
+    }
+
+    private int getActionSize()
+    {
+        synchronized (ManagedSelector.this)
+        {
+            return _updates.size();
+        }
+    }
+
+    static int safeReadyOps(SelectionKey selectionKey)
+    {
+        try
+        {
+            return selectionKey.readyOps();
+        }
+        catch (Throwable x)
+        {
+            LOG.ignore(x);
+            return -1;
+        }
+    }
+
+    static int safeInterestOps(SelectionKey selectionKey)
+    {
+        try
+        {
+            return selectionKey.interestOps();
+        }
+        catch (Throwable x)
+        {
+            LOG.ignore(x);
+            return -1;
+        }
+    }
+
+    @Override
+    public void dump(Appendable out, String indent) throws IOException
+    {
+        List<String> keys;
+        List<SelectorUpdate> updates;
+        Selector selector = _selector;
+        if (selector != null && selector.isOpen())
+        {
+            DumpKeys dump = new DumpKeys();
+            String updatesAt = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(ZonedDateTime.now());
+            synchronized (ManagedSelector.this)
+            {
+                updates = new ArrayList<>(_updates);
+                _updates.addFirst(dump);
+                _selecting = false;
+            }
+            if (LOG.isDebugEnabled())
+                LOG.debug("wakeup on dump {}", this);
+            selector.wakeup();
+            keys = dump.get(5, TimeUnit.SECONDS);
+            String keysAt = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(ZonedDateTime.now());
+            if (keys == null)
+                keys = Collections.singletonList("No dump keys retrieved");
+
+            dumpObjects(out, indent,
+                new DumpableCollection("updates @ " + updatesAt, updates),
+                new DumpableCollection("keys @ " + keysAt, keys));
+        }
+        else
+        {
+            dumpObjects(out, indent);
+        }
+    }
+
+    @Override
+    public String toString()
+    {
+        Selector selector = _selector;
+        return String.format("%s id=%s keys=%d selected=%d updates=%d",
+            super.toString(),
+            _id,
+            selector != null && selector.isOpen() ? selector.keys().size() : -1,
+            selector != null && selector.isOpen() ? selector.selectedKeys().size() : -1,
+            getActionSize());
     }
 
     /**
@@ -161,8 +512,15 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
          * {@link ManagedSelector} for this endpoint have been processed.
          */
         void updateKey();
-    }
 
+        /**
+         * Callback method invoked when the SelectionKey is replaced
+         * because the channel has been moved to a new selector.
+         *
+         * @param newKey the new SelectionKey
+         */
+        void replaceKey(SelectionKey newKey);
+    }
 
     private class SelectorProducer implements ExecutionStrategy.Producer
     {
@@ -178,47 +536,61 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
                 if (task != null)
                     return task;
 
-                Runnable action = nextAction();
-                if (action != null)
-                    return action;
+                processUpdates();
 
-                update();
+                updateKeys();
 
                 if (!select())
                     return null;
             }
         }
 
-        private Runnable nextAction()
+        private void processUpdates()
         {
-            while (true)
+            synchronized (ManagedSelector.this)
             {
-                Runnable action;
-                try (Locker.Lock lock = _locker.lock())
-                {
-                    action = _actions.poll();
-                    if (action == null)
-                    {
-                        // No more actions, so we need to select
-                        _selecting = true;
-                        return null;
-                    }
-                }
+                Deque<SelectorUpdate> updates = _updates;
+                _updates = _updateable;
+                _updateable = updates;
+            }
 
-                if (Invocable.getInvocationType(action)==InvocationType.BLOCKING)
-                    return action;
+            if (LOG.isDebugEnabled())
+                LOG.debug("updateable {}", _updateable.size());
 
+            for (SelectorUpdate update : _updateable)
+            {
+                if (_selector == null)
+                    break;
                 try
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Running action {}", action);
-                    // Running the change may queue another action.
-                    action.run();
+                        LOG.debug("update {}", update);
+                    update.update(_selector);
                 }
-                catch (Throwable x)
+                catch (Throwable ex)
                 {
-                    LOG.debug("Could not run action " + action, x);
+                    LOG.warn(ex);
                 }
+            }
+            _updateable.clear();
+
+            Selector selector;
+            int updates;
+            synchronized (ManagedSelector.this)
+            {
+                updates = _updates.size();
+                _selecting = updates == 0;
+                selector = _selecting ? null : _selector;
+            }
+
+            if (LOG.isDebugEnabled())
+                LOG.debug("updates {}", updates);
+
+            if (selector != null)
+            {
+                if (LOG.isDebugEnabled())
+                    LOG.debug("wakeup on updates {}", this);
+                selector.wakeup();
             }
         }
 
@@ -227,33 +599,54 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
             try
             {
                 Selector selector = _selector;
-                if (selector != null && selector.isOpen())
+                if (selector != null)
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Selector loop waiting on select");
-                    int selected = selector.select();
-                    if (LOG.isDebugEnabled())
-                        LOG.debug("Selector loop woken up from select, {}/{} selected", selected, selector.keys().size());
-
-                    try (Locker.Lock lock = _locker.lock())
+                        LOG.debug("Selector {} waiting with {} keys", selector, selector.keys().size());
+                    int selected = ManagedSelector.this.select(selector);
+                    // The selector may have been recreated.
+                    selector = _selector;
+                    if (selector != null)
                     {
-                        // finished selecting
-                        _selecting = false;
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Selector {} woken up from select, {}/{}/{} selected", selector, selected, selector.selectedKeys().size(), selector.keys().size());
+
+                        int updates;
+                        synchronized (ManagedSelector.this)
+                        {
+                            // finished selecting
+                            _selecting = false;
+                            updates = _updates.size();
+                        }
+
+                        _keys = selector.selectedKeys();
+                        int selectedKeys = _keys.size();
+                        if (selectedKeys > 0)
+                            _keyStats.record(selectedKeys);
+                        _cursor = selectedKeys > 0 ? _keys.iterator() : Collections.emptyIterator();
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Selector {} processing {} keys, {} updates", selector, selectedKeys, updates);
+
+                        return true;
                     }
-
-                    _keys = selector.selectedKeys();
-                    _cursor = _keys.iterator();
-
-                    return true;
                 }
             }
             catch (Throwable x)
             {
-                closeNoExceptions(_selector);
+                IO.close(_selector);
+                _selector = null;
+
                 if (isRunning())
-                    LOG.warn(x);
+                {
+                    LOG.warn("Fatal select() failure", x);
+                    onSelectFailed(x);
+                }
                 else
-                    LOG.debug(x);
+                {
+                    LOG.warn(x.toString());
+                    if (LOG.isDebugEnabled())
+                        LOG.debug(x);
+                }
             }
             return false;
         }
@@ -263,11 +656,12 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
             while (_cursor.hasNext())
             {
                 SelectionKey key = _cursor.next();
+                Object attachment = key.attachment();
+                SelectableChannel channel = key.channel();
                 if (key.isValid())
                 {
-                    Object attachment = key.attachment();
                     if (LOG.isDebugEnabled())
-                        LOG.debug("selected {} {} ",key,attachment);
+                        LOG.debug("selected {} {} {} ", safeReadyOps(key), key, attachment);
                     try
                     {
                         if (attachment instanceof Selectable)
@@ -279,320 +673,213 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
                         }
                         else if (key.isConnectable())
                         {
-                            Runnable task = processConnect(key, (Connect)attachment);
-                            if (task != null)
-                                return task;
-                        }
-                        else if (key.isAcceptable())
-                        {
-                            processAccept(key);
+                            processConnect(key, (Connect)attachment);
                         }
                         else
                         {
-                            throw new IllegalStateException("key=" + key + ", att=" + attachment + ", iOps=" + key.interestOps() + ", rOps=" + key.readyOps());
+                            throw new IllegalStateException("key=" + key + ", att=" + attachment + ", iOps=" + safeInterestOps(key) + ", rOps=" + safeReadyOps(key));
                         }
                     }
                     catch (CancelledKeyException x)
                     {
-                        LOG.debug("Ignoring cancelled key for channel {}", key.channel());
-                        if (attachment instanceof EndPoint)
-                            closeNoExceptions((EndPoint)attachment);
+                        if (LOG.isDebugEnabled())
+                            LOG.debug("Ignoring cancelled key for channel {}", channel);
+                        IO.close(attachment instanceof EndPoint ? (EndPoint)attachment : channel);
                     }
                     catch (Throwable x)
                     {
-                        LOG.warn("Could not process key for channel " + key.channel(), x);
-                        if (attachment instanceof EndPoint)
-                            closeNoExceptions((EndPoint)attachment);
+                        LOG.warn("Could not process key for channel {}", channel, x);
+                        IO.close(attachment instanceof EndPoint ? (EndPoint)attachment : channel);
                     }
                 }
                 else
                 {
                     if (LOG.isDebugEnabled())
-                        LOG.debug("Selector loop ignoring invalid key for channel {}", key.channel());
-                    Object attachment = key.attachment();
-                    if (attachment instanceof EndPoint)
-                        closeNoExceptions((EndPoint)attachment);
+                        LOG.debug("Selector loop ignoring invalid key for channel {}", channel);
+                    IO.close(attachment instanceof EndPoint ? (EndPoint)attachment : channel);
                 }
             }
             return null;
         }
 
-        private void update()
+        private void updateKeys()
         {
+            // Do update keys for only previously selected keys.
+            // This will update only those keys whose selection did not cause an
+            // updateKeys update to be submitted.
             for (SelectionKey key : _keys)
-                updateKey(key);
+            {
+                Object attachment = key.attachment();
+                if (attachment instanceof Selectable)
+                    ((Selectable)attachment).updateKey();
+            }
             _keys.clear();
         }
 
-        private void updateKey(SelectionKey key)
-        {
-            Object attachment = key.attachment();
-            if (attachment instanceof Selectable)
-                ((Selectable)attachment).updateKey();
-        }
-    }
-    
-    private abstract static class NonBlockingAction implements Runnable, Invocable
-    {
         @Override
-        public final InvocationType getInvocationType()
+        public String toString()
         {
-            return InvocationType.NON_BLOCKING;
+            return String.format("%s@%x", getClass().getSimpleName(), hashCode());
         }
     }
 
-    private Runnable processConnect(SelectionKey key, final Connect connect)
+    /**
+     * A selector update to be done when the selector has been woken.
+     */
+    public interface SelectorUpdate
     {
-        SelectableChannel channel = key.channel();
-        try
+        void update(Selector selector);
+    }
+
+    private class Start implements SelectorUpdate
+    {
+        private final CountDownLatch _started = new CountDownLatch(1);
+
+        @Override
+        public void update(Selector selector)
         {
-            key.attach(connect.attachment);
-            boolean connected = _selectorManager.doFinishConnect(channel);
-            if (LOG.isDebugEnabled())
-                LOG.debug("Connected {} {}", connected, channel);
-            if (connected)
-            {
-                if (connect.timeout.cancel())
-                {
-                    key.interestOps(0);
-                    return new CreateEndPoint(channel, key)
-                    {
-                        @Override
-                        protected void failed(Throwable failure)
-                        {
-                            super.failed(failure);
-                            connect.failed(failure);
-                        }
-                    };
-                }
-                else
-                {
-                    throw new SocketTimeoutException("Concurrent Connect Timeout");
-                }
-            }
-            else
-            {
-                throw new ConnectException();
-            }
-        }
-        catch (Throwable x)
-        {
-            connect.failed(x);
-            return null;
+            ManagedSelector.this._started.set(true);
+            _started.countDown();
         }
     }
 
-    private void processAccept(SelectionKey key)
-    {
-        SelectableChannel server = key.channel();
-        SelectableChannel channel = null;
-        try
-        {
-            while(true)
-            {
-                channel = _selectorManager.doAccept(server);
-                if (channel==null)
-                    break;
-                _selectorManager.accepted(channel);
-            }
-        }
-        catch (Throwable x)
-        {
-            closeNoExceptions(channel);
-            LOG.warn("Accept failed for channel " + channel, x);
-        }
-    }
-
-    private void closeNoExceptions(Closeable closeable)
-    {
-        try
-        {
-            if (closeable != null)
-                closeable.close();
-        }
-        catch (Throwable x)
-        {
-            LOG.ignore(x);
-        }
-    }
-
-    private EndPoint createEndPoint(SelectableChannel channel, SelectionKey selectionKey) throws IOException
-    {
-        EndPoint endPoint = _selectorManager.newEndPoint(channel, this, selectionKey);
-        endPoint.onOpen();
-        _selectorManager.endPointOpened(endPoint);
-        Connection connection = _selectorManager.newConnection(channel, endPoint, selectionKey.attachment());
-        endPoint.setConnection(connection);
-        selectionKey.attach(endPoint);
-        _selectorManager.connectionOpened(connection);
-        if (LOG.isDebugEnabled())
-            LOG.debug("Created {}", endPoint);
-        return endPoint;
-    }
-
-    public void destroyEndPoint(final EndPoint endPoint)
-    {
-        final Connection connection = endPoint.getConnection();
-        submit(() ->
-        {
-            if (LOG.isDebugEnabled())
-                LOG.debug("Destroyed {}", endPoint);
-            if (connection != null)
-                _selectorManager.connectionClosed(connection);
-            _selectorManager.endPointClosed(endPoint);
-        });
-    }
-
-    @Override
-    public String dump()
-    {
-        return ContainerLifeCycle.dump(this);
-    }
-
-    @Override
-    public void dump(Appendable out, String indent) throws IOException
-    {
-        out.append(String.valueOf(this)).append(" id=").append(String.valueOf(_id)).append(System.lineSeparator());
-
-        Selector selector = _selector;
-        if (selector != null && selector.isOpen())
-        {
-            final ArrayList<Object> dump = new ArrayList<>(selector.keys().size() * 2);
-
-            DumpKeys dumpKeys = new DumpKeys(dump);
-            submit(dumpKeys);
-            dumpKeys.await(5, TimeUnit.SECONDS);
-
-            ContainerLifeCycle.dump(out, indent, dump);
-        }
-    }
-
-    @Override
-    public String toString()
-    {
-        Selector selector = _selector;
-        return String.format("%s id=%s keys=%d selected=%d",
-                super.toString(),
-                _id,
-                selector != null && selector.isOpen() ? selector.keys().size() : -1,
-                selector != null && selector.isOpen() ? selector.selectedKeys().size() : -1);
-    }
-
-    private class DumpKeys implements Runnable
+    private static class DumpKeys implements SelectorUpdate
     {
         private final CountDownLatch latch = new CountDownLatch(1);
-        private final List<Object> _dumps;
-
-        private DumpKeys(List<Object> dumps)
-        {
-            this._dumps = dumps;
-        }
+        private List<String> keys;
 
         @Override
-        public void run()
+        public void update(Selector selector)
         {
-            Selector selector = _selector;
-            if (selector != null && selector.isOpen())
+            Set<SelectionKey> selectionKeys = selector.keys();
+            List<String> list = new ArrayList<>(selectionKeys.size());
+            for (SelectionKey key : selectionKeys)
             {
-                Set<SelectionKey> keys = selector.keys();
-                _dumps.add(selector + " keys=" + keys.size());
-                for (SelectionKey key : keys)
-                {
-                    try
-                    {
-                        _dumps.add(String.format("SelectionKey@%x{i=%d}->%s", key.hashCode(), key.interestOps(), key.attachment()));
-                    }
-                    catch (Throwable x)
-                    {
-                        LOG.ignore(x);
-                    }
-                }
+                if (key != null)
+                    list.add(String.format("SelectionKey@%x{i=%d}->%s", key.hashCode(), safeInterestOps(key), key.attachment()));
             }
+            keys = list;
             latch.countDown();
         }
 
-        public boolean await(long timeout, TimeUnit unit)
+        public List<String> get(long timeout, TimeUnit unit)
         {
             try
             {
-                return latch.await(timeout, unit);
+                latch.await(timeout, unit);
             }
             catch (InterruptedException x)
             {
-                return false;
+                LOG.ignore(x);
             }
+            return keys;
         }
     }
 
-    class Acceptor extends NonBlockingAction
+    class Acceptor implements SelectorUpdate, Selectable, Closeable
     {
         private final SelectableChannel _channel;
+        private SelectionKey _key;
 
-        public Acceptor(SelectableChannel channel)
+        Acceptor(SelectableChannel channel)
         {
-            this._channel = channel;
+            _channel = channel;
         }
 
         @Override
-        public void run()
+        public void update(Selector selector)
         {
             try
             {
-                SelectionKey key = _channel.register(_selector, SelectionKey.OP_ACCEPT, "Acceptor");
+                _key = _channel.register(selector, SelectionKey.OP_ACCEPT, this);
                 if (LOG.isDebugEnabled())
-                    LOG.debug("{} acceptor={}", this, key);
+                    LOG.debug("{} acceptor={}", this, _channel);
             }
             catch (Throwable x)
             {
-                closeNoExceptions(_channel);
+                IO.close(_channel);
                 LOG.warn(x);
             }
         }
+
+        @Override
+        public Runnable onSelected()
+        {
+            SelectableChannel channel = null;
+            try
+            {
+                while (true)
+                {
+                    channel = _selectorManager.doAccept(_channel);
+                    if (channel == null)
+                        break;
+                    _selectorManager.accepted(channel);
+                }
+            }
+            catch (Throwable x)
+            {
+                LOG.warn("Accept failed for channel {}", channel, x);
+                IO.close(channel);
+            }
+            return null;
+        }
+
+        @Override
+        public void updateKey()
+        {
+        }
+
+        @Override
+        public void replaceKey(SelectionKey newKey)
+        {
+            _key = newKey;
+        }
+
+        @Override
+        public void close() throws IOException
+        {
+            // May be called from any thread.
+            // Implements AbstractConnector.setAccepting(boolean).
+            submit(selector -> _key.cancel());
+        }
     }
 
-    class Accept extends NonBlockingAction implements Closeable
+    class Accept implements SelectorUpdate, Runnable, Closeable
     {
         private final SelectableChannel channel;
         private final Object attachment;
+        private SelectionKey key;
 
         Accept(SelectableChannel channel, Object attachment)
         {
             this.channel = channel;
             this.attachment = attachment;
+            _selectorManager.onAccepting(channel);
         }
 
         @Override
         public void close()
         {
-            LOG.debug("closed accept of {}", channel);
-            closeNoExceptions(channel);
+            if (LOG.isDebugEnabled())
+                LOG.debug("closed accept of {}", channel);
+            IO.close(channel);
         }
 
         @Override
-        public void run()
+        public void update(Selector selector)
         {
             try
             {
-                final SelectionKey key = channel.register(_selector, 0, attachment);
-                submit(new CreateEndPoint(channel, key));
+                key = channel.register(selector, 0, attachment);
+                execute(this);
             }
             catch (Throwable x)
             {
-                closeNoExceptions(channel);
-                LOG.debug(x);
+                IO.close(channel);
+                _selectorManager.onAcceptFailed(channel, x);
+                if (LOG.isDebugEnabled())
+                    LOG.debug(x);
             }
-        }
-    }
-
-    private class CreateEndPoint implements Runnable, Closeable
-    {
-        private final SelectableChannel channel;
-        private final SelectionKey key;
-
-        public CreateEndPoint(SelectableChannel channel, SelectionKey key)
-        {
-            this.channel = channel;
-            this.key = key;
         }
 
         @Override
@@ -601,29 +888,33 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
             try
             {
                 createEndPoint(channel, key);
+                _selectorManager.onAccepted(channel);
             }
             catch (Throwable x)
             {
-                LOG.debug(x);
+                if (LOG.isDebugEnabled())
+                    LOG.debug(x);
                 failed(x);
             }
         }
 
-        @Override
-        public void close()
-        {
-            LOG.debug("closed creation of {}", channel);
-            closeNoExceptions(channel);
-        }
-
         protected void failed(Throwable failure)
         {
-            closeNoExceptions(channel);
-            LOG.debug(failure);
+            IO.close(channel);
+            LOG.warn(String.valueOf(failure));
+            if (LOG.isDebugEnabled())
+                LOG.debug(failure);
+            _selectorManager.onAcceptFailed(channel, failure);
+        }
+
+        @Override
+        public String toString()
+        {
+            return String.format("%s@%x[%s]", getClass().getSimpleName(), hashCode(), channel);
         }
     }
 
-    class Connect extends NonBlockingAction
+    class Connect implements SelectorUpdate, Runnable
     {
         private final AtomicBoolean failed = new AtomicBoolean();
         private final SelectableChannel channel;
@@ -634,15 +925,19 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         {
             this.channel = channel;
             this.attachment = attachment;
-            this.timeout = ManagedSelector.this._selectorManager.getScheduler().schedule(new ConnectTimeout(this), ManagedSelector.this._selectorManager.getConnectTimeout(), TimeUnit.MILLISECONDS);
+            long timeout = ManagedSelector.this._selectorManager.getConnectTimeout();
+            if (timeout > 0)
+                this.timeout = ManagedSelector.this._selectorManager.getScheduler().schedule(this, timeout, TimeUnit.MILLISECONDS);
+            else
+                this.timeout = null;
         }
 
         @Override
-        public void run()
+        public void update(Selector selector)
         {
             try
             {
-                channel.register(_selector, SelectionKey.OP_CONNECT, this);
+                channel.register(selector, SelectionKey.OP_CONNECT, this);
             }
             catch (Throwable x)
             {
@@ -650,133 +945,170 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
             }
         }
 
-        private void failed(Throwable failure)
-        {
-            if (failed.compareAndSet(false, true))
-            {
-                timeout.cancel();
-                closeNoExceptions(channel);
-                ManagedSelector.this._selectorManager.connectionFailed(channel, failure, attachment);
-            }
-        }
-    }
-
-    private class ConnectTimeout extends NonBlockingAction
-    {
-        private final Connect connect;
-
-        private ConnectTimeout(Connect connect)
-        {
-            this.connect = connect;
-        }
-
         @Override
         public void run()
         {
-            SelectableChannel channel = connect.channel;
             if (_selectorManager.isConnectionPending(channel))
             {
                 if (LOG.isDebugEnabled())
                     LOG.debug("Channel {} timed out while connecting, closing it", channel);
-                connect.failed(new SocketTimeoutException("Connect Timeout"));
+                failed(new SocketTimeoutException("Connect Timeout"));
             }
+        }
+
+        public void failed(Throwable failure)
+        {
+            if (failed.compareAndSet(false, true))
+            {
+                if (timeout != null)
+                    timeout.cancel();
+                IO.close(channel);
+                ManagedSelector.this._selectorManager.connectionFailed(channel, failure, attachment);
+            }
+        }
+
+        @Override
+        public String toString()
+        {
+            return String.format("Connect@%x{%s,%s}", hashCode(), channel, attachment);
         }
     }
 
-    private class CloseEndPoints extends NonBlockingAction
+    private class CloseConnections implements SelectorUpdate
     {
-        private final CountDownLatch _latch = new CountDownLatch(1);
-        private CountDownLatch _allClosed;
+        private final Set<Closeable> _closed;
+        private final CountDownLatch _complete = new CountDownLatch(1);
+
+        private CloseConnections()
+        {
+            this(null);
+        }
+
+        private CloseConnections(Set<Closeable> closed)
+        {
+            _closed = closed;
+        }
 
         @Override
-        public void run()
+        public void update(Selector selector)
         {
-            List<EndPoint> end_points = new ArrayList<>();
-            for (SelectionKey key : _selector.keys())
+            if (LOG.isDebugEnabled())
+                LOG.debug("Closing {} connections on {}", selector.keys().size(), ManagedSelector.this);
+            for (SelectionKey key : selector.keys())
             {
-                if (key.isValid())
+                if (key != null && key.isValid())
                 {
+                    Closeable closeable = null;
                     Object attachment = key.attachment();
                     if (attachment instanceof EndPoint)
-                        end_points.add((EndPoint)attachment);
+                    {
+                        EndPoint endPoint = (EndPoint)attachment;
+                        Connection connection = endPoint.getConnection();
+                        if (connection != null)
+                            closeable = connection;
+                        else
+                            closeable = endPoint;
+                    }
+
+                    if (closeable != null)
+                    {
+                        if (_closed == null)
+                        {
+                            IO.close(closeable);
+                        }
+                        else if (!_closed.contains(closeable))
+                        {
+                            _closed.add(closeable);
+                            IO.close(closeable);
+                        }
+                    }
                 }
             }
-
-            int size = end_points.size();
-            if (LOG.isDebugEnabled())
-                LOG.debug("Closing {} endPoints on {}", size, ManagedSelector.this);
-
-            _allClosed = new CountDownLatch(size);
-            _latch.countDown();
-
-            for (EndPoint endp : end_points)
-                submit(new EndPointCloser(endp, _allClosed));
-
-            if (LOG.isDebugEnabled())
-                LOG.debug("Closed {} endPoints on {}", size, ManagedSelector.this);
-        }
-
-        public boolean await(long timeout)
-        {
-            try
-            {
-                return _latch.await(timeout, TimeUnit.MILLISECONDS) &&
-                        _allClosed.await(timeout, TimeUnit.MILLISECONDS);
-            }
-            catch (InterruptedException x)
-            {
-                return false;
-            }
+            _complete.countDown();
         }
     }
 
-    private class EndPointCloser implements Runnable
+    private class StopSelector implements SelectorUpdate
     {
-        private final EndPoint _endPoint;
-        private final CountDownLatch _latch;
-
-        private EndPointCloser(EndPoint endPoint, CountDownLatch latch)
-        {
-            _endPoint = endPoint;
-            _latch = latch;
-        }
+        private final CountDownLatch _stopped = new CountDownLatch(1);
 
         @Override
-        public void run()
+        public void update(Selector selector)
         {
-            closeNoExceptions(_endPoint.getConnection());
-            _latch.countDown();
-        }
-    }
-
-    private class CloseSelector extends NonBlockingAction
-    {
-        private CountDownLatch _latch = new CountDownLatch(1);
-
-        @Override
-        public void run()
-        {
-            Selector selector = _selector;
+            for (SelectionKey key : selector.keys())
+            {
+                // Key may be null when using the UnixSocket selector.
+                if (key == null)
+                    continue;
+                Object attachment = key.attachment();
+                if (attachment instanceof Closeable)
+                    IO.close((Closeable)attachment);
+            }
             _selector = null;
-            closeNoExceptions(selector);
-            _latch.countDown();
-        }
-
-        public boolean await(long timeout)
-        {
-            try
-            {
-                return _latch.await(timeout, TimeUnit.MILLISECONDS);
-            }
-            catch (InterruptedException x)
-            {
-                return false;
-            }
+            IO.close(selector);
+            _stopped.countDown();
         }
     }
 
-    public Selector getSelector()
+    private final class CreateEndPoint implements Runnable
     {
-        return _selector;        
+        private final Connect _connect;
+        private final SelectionKey _key;
+
+        private CreateEndPoint(Connect connect, SelectionKey key)
+        {
+            _connect = connect;
+            _key = key;
+        }
+
+        @Override
+        public void run()
+        {
+            try
+            {
+                createEndPoint(_connect.channel, _key);
+            }
+            catch (Throwable failure)
+            {
+                IO.close(_connect.channel);
+                LOG.warn(String.valueOf(failure));
+                if (LOG.isDebugEnabled())
+                    LOG.debug(failure);
+                _connect.failed(failure);
+            }
+        }
+
+        @Override
+        public String toString()
+        {
+            return String.format("CreateEndPoint@%x{%s}", hashCode(), _connect);
+        }
+    }
+
+    private class DestroyEndPoint implements Runnable, Closeable
+    {
+        private final EndPoint endPoint;
+
+        public DestroyEndPoint(EndPoint endPoint)
+        {
+            this.endPoint = endPoint;
+        }
+
+        @Override
+        public void run()
+        {
+            if (LOG.isDebugEnabled())
+                LOG.debug("Destroyed {}", endPoint);
+            Connection connection = endPoint.getConnection();
+            if (connection != null)
+                _selectorManager.connectionClosed(connection);
+            ManagedSelector.this.endPointClosed(endPoint);
+        }
+
+        @Override
+        public void close()
+        {
+            run();
+        }
     }
 }

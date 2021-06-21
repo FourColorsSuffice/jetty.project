@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,8 +17,6 @@
 //
 
 package org.eclipse.jetty.deploy.bindings;
-
-import java.io.File;
 
 import org.eclipse.jetty.deploy.App;
 import org.eclipse.jetty.deploy.AppLifeCycle;
@@ -42,12 +40,10 @@ import org.eclipse.jetty.xml.XmlConfiguration;
  *
  * Note: Currently properties from startup will not be available for
  * reference.
- *
  */
 public class GlobalWebappConfigBinding implements AppLifeCycle.Binding
 {
     private static final Logger LOG = Log.getLogger(GlobalWebappConfigBinding.class);
-
 
     private String _jettyXml;
 
@@ -61,11 +57,13 @@ public class GlobalWebappConfigBinding implements AppLifeCycle.Binding
         this._jettyXml = jettyXml;
     }
 
+    @Override
     public String[] getBindingTargets()
     {
-        return new String[]  { "deploying" };
+        return new String[]{"deploying"};
     }
 
+    @Override
     public void processBinding(Node node, App app) throws Exception
     {
         ContextHandler handler = app.getContextHandler();
@@ -83,7 +81,7 @@ public class GlobalWebappConfigBinding implements AppLifeCycle.Binding
                 LOG.debug("Binding: Configuring webapp context with global settings from: " + _jettyXml);
             }
 
-            if ( _jettyXml == null )
+            if (_jettyXml == null)
             {
                 LOG.warn("Binding: global context binding is enabled but no jetty-web.xml file has been registered");
             }
@@ -92,9 +90,9 @@ public class GlobalWebappConfigBinding implements AppLifeCycle.Binding
 
             if (globalContextSettings.exists())
             {
-                XmlConfiguration jettyXmlConfig = new XmlConfiguration(globalContextSettings.getInputStream());
+                XmlConfiguration jettyXmlConfig = new XmlConfiguration(globalContextSettings);
                 Resource resource = Resource.newResource(app.getOriginId());
-                app.getDeploymentManager().scope(jettyXmlConfig,resource);
+                app.getDeploymentManager().scope(jettyXmlConfig, resource);
                 jettyXmlConfig.configure(context);
             }
             else
@@ -103,5 +101,4 @@ public class GlobalWebappConfigBinding implements AppLifeCycle.Binding
             }
         }
     }
-
 }

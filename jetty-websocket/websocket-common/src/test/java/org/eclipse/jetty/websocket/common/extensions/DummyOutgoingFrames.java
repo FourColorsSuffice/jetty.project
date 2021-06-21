@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,7 +24,6 @@ import org.eclipse.jetty.websocket.api.BatchMode;
 import org.eclipse.jetty.websocket.api.WriteCallback;
 import org.eclipse.jetty.websocket.api.extensions.Frame;
 import org.eclipse.jetty.websocket.api.extensions.OutgoingFrames;
-import org.junit.rules.TestName;
 
 /**
  * Dummy implementation of {@link OutgoingFrames} used for testing
@@ -39,15 +38,10 @@ public class DummyOutgoingFrames implements OutgoingFrames
         this.id = id;
     }
 
-    public DummyOutgoingFrames(TestName testname)
-    {
-        this(testname.getMethodName());
-    }
-
     @Override
     public void outgoingFrame(Frame frame, WriteCallback callback, BatchMode batchMode)
     {
-        LOG.debug("outgoingFrame({},{})",frame,callback);
+        LOG.debug("outgoingFrame({},{})", frame, callback);
         if (callback != null)
         {
             callback.writeSuccess();
@@ -57,6 +51,6 @@ public class DummyOutgoingFrames implements OutgoingFrames
     @Override
     public String toString()
     {
-        return String.format("%s@%x[%s]",this.getClass().getSimpleName(),hashCode(),id);
+        return String.format("%s@%x[%s]", this.getClass().getSimpleName(), hashCode(), id);
     }
 }

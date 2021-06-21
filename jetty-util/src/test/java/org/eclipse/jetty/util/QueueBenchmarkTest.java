@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -28,27 +28,32 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.eclipse.jetty.toolchain.test.AdvancedRunner;
-import org.eclipse.jetty.toolchain.test.annotation.Stress;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
-import org.junit.Assume;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
-@RunWith(AdvancedRunner.class)
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+// TODO: Review - this is a HIGH_CPU, HIGH_MEMORY test that takes 20 minutes to execute.
+// perhaps this should not be a normal every day testcase?
+// Move to a different module? make it not a junit testcase?
+@Disabled
 public class QueueBenchmarkTest
 {
     private static final Logger logger = Log.getLogger(QueueBenchmarkTest.class);
-    private static final Runnable ELEMENT = () -> {};
-    private static final Runnable END = () -> {};
+    private static final Runnable ELEMENT = () ->
+    {
+    };
+    private static final Runnable END = () ->
+    {
+    };
 
-    @Stress("High CPU")
     @Test
     public void testQueues() throws Exception
     {
-        int cores = Runtime.getRuntime().availableProcessors();
-        Assume.assumeTrue(cores > 1);
+        int cores = ProcessorUtils.availableProcessors();
+        assumeTrue(cores > 1);
 
         final int readers = cores / 2;
         final int writers = readers;
@@ -62,12 +67,11 @@ public class QueueBenchmarkTest
         testQueues(readers, writers, iterations, queues, false);
     }
 
-    @Stress("High CPU")
     @Test
     public void testBlockingQueues() throws Exception
     {
-        int cores = Runtime.getRuntime().availableProcessors();
-        Assume.assumeTrue(cores > 1);
+        int cores = ProcessorUtils.availableProcessors();
+        assumeTrue(cores > 1);
 
         final int readers = cores / 2;
         final int writers = readers;
@@ -144,9 +148,13 @@ public class QueueBenchmarkTest
     private static void produce(Queue<Runnable> queue, int readers, int iterations)
     {
         for (int i = 0; i < iterations; ++i)
+        {
             append(queue, ELEMENT);
+        }
         for (int i = 0; i < readers; ++i)
+        {
             append(queue, END);
+        }
     }
 
     private static void append(Queue<Runnable> queue, Runnable element)

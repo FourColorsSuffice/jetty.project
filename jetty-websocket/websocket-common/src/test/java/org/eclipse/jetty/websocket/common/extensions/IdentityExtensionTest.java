@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,8 +18,6 @@
 
 package org.eclipse.jetty.websocket.common.extensions;
 
-import static org.hamcrest.Matchers.is;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -35,8 +33,10 @@ import org.eclipse.jetty.websocket.common.frames.TextFrame;
 import org.eclipse.jetty.websocket.common.test.ByteBufferAssert;
 import org.eclipse.jetty.websocket.common.test.IncomingFramesCapture;
 import org.eclipse.jetty.websocket.common.test.OutgoingFramesCapture;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
 public class IdentityExtensionTest
 {
@@ -58,19 +58,20 @@ public class IdentityExtensionTest
         capture.assertHasFrame(OpCode.TEXT, 1);
         WebSocketFrame actual = capture.getFrames().poll();
 
-        Assert.assertThat("Frame.opcode", actual.getOpCode(), is(OpCode.TEXT));
-        Assert.assertThat("Frame.fin", actual.isFin(), is(true));
-        Assert.assertThat("Frame.rsv1", actual.isRsv1(), is(false));
-        Assert.assertThat("Frame.rsv2", actual.isRsv2(), is(false));
-        Assert.assertThat("Frame.rsv3", actual.isRsv3(), is(false));
+        assertThat("Frame.opcode", actual.getOpCode(), is(OpCode.TEXT));
+        assertThat("Frame.fin", actual.isFin(), is(true));
+        assertThat("Frame.rsv1", actual.isRsv1(), is(false));
+        assertThat("Frame.rsv2", actual.isRsv2(), is(false));
+        assertThat("Frame.rsv3", actual.isRsv3(), is(false));
 
         ByteBuffer expected = BufferUtil.toBuffer("hello", StandardCharsets.UTF_8);
-        Assert.assertThat("Frame.payloadLength", actual.getPayloadLength(), is(expected.remaining()));
+        assertThat("Frame.payloadLength", actual.getPayloadLength(), is(expected.remaining()));
         ByteBufferAssert.assertEquals("Frame.payload", expected, actual.getPayload().slice());
     }
 
     /**
      * Verify that outgoing frames are unmodified
+     *
      * @throws IOException on test failure
      */
     @Test
@@ -89,14 +90,14 @@ public class IdentityExtensionTest
 
         WebSocketFrame actual = capture.getFrames().getFirst();
 
-        Assert.assertThat("Frame.opcode", actual.getOpCode(), is(OpCode.TEXT));
-        Assert.assertThat("Frame.fin", actual.isFin(), is(true));
-        Assert.assertThat("Frame.rsv1", actual.isRsv1(), is(false));
-        Assert.assertThat("Frame.rsv2", actual.isRsv2(), is(false));
-        Assert.assertThat("Frame.rsv3", actual.isRsv3(), is(false));
+        assertThat("Frame.opcode", actual.getOpCode(), is(OpCode.TEXT));
+        assertThat("Frame.fin", actual.isFin(), is(true));
+        assertThat("Frame.rsv1", actual.isRsv1(), is(false));
+        assertThat("Frame.rsv2", actual.isRsv2(), is(false));
+        assertThat("Frame.rsv3", actual.isRsv3(), is(false));
 
         ByteBuffer expected = BufferUtil.toBuffer("hello", StandardCharsets.UTF_8);
-        Assert.assertThat("Frame.payloadLength", actual.getPayloadLength(), is(expected.remaining()));
+        assertThat("Frame.payloadLength", actual.getPayloadLength(), is(expected.remaining()));
         ByteBufferAssert.assertEquals("Frame.payload", expected, actual.getPayload().slice());
     }
 }

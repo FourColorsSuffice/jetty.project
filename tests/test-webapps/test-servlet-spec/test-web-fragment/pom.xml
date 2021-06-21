@@ -3,36 +3,28 @@
   <parent>
     <groupId>org.eclipse.jetty.tests</groupId>
     <artifactId>test-servlet-spec-parent</artifactId>
-    <version>9.4.6-SNAPSHOT</version>
+    <version>9.4.43-SNAPSHOT</version>
   </parent>
+
   <name>Jetty Tests :: WebApp :: Servlet Spec :: Fragment Jar</name>
-  <groupId>org.eclipse.jetty.tests</groupId>
   <artifactId>test-web-fragment</artifactId>
   <packaging>jar</packaging>
+
   <properties>
     <bundle-symbolic-name>${project.groupId}.fragment</bundle-symbolic-name>
   </properties>
-  <build>
-    <plugins>
-      <plugin>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <configuration>
-          <verbose>false</verbose>
-        </configuration>
-      </plugin>
-    </plugins>
-  </build>
-  <dependencies>
-      <dependency>
-         <groupId>javax.servlet</groupId>
-         <artifactId>javax.servlet-api</artifactId>
-      </dependency>
 
-<!--
+  <dependencies>
     <dependency>
-      <groupId>org.eclipse.jetty.orbit</groupId>
-      <artifactId>javax.servlet</artifactId>
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
     </dependency>
--->
+
+    <!--
+        <dependency>
+          <groupId>org.eclipse.jetty.orbit</groupId>
+          <artifactId>javax.servlet</artifactId>
+        </dependency>
+    -->
   </dependencies>
 </project>

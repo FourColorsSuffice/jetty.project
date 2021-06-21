@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -34,20 +34,16 @@ import org.eclipse.jetty.client.api.Request;
 import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.client.util.FutureResponseListener;
-import org.eclipse.jetty.toolchain.test.TestTracker;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HttpClientChunkedContentTest
 {
-    @Rule
-    public final TestTracker tracker = new TestTracker();
     private HttpClient client;
 
     private void startClient() throws Exception
@@ -59,7 +55,7 @@ public class HttpClientChunkedContentTest
         client.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         if (client != null)
@@ -67,7 +63,7 @@ public class HttpClientChunkedContentTest
     }
 
     @Test
-    public void test_Server_HeadersPauseTerminal_Client_Response() throws Exception
+    public void testServerHeadersPauseTerminalClientResponse() throws Exception
     {
         startClient();
 
@@ -78,24 +74,24 @@ public class HttpClientChunkedContentTest
             final AtomicReference<Result> resultRef = new AtomicReference<>();
             final CountDownLatch completeLatch = new CountDownLatch(1);
             client.newRequest("localhost", server.getLocalPort())
-                    .timeout(5, TimeUnit.SECONDS)
-                    .send(new Response.CompleteListener()
+                .timeout(5, TimeUnit.SECONDS)
+                .send(new Response.CompleteListener()
+                {
+                    @Override
+                    public void onComplete(Result result)
                     {
-                        @Override
-                        public void onComplete(Result result)
-                        {
-                            resultRef.set(result);
-                            completeLatch.countDown();
-                        }
-                    });
+                        resultRef.set(result);
+                        completeLatch.countDown();
+                    }
+                });
 
             try (Socket socket = server.accept())
             {
                 consumeRequestHeaders(socket);
 
                 OutputStream output = socket.getOutputStream();
-                String headers = "" +
-                        "HTTP/1.1 200 OK\r\n" +
+                String headers =
+                    "HTTP/1.1 200 OK\r\n" +
                         "Transfer-Encoding: chunked\r\n" +
                         "\r\n";
                 output.write(headers.getBytes(StandardCharsets.UTF_8));
@@ -103,8 +99,8 @@ public class HttpClientChunkedContentTest
 
                 Thread.sleep(1000);
 
-                String terminal = "" +
-                        "0\r\n" +
+                String terminal =
+                    "0\r\n" +
                         "\r\n";
                 output.write(terminal.getBytes(StandardCharsets.UTF_8));
                 output.flush();
@@ -113,13 +109,13 @@ public class HttpClientChunkedContentTest
                 Result result = resultRef.get();
                 assertTrue(result.isSucceeded());
                 Response response = result.getResponse();
-                Assert.assertEquals(200, response.getStatus());
+                assertEquals(200, response.getStatus());
             }
         }
     }
 
     @Test
-    public void test_Server_ContentTerminal_Client_ContentDelay() throws Exception
+    public void testServerContentTerminalClientContentDelay() throws Exception
     {
         startClient();
 
@@ -132,35 +128,35 @@ public class HttpClientChunkedContentTest
             final AtomicReference<Result> resultRef = new AtomicReference<>();
             final CountDownLatch completeLatch = new CountDownLatch(1);
             client.newRequest("localhost", server.getLocalPort())
-                    .onResponseContentAsync(new Response.AsyncContentListener()
+                .onResponseContentAsync(new Response.AsyncContentListener()
+                {
+                    @Override
+                    public void onContent(Response response, ByteBuffer content, Callback callback)
                     {
-                        @Override
-                        public void onContent(Response response, ByteBuffer content, Callback callback)
-                        {
-                            if (callbackRef.compareAndSet(null, callback))
-                                firstContentLatch.countDown();
-                            else
-                                callback.succeeded();
-                        }
-                    })
-                    .timeout(5, TimeUnit.SECONDS)
-                    .send(new Response.CompleteListener()
+                        if (callbackRef.compareAndSet(null, callback))
+                            firstContentLatch.countDown();
+                        else
+                            callback.succeeded();
+                    }
+                })
+                .timeout(5, TimeUnit.SECONDS)
+                .send(new Response.CompleteListener()
+                {
+                    @Override
+                    public void onComplete(Result result)
                     {
-                        @Override
-                        public void onComplete(Result result)
-                        {
-                            resultRef.set(result);
-                            completeLatch.countDown();
-                        }
-                    });
+                        resultRef.set(result);
+                        completeLatch.countDown();
+                    }
+                });
 
             try (Socket socket = server.accept())
             {
                 consumeRequestHeaders(socket);
 
                 OutputStream output = socket.getOutputStream();
-                String response = "" +
-                        "HTTP/1.1 200 OK\r\n" +
+                String response =
+                    "HTTP/1.1 200 OK\r\n" +
                         "Transfer-Encoding: chunked\r\n" +
                         "\r\n" +
                         "8\r\n" +
@@ -181,11 +177,11 @@ public class HttpClientChunkedContentTest
                 assertTrue(completeLatch.await(5, TimeUnit.SECONDS));
                 Result result = resultRef.get();
                 assertTrue(result.isSucceeded());
-                Assert.assertEquals(200, result.getResponse().getStatus());
+                assertEquals(200, result.getResponse().getStatus());
 
                 // Issue another request to be sure the connection is sane.
                 Request request = client.newRequest("localhost", server.getLocalPort())
-                        .timeout(5, TimeUnit.SECONDS);
+                    .timeout(5, TimeUnit.SECONDS);
                 FutureResponseListener listener = new FutureResponseListener(request);
                 request.send(listener);
 
@@ -193,7 +189,7 @@ public class HttpClientChunkedContentTest
                 output.write(response.getBytes(StandardCharsets.UTF_8));
                 output.flush();
 
-                Assert.assertEquals(200, listener.get(5, TimeUnit.SECONDS).getStatus());
+                assertEquals(200, listener.get(5, TimeUnit.SECONDS).getStatus());
             }
         }
     }

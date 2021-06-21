@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,18 +21,17 @@ package org.eclipse.jetty.deploy;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 
 import org.eclipse.jetty.jmx.MBeanContainer;
 import org.eclipse.jetty.server.handler.ContextHandlerCollection;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class DeploymentManagerLifeCyclePathTest
 {
     @Test
-    public void testStateTransition_NewToDeployed() throws Exception
+    public void testStateTransitionNewToDeployed() throws Exception
     {
         DeploymentManager depman = new DeploymentManager();
         depman.setContexts(new ContextHandlerCollection());
@@ -53,7 +52,7 @@ public class DeploymentManagerLifeCyclePathTest
         App app = depman.getAppByOriginId("mock-foo-webapp-1.war");
 
         // Request Deploy of App
-        depman.requestAppGoal(app,"deployed");
+        depman.requestAppGoal(app, "deployed");
 
         // Setup Expectations.
         List<String> expected = new ArrayList<String>();
@@ -61,11 +60,11 @@ public class DeploymentManagerLifeCyclePathTest
         expected.add("deploying");
         expected.add("deployed");
 
-        pathtracker.assertExpected("Test StateTransition / New -> Deployed",expected);
+        pathtracker.assertExpected("Test StateTransition / New -> Deployed", expected);
     }
 
     @Test
-    public void testStateTransition_Receive() throws Exception
+    public void testStateTransitionReceive() throws Exception
     {
         DeploymentManager depman = new DeploymentManager();
         depman.setContexts(new ContextHandlerCollection());
@@ -87,11 +86,11 @@ public class DeploymentManagerLifeCyclePathTest
         // Setup Expectations.
         List<String> expected = new ArrayList<String>();
 
-        pathtracker.assertExpected("Test StateTransition / New only",expected);
+        pathtracker.assertExpected("Test StateTransition / New only", expected);
     }
 
     @Test
-    public void testStateTransition_DeployedToUndeployed() throws Exception
+    public void testStateTransitionDeployedToUndeployed() throws Exception
     {
         DeploymentManager depman = new DeploymentManager();
         depman.setDefaultLifeCycleGoal(null); // no default
@@ -99,7 +98,7 @@ public class DeploymentManagerLifeCyclePathTest
         MockAppProvider mockProvider = new MockAppProvider();
 
         // Setup JMX
-        MBeanContainer mbContainer=new MBeanContainer(ManagementFactory.getPlatformMBeanServer());
+        MBeanContainer mbContainer = new MBeanContainer(ManagementFactory.getPlatformMBeanServer());
         depman.addBean(mbContainer);
 
         depman.addLifeCycleBinding(pathtracker);
@@ -115,15 +114,15 @@ public class DeploymentManagerLifeCyclePathTest
         App app = depman.getAppByOriginId("mock-foo-webapp-1.war");
 
         // Request Deploy of App
-        depman.requestAppGoal(app,"deployed");
+        depman.requestAppGoal(app, "deployed");
 
         JmxServiceConnection jmxConnection = new JmxServiceConnection();
         jmxConnection.connect();
 
         MBeanServerConnection mbsConnection = jmxConnection.getConnection();
         ObjectName dmObjName = new ObjectName("org.eclipse.jetty.deploy:type=deploymentmanager,id=0");
-        String[] params = new String[] {"mock-foo-webapp-1.war", "undeployed"};
-        String[] signature = new String[] {"java.lang.String", "java.lang.String"};
+        String[] params = new String[]{"mock-foo-webapp-1.war", "undeployed"};
+        String[] signature = new String[]{"java.lang.String", "java.lang.String"};
         mbsConnection.invoke(dmObjName, "requestAppGoal", params, signature);
 
         // Setup Expectations.
@@ -134,6 +133,6 @@ public class DeploymentManagerLifeCyclePathTest
         expected.add("undeploying");
         expected.add("undeployed");
 
-        pathtracker.assertExpected("Test JMX StateTransition / Deployed -> Undeployed",expected);
+        pathtracker.assertExpected("Test JMX StateTransition / Deployed -> Undeployed", expected);
     }
 }

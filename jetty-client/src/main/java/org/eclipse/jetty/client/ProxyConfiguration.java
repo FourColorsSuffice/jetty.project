@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,10 +22,12 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import org.eclipse.jetty.io.ClientConnectionFactory;
 import org.eclipse.jetty.util.HostPort;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
 
 /**
  * The configuration of the forward proxy to use with {@link org.eclipse.jetty.client.HttpClient}.
@@ -57,18 +59,30 @@ public class ProxyConfiguration
         return null;
     }
 
-    public static abstract class Proxy
+    public abstract static class Proxy
     {
-        // TO use IPAddress Map
+        // TODO use InetAddressSet? Or IncludeExcludeSet?
         private final Set<String> included = new HashSet<>();
         private final Set<String> excluded = new HashSet<>();
         private final Origin.Address address;
         private final boolean secure;
+        private final SslContextFactory.Client sslContextFactory;
 
         protected Proxy(Origin.Address address, boolean secure)
         {
+            this(address, secure, null);
+        }
+
+        protected Proxy(Origin.Address address, SslContextFactory.Client sslContextFactory)
+        {
+            this(address, true, Objects.requireNonNull(sslContextFactory));
+        }
+
+        private Proxy(Origin.Address address, boolean secure, SslContextFactory.Client sslContextFactory)
+        {
             this.address = address;
             this.secure = secure;
+            this.sslContextFactory = sslContextFactory;
         }
 
         /**
@@ -85,6 +99,14 @@ public class ProxyConfiguration
         public boolean isSecure()
         {
             return secure;
+        }
+
+        /**
+         * @return the optional SslContextFactory to use when connecting to proxies
+         */
+        public SslContextFactory.Client getSslContextFactory()
+        {
+            return sslContextFactory;
         }
 
         /**
@@ -154,7 +176,7 @@ public class ProxyConfiguration
             HostPort hostPort = new HostPort(pattern);
             String host = hostPort.getHost();
             int port = hostPort.getPort();
-            return host.equals(address.getHost())  && ( port<=0 || port==address.getPort() ); 
+            return host.equals(address.getHost()) && (port <= 0 || port == address.getPort());
         }
 
         /**
@@ -169,5 +191,4 @@ public class ProxyConfiguration
             return address.toString();
         }
     }
-
 }

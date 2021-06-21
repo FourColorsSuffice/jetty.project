@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -30,6 +30,7 @@ import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.io.AbstractConnection;
 import org.eclipse.jetty.io.ClientConnectionFactory;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.ssl.SslClientConnectionFactory;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Promise;
@@ -64,7 +65,7 @@ public class Socks4Proxy extends ProxyConfiguration.Proxy
         }
 
         @Override
-        public org.eclipse.jetty.io.Connection newConnection(EndPoint endPoint, Map<String, Object> context) throws IOException
+        public org.eclipse.jetty.io.Connection newConnection(EndPoint endPoint, Map<String, Object> context)
         {
             HttpDestination destination = (HttpDestination)context.get(HttpClientTransport.HTTP_DESTINATION_CONTEXT_KEY);
             Executor executor = destination.getHttpClient().getExecutor();
@@ -112,7 +113,9 @@ public class Socks4Proxy extends ProxyConfiguration.Proxy
                 ByteBuffer buffer = ByteBuffer.allocate(9);
                 buffer.put((byte)4).put((byte)1).putShort(port);
                 for (int i = 1; i <= 4; ++i)
+                {
                     buffer.put((byte)Integer.parseInt(matcher.group(i)));
+                }
                 buffer.put((byte)0);
                 buffer.flip();
                 getEndPoint().write(this, buffer);
@@ -193,10 +196,11 @@ public class Socks4Proxy extends ProxyConfiguration.Proxy
             try
             {
                 HttpDestination destination = (HttpDestination)context.get(HttpClientTransport.HTTP_DESTINATION_CONTEXT_KEY);
-                HttpClient client = destination.getHttpClient();
+                context.put(SslClientConnectionFactory.SSL_PEER_HOST_CONTEXT_KEY, destination.getHost());
+                context.put(SslClientConnectionFactory.SSL_PEER_PORT_CONTEXT_KEY, destination.getPort());
                 ClientConnectionFactory connectionFactory = this.connectionFactory;
                 if (destination.isSecure())
-                    connectionFactory = client.newSslClientConnectionFactory(connectionFactory);
+                    connectionFactory = destination.newSslClientConnectionFactory(null, connectionFactory);
                 org.eclipse.jetty.io.Connection newConnection = connectionFactory.newConnection(getEndPoint(), context);
                 getEndPoint().upgrade(newConnection);
                 if (LOG.isDebugEnabled())

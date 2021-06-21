@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,8 +17,9 @@
 //
 
 package com.acme.test;
-import java.util.EventListener;
 
+import java.util.EventListener;
+import java.util.logging.Logger;
 import javax.annotation.Resource;
 import javax.servlet.ServletContextAttributeEvent;
 import javax.servlet.ServletContextAttributeListener;
@@ -36,11 +37,12 @@ import javax.servlet.http.HttpSessionEvent;
 import javax.servlet.http.HttpSessionIdListener;
 import javax.servlet.http.HttpSessionListener;
 
-
 @com.acme.initializer.Foo(1)
 @WebListener
-public class TestListener implements HttpSessionListener,  HttpSessionAttributeListener, HttpSessionActivationListener, ServletContextListener, ServletContextAttributeListener, ServletRequestListener, ServletRequestAttributeListener
+public class TestListener implements HttpSessionListener, HttpSessionAttributeListener, HttpSessionActivationListener, ServletContextListener, ServletContextAttributeListener, ServletRequestListener, ServletRequestAttributeListener
 {
+    private static final Logger LOG = Logger.getLogger(TestListener.class.getName());
+
     public static class NaughtyServletContextListener implements ServletContextListener
     {
 
@@ -56,63 +58,71 @@ public class TestListener implements HttpSessionListener,  HttpSessionAttributeL
             throw new IllegalStateException("Should not call NaughtServletContextListener.contextDestroyed");
         }
     }
-    
+
     public static class InvalidListener implements EventListener
     {
         public InvalidListener()
-        {}
+        {
+        }
     }
-    
+
     public static class ValidListener implements HttpSessionIdListener
     {
-        @Resource(mappedName="maxAmount")
+        @Resource(mappedName = "maxAmount")
         private Double maxAmount;
-        
+
         public ValidListener()
-        {}
-        
+        {
+        }
+
         @Override
         public void sessionIdChanged(HttpSessionEvent event, String oldSessionId)
         {
-           
+
         }
-        
     }
 
-    @Resource(mappedName="maxAmount")
+    @Resource(mappedName = "maxAmount")
     private Double maxAmount;
-    
 
-
+    @Override
     public void attributeAdded(HttpSessionBindingEvent se)
     {
-        // System.err.println("attributedAdded "+se);
+        LOG.fine("attributeAdded " + se);
     }
 
+    @Override
     public void attributeRemoved(HttpSessionBindingEvent se)
     {
-        // System.err.println("attributeRemoved "+se);
+        LOG.fine("attributeRemoved " + se);
     }
 
+    @Override
     public void attributeReplaced(HttpSessionBindingEvent se)
     {
-        // System.err.println("attributeReplaced "+se);
+        LOG.fine("attributeReplaced " + se);
     }
 
+    @Override
     public void sessionWillPassivate(HttpSessionEvent se)
     {
-        // System.err.println("sessionWillPassivate "+se);
+        LOG.fine("sessionWillPassivate " + se);
     }
 
+    @Override
     public void sessionDidActivate(HttpSessionEvent se)
     {
-        // System.err.println("sessionDidActivate "+se);
+        LOG.fine("sessionDidActivate " + se);
     }
 
+    @Override
     public void contextInitialized(ServletContextEvent sce)
     {
+        if (sce.getServletContext().getAttribute("com.acme.AnnotationTest.sclInjectTest") != null)
+            throw new IllegalStateException("TestListener already initialized");
+
         sce.getServletContext().setAttribute("com.acme.AnnotationTest.sclInjectTest", Boolean.valueOf(maxAmount != null));
-        
+
         //Can't add a ServletContextListener from a ServletContextListener even if it is declared in web.xml
         try
         {
@@ -127,8 +137,7 @@ public class TestListener implements HttpSessionListener,  HttpSessionAttributeL
         {
             sce.getServletContext().setAttribute("com.acme.AnnotationTest.sclFromSclRegoTest", Boolean.FALSE);
         }
-        
-        
+
         //Can't add an EventListener not part of the specified list for addListener()
         try
         {
@@ -142,91 +151,83 @@ public class TestListener implements HttpSessionListener,  HttpSessionAttributeL
         catch (Exception e)
         {
             sce.getServletContext().setAttribute("com.acme.AnnotationTest.invalidListenerRegoTest", Boolean.FALSE);
-        } 
-        
+        }
+
         //Programmatically add a listener and make sure its injected
         try
         {
             ValidListener l = sce.getServletContext().createListener(ValidListener.class);
             sce.getServletContext().setAttribute("com.acme.AnnotationTest.programListenerInjectTest", Boolean.valueOf(l != null && l.maxAmount != null));
-        }   
+        }
         catch (Exception e)
         {
             sce.getServletContext().setAttribute("com.acme.AnnotationTest.programListenerInjectTest", Boolean.FALSE);
         }
     }
 
+    @Override
     public void contextDestroyed(ServletContextEvent sce)
     {
-        // System.err.println("contextDestroyed "+sce);
+        LOG.fine("contextDestroyed " + sce);
     }
 
+    @Override
     public void attributeAdded(ServletContextAttributeEvent scab)
     {
-        // System.err.println("attributeAdded "+scab);
+        LOG.fine("attributeAdded " + scab);
     }
 
+    @Override
     public void attributeRemoved(ServletContextAttributeEvent scab)
     {
-        // System.err.println("attributeRemoved "+scab);
+        LOG.fine("attributeRemoved " + scab);
     }
 
+    @Override
     public void attributeReplaced(ServletContextAttributeEvent scab)
     {
-        // System.err.println("attributeReplaced "+scab);
+        LOG.fine("attributeReplaced " + scab);
     }
 
+    @Override
     public void requestDestroyed(ServletRequestEvent sre)
     {
-        // System.err.println("requestDestroyed "+sre);
+        LOG.fine("requestDestroyed " + sre);
     }
 
+    @Override
     public void requestInitialized(ServletRequestEvent sre)
     {
-        // System.err.println("requestInitialized "+sre);
+        LOG.fine("requestInitialized " + sre);
     }
 
+    @Override
     public void attributeAdded(ServletRequestAttributeEvent srae)
     {
-        // System.err.println("attributeAdded "+srae);
+        LOG.fine("attributeAdded " + srae);
     }
 
+    @Override
     public void attributeRemoved(ServletRequestAttributeEvent srae)
     {
-        // System.err.println("attributeRemoved "+srae);
+        LOG.fine("attributeRemoved " + srae);
     }
 
+    @Override
     public void attributeReplaced(ServletRequestAttributeEvent srae)
     {
-        // System.err.println("attributeReplaced "+srae);
+        LOG.fine("attributeReplaced " + srae);
     }
 
+    @Override
     public void sessionCreated(HttpSessionEvent se)
     {
-        // System.err.println("sessionCreated "+se);
+        LOG.fine("sessionCreated " + se);
     }
 
+    @Override
     public void sessionDestroyed(HttpSessionEvent se)
     {
-        // System.err.println("sessionDestroyed "+se);
+        LOG.fine("sessionDestroyed " + se);
     }
-
-    public void requestCompleted(ServletRequestEvent rre)
-    {
-        // TODO Auto-generated method stub
-        
-    }
-
-    public void requestResumed(ServletRequestEvent rre)
-    {
-        // TODO Auto-generated method stub
-        
-    }
-
-    public void requestSuspended(ServletRequestEvent rre)
-    {
-        // TODO Auto-generated method stub
-        
-    }
-
 }

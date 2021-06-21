@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,9 +17,6 @@
 //
 
 package org.eclipse.jetty.websocket.common.extensions;
-
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.notNullValue;
 
 import java.nio.ByteBuffer;
 import java.util.Collections;
@@ -39,7 +36,10 @@ import org.eclipse.jetty.websocket.common.scopes.WebSocketContainerScope;
 import org.eclipse.jetty.websocket.common.test.ByteBufferAssert;
 import org.eclipse.jetty.websocket.common.test.IncomingFramesCapture;
 import org.eclipse.jetty.websocket.common.test.UnitParser;
-import org.junit.Assert;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 
 public class ExtensionTool
 {
@@ -56,7 +56,7 @@ public class ExtensionTool
             this.requestedExtParams = parameterizedExtension;
             this.extConfig = ExtensionConfig.parse(parameterizedExtension);
             Class<?> extClass = factory.getExtension(extConfig.getName());
-            Assert.assertThat("extClass", extClass, notNullValue());
+            assertThat("extClass", extClass, notNullValue());
 
             this.parser = new UnitParser(policy);
         }
@@ -80,11 +80,11 @@ public class ExtensionTool
         public void parseIncomingHex(String... rawhex)
         {
             int parts = rawhex.length;
-            byte net[];
+            byte[] net;
 
             for (int i = 0; i < parts; i++)
             {
-                String hex = rawhex[i].replaceAll("\\s*(0x)?","");
+                String hex = rawhex[i].replaceAll("\\s*(0x)?", "");
                 net = TypeUtil.fromHexString(hex);
                 parser.parse(ByteBuffer.wrap(net));
             }
@@ -92,7 +92,7 @@ public class ExtensionTool
 
         public void assertHasFrames(String... textFrames)
         {
-            Frame frames[] = new Frame[textFrames.length];
+            Frame[] frames = new Frame[textFrames.length];
             for (int i = 0; i < frames.length; i++)
             {
                 frames[i] = new TextFrame().setPayload(textFrames[i]);
@@ -109,16 +109,16 @@ public class ExtensionTool
             {
                 WebSocketFrame actual = capture.getFrames().poll();
 
-                String prefix = String.format("frame[%d]",i);
-                Assert.assertThat(prefix + ".opcode",actual.getOpCode(),is(expectedFrames[i].getOpCode()));
-                Assert.assertThat(prefix + ".fin",actual.isFin(),is(expectedFrames[i].isFin()));
-                Assert.assertThat(prefix + ".rsv1",actual.isRsv1(),is(false));
-                Assert.assertThat(prefix + ".rsv2",actual.isRsv2(),is(false));
-                Assert.assertThat(prefix + ".rsv3",actual.isRsv3(),is(false));
+                String prefix = String.format("frame[%d]", i);
+                assertThat(prefix + ".opcode", actual.getOpCode(), is(expectedFrames[i].getOpCode()));
+                assertThat(prefix + ".fin", actual.isFin(), is(expectedFrames[i].isFin()));
+                assertThat(prefix + ".rsv1", actual.isRsv1(), is(false));
+                assertThat(prefix + ".rsv2", actual.isRsv2(), is(false));
+                assertThat(prefix + ".rsv3", actual.isRsv3(), is(false));
 
                 ByteBuffer expected = expectedFrames[i].getPayload().slice();
-                Assert.assertThat(prefix + ".payloadLength",actual.getPayloadLength(),is(expected.remaining()));
-                ByteBufferAssert.assertEquals(prefix + ".payload",expected,actual.getPayload().slice());
+                assertThat(prefix + ".payloadLength", actual.getPayloadLength(), is(expected.remaining()));
+                ByteBufferAssert.assertEquals(prefix + ".payload", expected, actual.getPayload().slice());
             }
         }
     }

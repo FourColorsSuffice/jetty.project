@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,12 +18,9 @@
 
 package org.eclipse.jetty.annotations.resources;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-
 import java.lang.reflect.Field;
 import java.util.List;
-
+import java.util.Set;
 import javax.naming.Context;
 import javax.naming.InitialContext;
 
@@ -34,9 +31,12 @@ import org.eclipse.jetty.plus.annotation.Injection;
 import org.eclipse.jetty.plus.annotation.InjectionCollection;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.webapp.WebAppContext;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class TestResourceAnnotations
 {
@@ -48,7 +48,7 @@ public class TestResourceAnnotations
     private Object objA = 1000;
     private Object objB = 2000;
 
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         server = new Server();
@@ -61,15 +61,15 @@ public class TestResourceAnnotations
         env = comp.createSubcontext("env");
     }
 
-    @After
+    @AfterEach
     public void destroy() throws Exception
     {
         comp.destroySubcontext("env");
     }
 
     @Test
-    public void testResourceAnnotations ()
-    throws Exception
+    public void testResourceAnnotations()
+        throws Exception
     {
         new org.eclipse.jetty.plus.jndi.EnvEntry(server, "resA", objA, false);
         new org.eclipse.jetty.plus.jndi.EnvEntry(server, "resB", objB, false);
@@ -100,16 +100,16 @@ public class TestResourceAnnotations
         //we should have Injections
         assertNotNull(injections);
 
-        List<Injection> resBInjections = injections.getInjections(ResourceB.class.getCanonicalName());
+        Set<Injection> resBInjections = injections.getInjections(ResourceB.class.getName());
         assertNotNull(resBInjections);
 
         //only 1 field injection because the other has no Resource mapping
         assertEquals(1, resBInjections.size());
-        Injection fi = resBInjections.get(0);
-        assertEquals ("f", fi.getTarget().getName());
+        Injection fi = resBInjections.iterator().next();
+        assertEquals("f", fi.getTarget().getName());
 
         //3 method injections on class ResourceA, 4 field injections
-        List<Injection> resAInjections = injections.getInjections(ResourceA.class.getCanonicalName());
+        Set<Injection> resAInjections = injections.getInjections(ResourceA.class.getName());
         assertNotNull(resAInjections);
         assertEquals(7, resAInjections.size());
         int fieldCount = 0;
@@ -129,9 +129,9 @@ public class TestResourceAnnotations
         injections.inject(binst);
 
         //check injected values
-        Field f = ResourceB.class.getDeclaredField ("f");
+        Field f = ResourceB.class.getDeclaredField("f");
         f.setAccessible(true);
-        assertEquals(objB , f.get(binst));
+        assertEquals(objB, f.get(binst));
 
         //@Resource(mappedName="resA") //test the default naming scheme but using a mapped name from the environment
         f = ResourceA.class.getDeclaredField("g");
@@ -150,8 +150,8 @@ public class TestResourceAnnotations
     }
 
     @Test
-    public void testResourcesAnnotation ()
-    throws Exception
+    public void testResourcesAnnotation()
+        throws Exception
     {
         new org.eclipse.jetty.plus.jndi.EnvEntry(server, "resA", objA, false);
         new org.eclipse.jetty.plus.jndi.EnvEntry(server, "resB", objB, false);

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,8 +21,10 @@ package org.eclipse.jetty.util;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LeakDetectorTest
 {
@@ -42,7 +44,9 @@ public class LeakDetectorTest
     private void gc()
     {
         for (int i = 0; i < 3; ++i)
+        {
             System.gc();
+        }
     }
 
     @Test
@@ -67,7 +71,7 @@ public class LeakDetectorTest
 
         gc();
 
-        Assert.assertFalse(latch.await(1, TimeUnit.SECONDS));
+        assertFalse(latch.await(1, TimeUnit.SECONDS));
     }
 
     @Test
@@ -87,6 +91,6 @@ public class LeakDetectorTest
 
         gc();
 
-        Assert.assertTrue(latch.await(1, TimeUnit.SECONDS));
+        assertTrue(latch.await(1, TimeUnit.SECONDS));
     }
 }

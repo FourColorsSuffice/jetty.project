@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,8 +19,9 @@
 package org.eclipse.jetty.jsp;
 
 import org.eclipse.jetty.servlet.ServletHolder;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestJspFileNameToClass
 {
@@ -31,28 +32,26 @@ public class TestJspFileNameToClass
         ServletHolder h = new ServletHolder();
         h.setName("test");
 
+        assertEquals(null, h.getClassNameForJsp(null));
 
-        Assert.assertEquals(null,  h.getClassNameForJsp(null));
+        assertEquals(null, h.getClassNameForJsp(""));
 
-        Assert.assertEquals(null,  h.getClassNameForJsp(""));
+        assertEquals(null, h.getClassNameForJsp("/blah/"));
 
-        Assert.assertEquals(null,  h.getClassNameForJsp("/blah/"));
+        assertEquals(null, h.getClassNameForJsp("//blah///"));
 
-        Assert.assertEquals(null,  h.getClassNameForJsp("//blah///"));
+        assertEquals(null, h.getClassNameForJsp("/a/b/c/blah/"));
 
-        Assert.assertEquals(null,  h.getClassNameForJsp("/a/b/c/blah/"));
+        assertEquals("org.apache.jsp.a.b.c.blah", h.getClassNameForJsp("/a/b/c/blah"));
 
-        Assert.assertEquals("org.apache.jsp.a.b.c.blah",  h.getClassNameForJsp("/a/b/c/blah"));
+        assertEquals("org.apache.jsp.blah_jsp", h.getClassNameForJsp("/blah.jsp"));
 
-        Assert.assertEquals("org.apache.jsp.blah_jsp", h.getClassNameForJsp("/blah.jsp"));
+        assertEquals("org.apache.jsp.blah_jsp", h.getClassNameForJsp("//blah.jsp"));
 
-        Assert.assertEquals("org.apache.jsp.blah_jsp", h.getClassNameForJsp("//blah.jsp"));
+        assertEquals("org.apache.jsp.blah_jsp", h.getClassNameForJsp("blah.jsp"));
 
-        Assert.assertEquals("org.apache.jsp.blah_jsp", h.getClassNameForJsp("blah.jsp"));
+        assertEquals("org.apache.jsp.a.b.c.blah_jsp", h.getClassNameForJsp("/a/b/c/blah.jsp"));
 
-        Assert.assertEquals("org.apache.jsp.a.b.c.blah_jsp", h.getClassNameForJsp("/a/b/c/blah.jsp"));
-
-        Assert.assertEquals("org.apache.jsp.a.b.c.blah_jsp", h.getClassNameForJsp("a/b/c/blah.jsp"));
+        assertEquals("org.apache.jsp.a.b.c.blah_jsp", h.getClassNameForJsp("a/b/c/blah.jsp"));
     }
-    
 }

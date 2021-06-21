@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,38 +18,30 @@
 
 package org.eclipse.jetty.server.session;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDirExtension;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * ClusteredOrphanedSessionTest
  */
+@ExtendWith(WorkDirExtension.class)
 public class ClusteredOrphanedSessionTest extends AbstractClusteredOrphanedSessionTest
 {
-    @Before
-    public void before() throws Exception
-    {
-       FileTestHelper.setup();
-    }
-    
-    @After 
-    public void after()
-    {
-       FileTestHelper.teardown();
-    }
- 
+    public WorkDir workDir;
 
-    /** 
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
     public SessionDataStoreFactory createSessionDataStoreFactory()
     {
-        return FileTestHelper.newSessionDataStoreFactory();
+        return FileTestHelper.newSessionDataStoreFactory(workDir);
     }
-    
+
     @Test
+    @Override
     public void testOrphanedSession() throws Exception
     {
         super.testOrphanedSession();

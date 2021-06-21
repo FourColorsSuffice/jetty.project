@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,131 +18,175 @@
 
 package org.eclipse.jetty.server.session;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import org.eclipse.jetty.util.IO;
+import org.eclipse.jetty.toolchain.test.FS;
+import org.eclipse.jetty.toolchain.test.jupiter.WorkDir;
+import org.eclipse.jetty.util.ClassLoadingObjectInputStream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * FileTestHelper
- * 
  */
 public class FileTestHelper
 {
-    static int __workers=0;
-    static File _tmpDir;
-    
-    public  static void setup ()
-    throws Exception
+    static int __workers = 0;
+
+    public static File getFile(WorkDir workDir, String sessionId) throws IOException
     {
-        
-        _tmpDir = File.createTempFile("file", null);
-        _tmpDir.delete();
-        _tmpDir.mkdirs();
-        _tmpDir.deleteOnExit();
-    }
-    
-    
-    public static void teardown ()
-    {
-        IO.delete(_tmpDir);
-        _tmpDir = null;
-    }
-    
-    
-    public static void assertStoreDirEmpty (boolean isEmpty)
-    {
-        assertNotNull(_tmpDir);
-        assertTrue(_tmpDir.exists());
-        String[] files = _tmpDir.list();
-        if (isEmpty)
+        try (Stream<Path> s = Files.list(workDir.getPath()))
         {
-            if (files != null)
-                assertEquals(0, files.length);
-        }
-        else
-        {
-            assertNotNull(files);
-            assertFalse(files.length==0);
+            return s
+                .filter((path) -> path.getFileName().toString().endsWith("_" + sessionId))
+                .findFirst()
+                .map(Path::toFile)
+                .orElse(null);
         }
     }
 
-    
-    public static File getFile (String sessionId)
+    public static void assertSessionExists(WorkDir workDir, String sessionId, boolean exists) throws IOException
     {
-        assertNotNull(_tmpDir);
-        assertTrue(_tmpDir.exists());
-        String[] files = _tmpDir.list();
-        assertNotNull(files);
-        String fname = null;
-        for (String name:files)
+        try (Stream<Path> s = Files.list(workDir.getPath()))
         {
-            if (name.contains(sessionId))
-            {
-                fname=name;
-                break;
-            }
+            Optional<Path> sessionPath = s
+                .filter((path) -> path.getFileName().toString().contains(sessionId))
+                .findFirst();
+            if (exists)
+                assertTrue(sessionPath.isPresent());
+            else
+                assertFalse(sessionPath.isPresent());
         }
-        if (fname != null)
-            return new File (_tmpDir, fname);
-        return null;
     }
 
-    public static void assertFileExists (String sessionId, boolean exists)
+    public static void assertFileExists(WorkDir workDir, String filename, boolean exists)
     {
-        assertNotNull(_tmpDir);
-        assertTrue(_tmpDir.exists());
-        String[] files = _tmpDir.list();
-        assertNotNull(files);
+        Path path = workDir.getPath().resolve(filename);
         if (exists)
-            assertFalse(files.length == 0);
-        boolean found = false;
-        for (String name:files)
-        {
-            if (name.contains(sessionId))
-            {
-                found = true;
-                break;
-            }
-        }
-        if (exists)
-            assertTrue(found);
+            assertTrue(Files.exists(path), "File should exist: " + path);
         else
-            assertFalse(found);
+            assertFalse(Files.exists(path), "File should NOT exist: " + path);
     }
-    
-    
-    public static void deleteFile (String sessionId)
+
+    public static void createFile(WorkDir workDir, String filename)
+        throws IOException
     {
-        assertNotNull(_tmpDir);
-        assertTrue(_tmpDir.exists());
-        String[] files = _tmpDir.list();
-        assertNotNull(files);
-        assertFalse(files.length == 0);
-        String filename = null;
-        for (String name:files)
+        Path path = workDir.getPath().resolve(filename);
+        Files.deleteIfExists(path);
+        FS.touch(path);
+    }
+
+    public static void createFile(WorkDir workDir, String id, String contextPath, String vhost,
+                                  String lastNode, long created, long accessed,
+                                  long lastAccessed, long maxIdle, long expiry,
+                                  long cookieSet, Map<String, Object> attributes)
+        throws Exception
+    {
+        String filename = "" + expiry + "_" + contextPath + "_" + vhost + "_" + id;
+        Path path = workDir.getPath().resolve(filename);
+        try (OutputStream fos = Files.newOutputStream(path);
+             DataOutputStream out = new DataOutputStream(fos))
         {
-            if (name.contains(sessionId))
+            out.writeUTF(id);
+            out.writeUTF(contextPath);
+            out.writeUTF(vhost);
+            out.writeUTF(lastNode);
+            out.writeLong(created);
+            out.writeLong(accessed);
+            out.writeLong(lastAccessed);
+            out.writeLong(cookieSet);
+            out.writeLong(expiry);
+            out.writeLong(maxIdle);
+
+            if (attributes != null)
             {
-                filename = name;
-                break;
+                SessionData tmp = new SessionData(id, contextPath, vhost, created, accessed, lastAccessed, maxIdle);
+                ObjectOutputStream oos = new ObjectOutputStream(out);
+                SessionData.serializeAttributes(tmp, oos);
             }
         }
-        if (filename != null)
+    }
+
+    public static boolean checkSessionPersisted(WorkDir workDir, SessionData data)
+        throws Exception
+    {
+        String filename = "" + data.getExpiry() + "_" + data.getContextPath() + "_" + data.getVhost() + "_" + data.getId();
+        Path file = workDir.getPath().resolve(filename);
+
+        assertTrue(Files.exists(file));
+
+        try (InputStream in = Files.newInputStream(file);
+             DataInputStream di = new DataInputStream(in))
         {
-            File f = new File (_tmpDir, filename);
-            assertTrue(f.delete());
+            String id = di.readUTF();
+            String contextPath = di.readUTF();
+            String vhost = di.readUTF();
+            String lastNode = di.readUTF();
+            long created = di.readLong();
+            long accessed = di.readLong();
+            long lastAccessed = di.readLong();
+            long cookieSet = di.readLong();
+            long expiry = di.readLong();
+            long maxIdle = di.readLong();
+
+            assertEquals(data.getId(), id);
+            assertEquals(data.getContextPath(), contextPath);
+            assertEquals(data.getVhost(), vhost);
+            assertEquals(data.getLastNode(), lastNode);
+            assertEquals(data.getCreated(), created);
+            assertEquals(data.getAccessed(), accessed);
+            assertEquals(data.getLastAccessed(), lastAccessed);
+            assertEquals(data.getCookieSet(), cookieSet);
+            assertEquals(data.getExpiry(), expiry);
+            assertEquals(data.getMaxInactiveMs(), maxIdle);
+
+            SessionData tmp = new SessionData(id, contextPath, vhost, created, accessed, lastAccessed, maxIdle);
+            ClassLoadingObjectInputStream ois = new ClassLoadingObjectInputStream(di);
+            SessionData.deserializeAttributes(tmp, ois);
+
+            //same number of attributes
+            assertEquals(data.getAllAttributes().size(), tmp.getAllAttributes().size());
+            //same keys
+            assertEquals(tmp.getAllAttributes().keySet(), data.getKeys());
+            //same values
+            for (String name : data.getKeys())
+            {
+                assertEquals(tmp.getAttribute(name), data.getAttribute(name));
+            }
+        }
+
+        return true;
+    }
+
+    public static void deleteFile(WorkDir workDir, String sessionId) throws IOException
+    {
+        // Collect
+        try (Stream<Path> s = Files.list(workDir.getPath()))
+        {
+            s.filter((path) -> path.getFileName().toString().contains(sessionId))
+                .collect(Collectors.toList()) // Delete outside of list stream
+                .forEach(FS::deleteFile);
         }
     }
- 
-    public static FileSessionDataStoreFactory newSessionDataStoreFactory()
+
+    public static FileSessionDataStoreFactory newSessionDataStoreFactory(WorkDir workDir)
     {
         FileSessionDataStoreFactory storeFactory = new FileSessionDataStoreFactory();
-        storeFactory.setStoreDir(_tmpDir);
+        storeFactory.setStoreDir(workDir.getPath().toFile());
         return storeFactory;
     }
 }

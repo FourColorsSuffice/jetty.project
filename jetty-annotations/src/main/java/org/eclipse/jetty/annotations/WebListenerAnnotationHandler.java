@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,31 +29,34 @@ public class WebListenerAnnotationHandler extends AbstractDiscoverableAnnotation
 {
     private static final Logger LOG = Log.getLogger(WebListenerAnnotationHandler.class);
 
-    public WebListenerAnnotationHandler (WebAppContext context)
+    public WebListenerAnnotationHandler(WebAppContext context)
     {
-       super(context);
+        super(context);
     }
-    
+
+    @Override
     public void handle(ClassInfo info, String annotationName)
     {
         if (annotationName == null || !"javax.servlet.annotation.WebListener".equals(annotationName))
             return;
-        
+
         WebListenerAnnotation wlAnnotation = new WebListenerAnnotation(_context, info.getClassName(), info.getContainingResource());
         addAnnotation(wlAnnotation);
     }
 
+    @Override
     public void handle(FieldInfo info, String annotationName)
     {
         if (annotationName == null || !"javax.servlet.annotation.WebListener".equals(annotationName))
             return;
-        LOG.warn ("@WebListener is not applicable to fields: "+info.getClassInfo().getClassName()+"."+info.getFieldName());
+        LOG.warn("@WebListener is not applicable to fields: " + info.getClassInfo().getClassName() + "." + info.getFieldName());
     }
 
+    @Override
     public void handle(MethodInfo info, String annotationName)
     {
         if (annotationName == null || !"javax.servlet.annotation.WebListener".equals(annotationName))
             return;
-        LOG.warn ("@WebListener is not applicable to methods: "+info.getClassInfo().getClassName()+"."+info.getMethodName()+" "+info.getSignature());
+        LOG.warn("@WebListener is not applicable to methods: " + info.getClassInfo().getClassName() + "." + info.getMethodName() + " " + info.getSignature());
     }
 }

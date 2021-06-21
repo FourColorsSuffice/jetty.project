@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -43,6 +43,7 @@ public class Fields implements Iterable<Fields.Field>
 
     /**
      * <p>Creates an empty, modifiable, case insensitive {@link Fields} instance.</p>
+     *
      * @see #Fields(Fields, boolean)
      */
     public Fields()
@@ -52,6 +53,7 @@ public class Fields implements Iterable<Fields.Field>
 
     /**
      * <p>Creates an empty, modifiable, case insensitive {@link Fields} instance.</p>
+     *
      * @param caseSensitive whether this {@link Fields} instance must be case sensitive
      * @see #Fields(Fields, boolean)
      */
@@ -111,7 +113,9 @@ public class Fields implements Iterable<Fields.Field>
     {
         Set<String> result = new LinkedHashSet<>();
         for (Field field : fields.values())
+        {
             result.add(field.getName());
+        }
         return result;
     }
 
@@ -190,6 +194,7 @@ public class Fields implements Iterable<Fields.Field>
 
     /**
      * <p>Empties this {@link Fields} instance from all fields</p>
+     *
      * @see #isEmpty()
      */
     public void clear()
@@ -251,6 +256,7 @@ public class Fields implements Iterable<Fields.Field>
             this.values = Collections.unmodifiableList(list);
         }
 
+        @SuppressWarnings("ReferenceEquality")
         public boolean equals(Field that, boolean caseSensitive)
         {
             if (this == that)

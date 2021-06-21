@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -35,26 +35,28 @@ public abstract class AbstractStringEndpoint extends Endpoint implements Message
     private static final Logger LOG = Log.getLogger(AbstractStringEndpoint.class);
     protected Session session;
     protected EndpointConfig config;
-    
+
     @Override
     public void onOpen(Session session, EndpointConfig config)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("onOpen({}, {})",session,config);
+            LOG.debug("onOpen({}, {})", session, config);
         session.addMessageHandler(this);
         this.session = session;
         this.config = config;
     }
 
+    @Override
     public void onClose(Session session, CloseReason closeReason)
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("onClose({}, {})",session,closeReason);
+            LOG.debug("onClose({}, {})", session, closeReason);
         this.session = null;
     }
 
+    @Override
     public void onError(Session session, Throwable thr)
     {
-        LOG.warn("onError()",thr);
+        LOG.warn("onError()", thr);
     }
 }

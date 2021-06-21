@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,6 +21,7 @@ package org.eclipse.jetty.http2.frames;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http.HostPortHttpField;
 import org.eclipse.jetty.http.HttpField;
@@ -35,8 +36,11 @@ import org.eclipse.jetty.http2.hpack.HpackEncoder;
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.MappedByteBufferPool;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class ContinuationParseTest
 {
@@ -61,6 +65,7 @@ public class ContinuationParseTest
                 frames.add(new HeadersFrame(null, null, false));
             }
         }, 4096, 8192);
+        parser.init(UnaryOperator.identity());
 
         // Iterate a few times to be sure the parser is properly reset.
         for (int i = 0; i < 2; ++i)
@@ -75,7 +80,7 @@ public class ContinuationParseTest
             generator.generateHeaders(lease, streamId, metaData, null, true);
 
             List<ByteBuffer> byteBuffers = lease.getByteBuffers();
-            Assert.assertEquals(2, byteBuffers.size());
+            assertEquals(2, byteBuffers.size());
 
             ByteBuffer headersBody = byteBuffers.remove(1);
             int start = headersBody.position();
@@ -139,20 +144,20 @@ public class ContinuationParseTest
                 }
             }
 
-            Assert.assertEquals(1, frames.size());
+            assertEquals(1, frames.size());
             HeadersFrame frame = frames.get(0);
-            Assert.assertEquals(streamId, frame.getStreamId());
-            Assert.assertTrue(frame.isEndStream());
+            assertEquals(streamId, frame.getStreamId());
+            assertTrue(frame.isEndStream());
             MetaData.Request request = (MetaData.Request)frame.getMetaData();
-            Assert.assertEquals(metaData.getMethod(), request.getMethod());
-            Assert.assertEquals(metaData.getURI(), request.getURI());
+            assertEquals(metaData.getMethod(), request.getMethod());
+            assertEquals(metaData.getURI(), request.getURI());
             for (int j = 0; j < fields.size(); ++j)
             {
                 HttpField field = fields.getField(j);
-                Assert.assertTrue(request.getFields().contains(field));
+                assertTrue(request.getFields().contains(field));
             }
             PriorityFrame priority = frame.getPriority();
-            Assert.assertNull(priority);
+            assertNull(priority);
         }
     }
 }

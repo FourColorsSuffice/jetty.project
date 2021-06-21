@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,10 +18,10 @@
 
 package org.eclipse.jetty.start;
 
-import static org.eclipse.jetty.start.UsageException.ERR_BAD_ARG;
-
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -34,6 +34,8 @@ import java.util.regex.Pattern;
 
 import org.eclipse.jetty.start.Props.Prop;
 
+import static org.eclipse.jetty.start.UsageException.ERR_BAD_ARG;
+
 /**
  * Management of Properties.
  * <p>
@@ -43,25 +45,18 @@ import org.eclipse.jetty.start.Props.Prop;
 public final class Props implements Iterable<Prop>
 {
     private static final Pattern __propertyPattern = Pattern.compile("(?<=[^$]|^)\\$\\{([^}]*)\\}");
-    
+
     public static class Prop
     {
         public String key;
         public String value;
-        public String origin;
-        public Prop overrides;
+        public String source;
 
-        public Prop(String key, String value, String origin)
+        public Prop(String key, String value, String source)
         {
             this.key = key;
             this.value = value;
-            this.origin = origin;
-        }
-
-        public Prop(String key, String value, String origin, Prop overrides)
-        {
-            this(key,value,origin);
-            this.overrides = overrides;
+            this.source = source;
         }
 
         @Override
@@ -72,28 +67,26 @@ public final class Props implements Iterable<Prop>
             builder.append(key);
             builder.append(", value=");
             builder.append(value);
-            builder.append(", origin=");
-            builder.append(origin);
-            builder.append(", overrides=");
-            builder.append(overrides);
+            builder.append(", source=");
+            builder.append(source);
             builder.append("]");
             return builder.toString();
         }
     }
 
     public static final String ORIGIN_SYSPROP = "<system-property>";
-    
+
     public static String getValue(String arg)
     {
         int idx = arg.indexOf('=');
         if (idx == (-1))
         {
-            throw new UsageException(ERR_BAD_ARG,"Argument is missing a required value: %s",arg);
+            throw new UsageException(ERR_BAD_ARG, "Argument is missing a required value: %s", arg);
         }
         String value = arg.substring(idx + 1).trim();
         if (value.length() <= 0)
         {
-            throw new UsageException(ERR_BAD_ARG,"Argument is missing a required value: %s",arg);
+            throw new UsageException(ERR_BAD_ARG, "Argument is missing a required value: %s", arg);
         }
         return value;
     }
@@ -124,11 +117,12 @@ public final class Props implements Iterable<Prop>
         this.props.putAll(other.props);
         this.sysPropTracking.addAll(other.sysPropTracking);
     }
-    
+
     /**
      * Add a potential argument as a property.
      * <p>
      * If arg is not a property, ignore it.
+     *
      * @param arg the argument to parse for a potential property
      * @param source the source for this argument (to track origin of property from)
      * @return true if the property was added, false if the property wasn't added
@@ -138,16 +132,16 @@ public final class Props implements Iterable<Prop>
         // Start property (syntax similar to System property)
         if (arg.startsWith("-D"))
         {
-            String[] assign = arg.substring(2).split("=",2);
+            String[] assign = arg.substring(2).split("=", 2);
             switch (assign.length)
             {
                 case 2:
-                    setSystemProperty(assign[0],assign[1]);
-                    setProperty(assign[0],assign[1],source);
+                    setSystemProperty(assign[0], assign[1]);
+                    setProperty(assign[0], assign[1], source);
                     return true;
                 case 1:
-                    setSystemProperty(assign[0],"");
-                    setProperty(assign[0],"",source);
+                    setSystemProperty(assign[0], "");
+                    setProperty(assign[0], "", source);
                     return true;
                 default:
                     return false;
@@ -158,10 +152,10 @@ public final class Props implements Iterable<Prop>
         int idx = arg.indexOf('=');
         if (idx >= 0)
         {
-            String key = arg.substring(0,idx);
+            String key = arg.substring(0, idx);
             String value = arg.substring(idx + 1);
 
-            setProperty(key,value,source);
+            setProperty(key, value, source);
             return true;
         }
 
@@ -174,7 +168,7 @@ public final class Props implements Iterable<Prop>
         String name = property.trim();
         if (name.startsWith("${") && name.endsWith("}"))
         {
-            name = name.substring(2,name.length() - 1);
+            name = name.substring(2, name.length() - 1);
         }
         return name.trim();
     }
@@ -182,12 +176,12 @@ public final class Props implements Iterable<Prop>
     public boolean containsKey(String key)
     {
         Prop prop = props.get(key);
-        return prop!=null && prop.value!=null;
+        return prop != null && prop.value != null;
     }
 
     public String expand(String str)
     {
-        return expand(str,new Stack<String>());
+        return expand(str, new Stack<String>());
     }
 
     private String expand(String str, Stack<String> seenStack)
@@ -229,19 +223,19 @@ public final class Props implements Iterable<Prop>
             }
 
             // find property name
-            expanded.append(str.subSequence(offset,mat.start()));
+            expanded.append(str.subSequence(offset, mat.start()));
             // get property value
             value = getString(property);
             if (value == null)
             {
-                StartLog.trace("Unable to expand: %s",property);
+                StartLog.trace("Unable to expand: %s", property);
                 expanded.append(mat.group());
             }
             else
             {
                 // recursively expand
                 seenStack.push(property);
-                value = expand(value,seenStack);
+                value = expand(value, seenStack);
                 seenStack.pop();
                 expanded.append(value);
             }
@@ -255,7 +249,7 @@ public final class Props implements Iterable<Prop>
         // special case for "$$"
         if (expanded.indexOf("$$") >= 0)
         {
-            return expanded.toString().replaceAll("\\$\\$","\\$");
+            return expanded.toString().replaceAll("\\$\\$", "\\$");
         }
 
         return expanded.toString();
@@ -263,7 +257,7 @@ public final class Props implements Iterable<Prop>
 
     public Prop getProp(String key)
     {
-        return getProp(key,true);
+        return getProp(key, true);
     }
 
     public Prop getProp(String key, boolean searchSystemProps)
@@ -316,7 +310,7 @@ public final class Props implements Iterable<Prop>
         {
             return null;
         }
-        return new Prop(key,value,ORIGIN_SYSPROP);
+        return new Prop(key, value, ORIGIN_SYSPROP);
     }
 
     public static boolean hasPropertyKey(String name)
@@ -337,21 +331,12 @@ public final class Props implements Iterable<Prop>
 
     public void setProperty(Prop prop)
     {
-        props.put(prop.key,prop);
+        props.put(prop.key, prop);
     }
 
     public void setProperty(String key, String value, String origin)
     {
-        Prop prop = props.get(key);
-        if (prop == null)
-        {
-            prop = new Prop(key,value,origin);
-        }
-        else
-        {
-            prop = new Prop(key,value,origin,prop);
-        }
-        props.put(key,prop);
+        props.put(key, new Prop(key, value, origin));
     }
 
     public int size()
@@ -365,21 +350,49 @@ public final class Props implements Iterable<Prop>
         // add all Props as normal properties, with expansion performed.
         for (Prop prop : this)
         {
-            props.setProperty(prop.key,expand(prop.value));
+            props.setProperty(prop.key, expand(prop.value));
         }
         // write normal properties file
-        props.store(stream,comments);
+        props.store(stream, comments);
     }
 
     public void setSystemProperty(String key, String value)
     {
-        System.setProperty(key,value);
+        System.setProperty(key, value);
         sysPropTracking.add(key);
     }
-    
+
     @Override
     public String toString()
     {
         return props.toString();
+    }
+
+    public static Props load(ClassLoader classLoader, String resourceName)
+    {
+        StartLog.debug("Looking for classloader resource: %s", resourceName);
+        return load(classLoader.getResource(resourceName));
+    }
+
+    public static Props load(URL url)
+    {
+        Props props = new Props();
+        if (url != null)
+        {
+            StartLog.debug("Loading Props: %s", url.toExternalForm());
+            try (InputStream in = url.openStream())
+            {
+                Properties properties = new Properties();
+                properties.load(in);
+                String urlStr = url.toExternalForm();
+                properties.stringPropertyNames().forEach((name) ->
+                    props.setProperty(name, properties.getProperty(name), urlStr));
+            }
+            catch (IOException x)
+            {
+                StartLog.debug(x);
+            }
+        }
+        return props;
     }
 }

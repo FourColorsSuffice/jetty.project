@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,7 +22,6 @@ import java.net.URI;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.websocket.CloseReason;
 import javax.websocket.Endpoint;
 import javax.websocket.EndpointConfig;
@@ -35,14 +34,16 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.websocket.common.WebSocketSession;
+import org.eclipse.jetty.websocket.common.WebSocketSessionListener;
 import org.eclipse.jetty.websocket.jsr356.ClientContainer;
 import org.eclipse.jetty.websocket.jsr356.server.deploy.WebSocketServerContainerInitializer;
 import org.eclipse.jetty.websocket.server.WebSocketServerFactory;
 import org.hamcrest.Matchers;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
 
 public class SessionTrackingTest
 {
@@ -51,7 +52,7 @@ public class SessionTrackingTest
     private WebSocketServerFactory wsServerFactory;
     private URI serverURI;
 
-    @Before
+    @BeforeEach
     public void startServer() throws Exception
     {
         QueuedThreadPool serverThreads = new QueuedThreadPool();
@@ -74,7 +75,7 @@ public class SessionTrackingTest
         serverURI = new URI("ws://localhost:" + serverConnector.getLocalPort());
     }
 
-    @After
+    @AfterEach
     public void stopServer() throws Exception
     {
         if (server != null)
@@ -93,16 +94,16 @@ public class SessionTrackingTest
         {
             CountDownLatch openedLatch = new CountDownLatch(2);
             CountDownLatch closedLatch = new CountDownLatch(2);
-            wsServerFactory.addSessionListener(new WebSocketSession.Listener()
+            wsServerFactory.addSessionListener(new WebSocketSessionListener()
             {
                 @Override
-                public void onOpened(WebSocketSession session)
+                public void onSessionOpened(WebSocketSession session)
                 {
                     openedLatch.countDown();
                 }
 
                 @Override
-                public void onClosed(WebSocketSession session)
+                public void onSessionClosed(WebSocketSession session)
                 {
                     closedLatch.countDown();
                 }
@@ -145,10 +146,10 @@ public class SessionTrackingTest
         int openCount = 0;
         for (Session session : sessions)
         {
-            Assert.assertThat("Session.isopen: " + session, session.isOpen(), Matchers.is(true));
+            assertThat("Session.isopen: " + session, session.isOpen(), Matchers.is(true));
             openCount++;
         }
-        Assert.assertThat("Open Session Count", openCount, Matchers.is(expectedCount));
+        assertThat("Open Session Count", openCount, Matchers.is(expectedCount));
     }
 
     private static class ClientSocket extends Endpoint
@@ -172,12 +173,12 @@ public class SessionTrackingTest
 
         public void waitForOpen(long timeout, TimeUnit unit) throws InterruptedException
         {
-            Assert.assertThat("ClientSocket opened", openLatch.await(timeout, unit), Matchers.is(true));
+            assertThat("ClientSocket opened", openLatch.await(timeout, unit), Matchers.is(true));
         }
 
         public void waitForClose(long timeout, TimeUnit unit) throws InterruptedException
         {
-            Assert.assertThat("ClientSocket opened", closeLatch.await(timeout, unit), Matchers.is(true));
+            assertThat("ClientSocket opened", closeLatch.await(timeout, unit), Matchers.is(true));
         }
     }
 

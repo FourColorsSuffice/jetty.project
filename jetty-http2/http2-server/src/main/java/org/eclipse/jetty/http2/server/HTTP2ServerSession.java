@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,10 +18,12 @@
 
 package org.eclipse.jetty.http2.server;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 
 import org.eclipse.jetty.http.MetaData;
+import org.eclipse.jetty.http2.CloseState;
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.FlowControlStrategy;
 import org.eclipse.jetty.http2.HTTP2Session;
@@ -63,18 +65,12 @@ public class HTTP2ServerSession extends HTTP2Session implements ServerParser.Lis
             settings = Collections.emptyMap();
         SettingsFrame settingsFrame = new SettingsFrame(settings, false);
 
-        WindowUpdateFrame windowFrame = null;
         int sessionWindow = getInitialSessionRecvWindow() - FlowControlStrategy.DEFAULT_WINDOW_SIZE;
+        updateRecvWindow(sessionWindow);
         if (sessionWindow > 0)
-        {
-            updateRecvWindow(sessionWindow);
-            windowFrame = new WindowUpdateFrame(0, sessionWindow);
-        }
-
-        if (windowFrame == null)
-            frames(null, Callback.NOOP, settingsFrame, Frame.EMPTY_ARRAY);
+            frames(null, Arrays.asList(settingsFrame, new WindowUpdateFrame(0, sessionWindow)), Callback.NOOP);
         else
-            frames(null, Callback.NOOP, settingsFrame, windowFrame);
+            frames(null, Collections.singletonList(settingsFrame), Callback.NOOP);
     }
 
     @Override
@@ -83,16 +79,41 @@ public class HTTP2ServerSession extends HTTP2Session implements ServerParser.Lis
         if (LOG.isDebugEnabled())
             LOG.debug("Received {}", frame);
 
+        int streamId = frame.getStreamId();
+        if (!isClientStream(streamId))
+        {
+            onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "invalid_stream_id");
+            return;
+        }
+
+        IStream stream = getStream(streamId);
+
         MetaData metaData = frame.getMetaData();
         if (metaData.isRequest())
         {
-            IStream stream = createRemoteStream(frame.getStreamId());
-            if (stream != null)
+            if (stream == null)
             {
-                onStreamOpened(stream);
-                stream.process(frame, Callback.NOOP);
-                Stream.Listener listener = notifyNewStream(stream, frame);
-                stream.setListener(listener);
+                if (isRemoteStreamClosed(streamId))
+                {
+                    onConnectionFailure(ErrorCode.STREAM_CLOSED_ERROR.code, "unexpected_headers_frame");
+                }
+                else
+                {
+                    stream = createRemoteStream(streamId);
+                    if (stream != null)
+                    {
+                        onStreamOpened(stream);
+                        stream.process(frame, Callback.NOOP);
+                        if (stream.updateClose(frame.isEndStream(), CloseState.Event.RECEIVED))
+                            removeStream(stream);
+                        Stream.Listener listener = notifyNewStream(stream, frame);
+                        stream.setListener(listener);
+                    }
+                }
+            }
+            else
+            {
+                onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "duplicate_stream");
             }
         }
         else if (metaData.isResponse())
@@ -102,17 +123,18 @@ public class HTTP2ServerSession extends HTTP2Session implements ServerParser.Lis
         else
         {
             // Trailers.
-            int streamId = frame.getStreamId();
-            IStream stream = getStream(streamId);
             if (stream != null)
             {
                 stream.process(frame, Callback.NOOP);
+                if (stream.updateClose(frame.isEndStream(), CloseState.Event.RECEIVED))
+                    removeStream(stream);
                 notifyHeaders(stream, frame);
             }
             else
             {
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Ignoring {}, stream #{} not found", frame, streamId);
+                    LOG.debug("Stream #{} not found", streamId);
+                onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_headers_frame");
             }
         }
     }

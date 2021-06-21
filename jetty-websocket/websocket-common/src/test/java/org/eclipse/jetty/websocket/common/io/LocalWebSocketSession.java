@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -24,18 +24,17 @@ import org.eclipse.jetty.websocket.common.WebSocketSession;
 import org.eclipse.jetty.websocket.common.events.EventDriver;
 import org.eclipse.jetty.websocket.common.scopes.WebSocketContainerScope;
 import org.eclipse.jetty.websocket.common.test.OutgoingFramesCapture;
-import org.junit.rules.TestName;
 
 public class LocalWebSocketSession extends WebSocketSession
 {
     private String id;
     private OutgoingFramesCapture outgoingCapture;
 
-    public LocalWebSocketSession(WebSocketContainerScope containerScope, TestName testname, EventDriver driver)
+    public LocalWebSocketSession(WebSocketContainerScope containerScope, String id, EventDriver driver)
     {
-        super(containerScope,URI.create("ws://localhost/LocalWebSocketSesssion/" + testname.getMethodName()),driver,
-                new LocalWebSocketConnection(testname,containerScope.getBufferPool()));
-        this.id = testname.getMethodName();
+        super(containerScope, URI.create("ws://localhost/LocalWebSocketSesssion/" + id), driver,
+            new LocalWebSocketConnection(id, containerScope.getBufferPool()));
+        this.id = id;
         outgoingCapture = new OutgoingFramesCapture();
         setOutgoingHandler(outgoingCapture);
     }
@@ -54,6 +53,6 @@ public class LocalWebSocketSession extends WebSocketSession
     @Override
     public String toString()
     {
-        return String.format("%s[%s]",LocalWebSocketSession.class.getSimpleName(),id);
+        return String.format("%s[%s]", LocalWebSocketSession.class.getSimpleName(), id);
     }
 }

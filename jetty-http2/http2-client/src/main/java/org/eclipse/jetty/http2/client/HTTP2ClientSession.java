@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,9 +18,8 @@
 
 package org.eclipse.jetty.http2.client;
 
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.eclipse.jetty.http.MetaData;
+import org.eclipse.jetty.http2.CloseState;
 import org.eclipse.jetty.http2.ErrorCode;
 import org.eclipse.jetty.http2.FlowControlStrategy;
 import org.eclipse.jetty.http2.HTTP2Session;
@@ -40,36 +39,9 @@ public class HTTP2ClientSession extends HTTP2Session
 {
     private static final Logger LOG = Log.getLogger(HTTP2ClientSession.class);
 
-    private final AtomicLong streamsOpened = new AtomicLong();
-    private final AtomicLong streamsClosed = new AtomicLong();
-
     public HTTP2ClientSession(Scheduler scheduler, EndPoint endPoint, Generator generator, Session.Listener listener, FlowControlStrategy flowControl)
     {
         super(scheduler, endPoint, generator, listener, flowControl, 1);
-    }
-
-    @Override
-    protected void onStreamOpened(IStream stream)
-    {
-        super.onStreamOpened(stream);
-        streamsOpened.incrementAndGet();
-    }
-
-    @Override
-    protected void onStreamClosed(IStream stream)
-    {
-        super.onStreamClosed(stream);
-        streamsClosed.incrementAndGet();
-    }
-
-    public long getStreamsOpened()
-    {
-        return streamsOpened.get();
-    }
-
-    public long getStreamsClosed()
-    {
-        return streamsClosed.get();
     }
 
     @Override
@@ -78,6 +50,7 @@ public class HTTP2ClientSession extends HTTP2Session
         if (LOG.isDebugEnabled())
             LOG.debug("Received {}", frame);
 
+        // HEADERS can be received for normal and pushed responses.
         int streamId = frame.getStreamId();
         IStream stream = getStream(streamId);
         if (stream != null)
@@ -90,13 +63,31 @@ public class HTTP2ClientSession extends HTTP2Session
             else
             {
                 stream.process(frame, Callback.NOOP);
+                if (stream.updateClose(frame.isEndStream(), CloseState.Event.RECEIVED))
+                    removeStream(stream);
                 notifyHeaders(stream, frame);
             }
         }
         else
         {
             if (LOG.isDebugEnabled())
-                LOG.debug("Ignoring {}, stream #{} not found", frame, streamId);
+                LOG.debug("Stream #{} not found", streamId);
+            if (isClientStream(streamId))
+            {
+                // Normal stream.
+                // Headers or trailers arriving after
+                // the stream has been reset are ignored.
+                if (!isLocalStreamClosed(streamId))
+                    onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_headers_frame");
+            }
+            else
+            {
+                // Pushed stream.
+                // Headers or trailers arriving after
+                // the stream has been reset are ignored.
+                if (!isRemoteStreamClosed(streamId))
+                    onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_headers_frame");
+            }
         }
     }
 
@@ -117,9 +108,12 @@ public class HTTP2ClientSession extends HTTP2Session
         else
         {
             IStream pushStream = createRemoteStream(pushStreamId);
-            pushStream.process(frame, Callback.NOOP);
-            Stream.Listener listener = notifyPush(stream, pushStream, frame);
-            pushStream.setListener(listener);
+            if (pushStream != null)
+            {
+                pushStream.process(frame, Callback.NOOP);
+                Stream.Listener listener = notifyPush(stream, pushStream, frame);
+                pushStream.setListener(listener);
+            }
         }
     }
 

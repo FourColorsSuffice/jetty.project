@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,37 +19,45 @@
 package org.eclipse.jetty.http.client;
 
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.client.util.BytesContentProvider;
+import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.ConnectionStatistics;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.util.IO;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Test;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ArgumentsSource;
 
-public class ConnectionStatisticsTest extends AbstractTest
+import static org.eclipse.jetty.http.client.Transport.H2C;
+import static org.eclipse.jetty.http.client.Transport.HTTP;
+import static org.hamcrest.MatcherAssert.assertThat;
+
+public class ConnectionStatisticsTest extends AbstractTest<TransportScenario>
 {
-    public ConnectionStatisticsTest(Transport transport)
+    @Override
+    public void init(Transport transport) throws IOException
     {
-        super(transport);
+        setScenario(new TransportScenario(transport));
+        Assumptions.assumeTrue(scenario.transport == HTTP || scenario.transport == H2C);
     }
 
-    @Test
-    public void testConnectionStatistics() throws Exception
+    @ParameterizedTest
+    @ArgumentsSource(TransportProvider.class)
+    public void testConnectionStatistics(Transport transport) throws Exception
     {
-        Assume.assumeThat(transport, Matchers.isOneOf(Transport.H2C, Transport.H2));
-
-        start(new AbstractHandler()
+        init(transport);
+        scenario.start(new AbstractHandler()
         {
             @Override
             public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
@@ -59,43 +67,55 @@ public class ConnectionStatisticsTest extends AbstractTest
             }
         });
 
+        CountDownLatch closed = new CountDownLatch(2);
+        Connection.Listener closer = new Connection.Listener()
+        {
+            @Override
+            public void onOpened(Connection connection)
+            {
+            }
+
+            @Override
+            public void onClosed(Connection connection)
+            {
+                closed.countDown();
+            }
+        };
+
         ConnectionStatistics serverStats = new ConnectionStatistics();
-        connector.addBean(serverStats);
+        scenario.connector.addBean(serverStats);
+        scenario.connector.addBean(closer);
         serverStats.start();
 
         ConnectionStatistics clientStats = new ConnectionStatistics();
-        client.addBean(clientStats);
+        scenario.client.addBean(clientStats);
+        scenario.client.addBean(closer);
         clientStats.start();
+
+        scenario.client.setIdleTimeout(1000);
 
         byte[] content = new byte[3072];
         long contentLength = content.length;
-        ContentResponse response = client.newRequest(newURI())
-                .content(new BytesContentProvider(content))
-                .timeout(5, TimeUnit.SECONDS)
-                .send();
+        ContentResponse response = scenario.client.newRequest(scenario.newURI())
+            .header(HttpHeader.CONNECTION, "close")
+            .content(new BytesContentProvider(content))
+            .timeout(5, TimeUnit.SECONDS)
+            .send();
 
-        Assert.assertThat(response.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
+        assertThat(response.getStatus(), Matchers.equalTo(HttpStatus.OK_200));
 
-        // The bytes have already arrived, but give time to
-        // the server to finish to run the response logic.
-        Thread.sleep(1000);
+        closed.await();
 
-        // Close all connections.
-        stop();
+        assertThat(serverStats.getConnectionsMax(), Matchers.greaterThan(0L));
+        assertThat(serverStats.getReceivedBytes(), Matchers.greaterThan(contentLength));
+        assertThat(serverStats.getSentBytes(), Matchers.greaterThan(contentLength));
+        assertThat(serverStats.getReceivedMessages(), Matchers.greaterThan(0L));
+        assertThat(serverStats.getSentMessages(), Matchers.greaterThan(0L));
 
-        // Give some time to process the stop event.
-        Thread.sleep(1000);
-
-        Assert.assertThat(serverStats.getConnectionsMax(), Matchers.greaterThan(0L));
-        Assert.assertThat(serverStats.getReceivedBytes(), Matchers.greaterThan(contentLength));
-        Assert.assertThat(serverStats.getSentBytes(), Matchers.greaterThan(contentLength));
-        Assert.assertThat(serverStats.getReceivedMessages(), Matchers.greaterThan(0L));
-        Assert.assertThat(serverStats.getSentMessages(), Matchers.greaterThan(0L));
-
-        Assert.assertThat(clientStats.getConnectionsMax(), Matchers.greaterThan(0L));
-        Assert.assertThat(clientStats.getReceivedBytes(), Matchers.greaterThan(contentLength));
-        Assert.assertThat(clientStats.getSentBytes(), Matchers.greaterThan(contentLength));
-        Assert.assertThat(clientStats.getReceivedMessages(), Matchers.greaterThan(0L));
-        Assert.assertThat(clientStats.getSentMessages(), Matchers.greaterThan(0L));
+        assertThat(clientStats.getConnectionsMax(), Matchers.greaterThan(0L));
+        assertThat(clientStats.getReceivedBytes(), Matchers.greaterThan(contentLength));
+        assertThat(clientStats.getSentBytes(), Matchers.greaterThan(contentLength));
+        assertThat(clientStats.getReceivedMessages(), Matchers.greaterThan(0L));
+        assertThat(clientStats.getSentMessages(), Matchers.greaterThan(0L));
     }
 }

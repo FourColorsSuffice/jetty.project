@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -17,8 +17,6 @@
 //
 
 package org.eclipse.jetty.security;
-
-
 
 /**
  * @version $Rev: 4701 $ $Date: 2009-03-03 13:01:26 +0100 (Tue, 03 Mar 2009) $
@@ -37,8 +35,9 @@ public class RoleRunAsToken implements RunAsToken
         return _runAsRole;
     }
 
+    @Override
     public String toString()
     {
-        return "RoleRunAsToken("+_runAsRole+")";
+        return "RoleRunAsToken(" + _runAsRole + ")";
     }
 }

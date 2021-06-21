@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,10 +18,7 @@
 
 package org.eclipse.jetty.servlet;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -29,9 +26,12 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.net.URI;
-
+import java.util.ArrayList;
+import java.util.List;
 import javax.servlet.DispatcherType;
+import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletException;
+import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -39,9 +39,14 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.toolchain.test.IO;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.hamcrest.Matchers;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.is;
 
 public class IncludedServletTest
 {
@@ -72,10 +77,49 @@ public class IncludedServletTest
         }
     }
 
+    public static class IncludedAttrServlet extends HttpServlet
+    {
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException
+        {
+            if (req.getDispatcherType() == DispatcherType.INCLUDE)
+            {
+                if (req.getAttribute("included") == null)
+                {
+                    req.setAttribute("included", Boolean.TRUE);
+                    dumpAttrs("BEFORE1", req, resp.getOutputStream());
+                    req.getRequestDispatcher("two").include(req, resp);
+                    dumpAttrs("AFTER1", req, resp.getOutputStream());
+                }
+                else
+                {
+                    dumpAttrs("DURING", req, resp.getOutputStream());
+                }
+            }
+            else
+            {
+                resp.setContentType("text/plain");
+                dumpAttrs("BEFORE0", req, resp.getOutputStream());
+                req.getRequestDispatcher("one").include(req, resp);
+                dumpAttrs("AFTER0", req, resp.getOutputStream());
+            }
+        }
+
+        private void dumpAttrs(String tag, HttpServletRequest req, ServletOutputStream out) throws IOException
+        {
+            out.println(String.format("%s: %s='%s'", tag, RequestDispatcher.INCLUDE_CONTEXT_PATH,
+                req.getAttribute(RequestDispatcher.INCLUDE_CONTEXT_PATH)));
+            out.println(String.format("%s: %s='%s'", tag, RequestDispatcher.INCLUDE_SERVLET_PATH,
+                req.getAttribute(RequestDispatcher.INCLUDE_SERVLET_PATH)));
+            out.println(String.format("%s: %s='%s'", tag, RequestDispatcher.INCLUDE_PATH_INFO,
+                req.getAttribute(RequestDispatcher.INCLUDE_PATH_INFO)));
+        }
+    }
+
     private Server server;
     private URI baseUri;
 
-    @Before
+    @BeforeEach
     public void startServer() throws Exception
     {
         this.server = new Server();
@@ -88,6 +132,7 @@ public class IncludedServletTest
         context.setContextPath("/");
         context.addServlet(TopServlet.class, "/top");
         context.addServlet(IncludedServlet.class, "/included");
+        context.addServlet(IncludedAttrServlet.class, "/attr/*");
 
         server.setHandler(context);
 
@@ -99,7 +144,7 @@ public class IncludedServletTest
         baseUri = URI.create("http://" + host + ":" + port + "/");
     }
 
-    @After
+    @AfterEach
     public void stopServer() throws Exception
     {
         this.server.stop();
@@ -117,13 +162,13 @@ public class IncludedServletTest
 
         try
         {
-            connection = (HttpURLConnection) uri.toURL().openConnection();
+            connection = (HttpURLConnection)uri.toURL().openConnection();
             connection.connect();
             if (HttpURLConnection.HTTP_OK != connection.getResponseCode())
             {
                 String body = getPotentialBody(connection);
                 String err = String.format("GET request failed (%d %s) %s%n%s", connection.getResponseCode(), connection.getResponseMessage(),
-                        uri.toASCIIString(), body);
+                    uri.toASCIIString(), body);
                 throw new IOException(err);
             }
             in = connection.getInputStream();
@@ -167,6 +212,54 @@ public class IncludedServletTest
         catch (IOException e)
         {
             return "<no body:" + e.getMessage() + ">";
+        }
+        finally
+        {
+            IO.close(reader);
+            IO.close(in);
+        }
+    }
+
+    @Test
+    public void testIncludeAttributes() throws IOException
+    {
+        URI uri = baseUri.resolve("/attr/one");
+        InputStream in = null;
+        BufferedReader reader = null;
+        HttpURLConnection connection = null;
+
+        try
+        {
+            connection = (HttpURLConnection)uri.toURL().openConnection();
+            connection.connect();
+            assertThat(connection.getResponseCode(), is(HttpURLConnection.HTTP_OK));
+            in = connection.getInputStream();
+            reader = new BufferedReader(new InputStreamReader(in));
+            List<String> result = new ArrayList<>();
+            String line = reader.readLine();
+            while (line != null)
+            {
+                result.add(line);
+                line = reader.readLine();
+            }
+
+            assertThat(result, Matchers.contains(
+                "BEFORE0: javax.servlet.include.context_path='null'",
+                "BEFORE0: javax.servlet.include.servlet_path='null'",
+                "BEFORE0: javax.servlet.include.path_info='null'",
+                "BEFORE1: javax.servlet.include.context_path=''",
+                "BEFORE1: javax.servlet.include.servlet_path='/attr'",
+                "BEFORE1: javax.servlet.include.path_info='/one'",
+                "DURING: javax.servlet.include.context_path=''",
+                "DURING: javax.servlet.include.servlet_path='/attr'",
+                "DURING: javax.servlet.include.path_info='/two'",
+                "AFTER1: javax.servlet.include.context_path=''",
+                "AFTER1: javax.servlet.include.servlet_path='/attr'",
+                "AFTER1: javax.servlet.include.path_info='/one'",
+                "AFTER0: javax.servlet.include.context_path='null'",
+                "AFTER0: javax.servlet.include.servlet_path='null'",
+                "AFTER0: javax.servlet.include.path_info='null'"
+            ));
         }
         finally
         {

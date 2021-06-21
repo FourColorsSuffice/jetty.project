@@ -1,5 +1,6 @@
+//
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ========================================================================
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -13,12 +14,13 @@
 //
 //  You may elect to redistribute this code under either of these licenses.
 //  ========================================================================
+//
 
 [[serving-aliased-files]]
 === Aliased Files and Symbolic links
 
-Web applications will often server static content from the file system provided by the operating system running underneath the JVM.
-However because file systems often implement multiple aliased names for the same file, then security constraints and other servlet URI space mappings my inadvertently be bypassed by aliases.
+Web applications will often serve static content from the file system provided by the operating system running underneath the JVM.
+However, because file systems often implement multiple aliased names for the same file, then security constraints and other servlet URI space mappings may inadvertently be bypassed by aliases.
 
 A key example of this is case insensitivity and 8.3 filenames implemented by the Windows file system.
 If a file within a web application called `/mysecretfile.txt` is protected by a security constraint on the URI `/mysecretfile.txt`, then a request to `/MySecretFile.TXT` will not match the URI constraint because URIs are case sensitive, but the Windows file system will report that a file does exist at that name and it will be served despite the security constraint.
@@ -60,8 +62,8 @@ Unfortunately this approach denies all aliases, including symbolic links, which 
 ==== Serving Aliases and Symbolic Links
 
 Not all aliases are bad nor should be seen as attempts to subvert security constraints.
-Specifically symbolic links can be very useful when assembling complex web applications, yet by default Jetty will not serve them.
-Thus Jetty contexts support an extensible `AliasCheck` mechanism to allow aliases resources to be inspected an conditionally served.
+Specifically, symbolic links can be very useful when assembling complex web applications.
+As such, Jetty contexts support an extensible `AliasCheck` mechanism to allow aliases resources to be inspected and conditionally served.
 In this way, "good" aliases can be detected and served.
 Jetty provides several utility implementations of the `AliasCheck` interface as nested classes with `ContextHandler`:
 
@@ -70,10 +72,14 @@ ApproveAliases::
 AllowSymLinkAliasChecker::
   Approve Aliases using the java-7 `Files.readSymbolicLink(path)` and `Path.toRealPath(...)` APIs to check that aliases are valid symbolic links.
 
+[NOTE]
+====
+By default, Jetty serves aliased files for implementations running on UNIX as Contexts are created with both the {JDURL}/org/eclipse/jetty/server/handler/AllowSymLinkAliasChecker.html[`AllowSymLinkAliasChecker`] and {JDURL}/org/eclipse/jetty/server/handler/ContextHandler.ApproveNonExistentDirectoryAliases.html[`ApproveNonExistentDirectoryAliases`] alias checkers.
+====
 An application is free to implement its own Alias checking.
 Alias Checkers can be installed in a context via the following XML used in a context deployer file or `WEB-INF/jetty-web.xml`:
 
-[source, xml, subs="{sub-order}"]
+[source, xml]
 ----
   <!-- Allow symbolic links  -->
   <Call name="addAliasCheck">

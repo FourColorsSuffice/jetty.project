@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -34,7 +34,7 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
     private static final Logger LOG = Log.getLogger(AbstractEndPoint.class);
 
     private final AtomicReference<State> _state = new AtomicReference<>(State.OPEN);
-    private final long _created=System.currentTimeMillis();
+    private final long _created = System.currentTimeMillis();
     private volatile Connection _connection;
 
     private final FillInterest _fillInterest = new FillInterest()
@@ -62,13 +62,15 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
 
     protected final void shutdownInput()
     {
-        while(true)
+        if (LOG.isDebugEnabled())
+            LOG.debug("shutdownInput {}", this);
+        while (true)
         {
             State s = _state.get();
-            switch(s)
+            switch (s)
             {
                 case OPEN:
-                    if (!_state.compareAndSet(s,State.ISHUTTING))
+                    if (!_state.compareAndSet(s, State.ISHUTTING))
                         continue;
                     try
                     {
@@ -76,11 +78,11 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
                     }
                     finally
                     {
-                        if(!_state.compareAndSet(State.ISHUTTING,State.ISHUT))
+                        if (!_state.compareAndSet(State.ISHUTTING, State.ISHUT))
                         {
                             // If somebody else switched to CLOSED while we were ishutting,
                             // then we do the close for them
-                            if (_state.get()==State.CLOSED)
+                            if (_state.get() == State.CLOSED)
                                 doOnClose(null);
                             else
                                 throw new IllegalStateException();
@@ -93,13 +95,13 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
                     return;
 
                 case OSHUTTING:
-                    if (!_state.compareAndSet(s,State.CLOSED))
+                    if (!_state.compareAndSet(s, State.CLOSED))
                         continue;
                     // The thread doing the OSHUT will close
                     return;
 
                 case OSHUT:
-                    if (!_state.compareAndSet(s,State.CLOSED))
+                    if (!_state.compareAndSet(s, State.CLOSED))
                         continue;
                     // Already OSHUT so we close
                     doOnClose(null);
@@ -114,13 +116,15 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
     @Override
     public final void shutdownOutput()
     {
-        while(true)
+        if (LOG.isDebugEnabled())
+            LOG.debug("shutdownOutput {}", this);
+        while (true)
         {
             State s = _state.get();
-            switch(s)
+            switch (s)
             {
                 case OPEN:
-                    if (!_state.compareAndSet(s,State.OSHUTTING))
+                    if (!_state.compareAndSet(s, State.OSHUTTING))
                         continue;
                     try
                     {
@@ -128,11 +132,11 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
                     }
                     finally
                     {
-                        if(!_state.compareAndSet(State.OSHUTTING,State.OSHUT))
+                        if (!_state.compareAndSet(State.OSHUTTING, State.OSHUT))
                         {
                             // If somebody else switched to CLOSED while we were oshutting,
                             // then we do the close for them
-                            if (_state.get()==State.CLOSED)
+                            if (_state.get() == State.CLOSED)
                                 doOnClose(null);
                             else
                                 throw new IllegalStateException();
@@ -141,13 +145,13 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
                     return;
 
                 case ISHUTTING:
-                    if (!_state.compareAndSet(s,State.CLOSED))
+                    if (!_state.compareAndSet(s, State.CLOSED))
                         continue;
                     // The thread doing the ISHUT will close
                     return;
 
                 case ISHUT:
-                    if (!_state.compareAndSet(s,State.CLOSED))
+                    if (!_state.compareAndSet(s, State.CLOSED))
                         continue;
                     // Already ISHUT so we close
                     doOnClose(null);
@@ -166,27 +170,31 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
     @Override
     public final void close()
     {
+        if (LOG.isDebugEnabled())
+            LOG.debug("close {}", this);
         close(null);
     }
 
     protected final void close(Throwable failure)
     {
-        while(true)
+        if (LOG.isDebugEnabled())
+            LOG.debug("close({}) {}", failure, this);
+        while (true)
         {
             State s = _state.get();
-            switch(s)
+            switch (s)
             {
                 case OPEN:
                 case ISHUT: // Already ishut
                 case OSHUT: // Already oshut
-                    if (!_state.compareAndSet(s,State.CLOSED))
+                    if (!_state.compareAndSet(s, State.CLOSED))
                         continue;
                     doOnClose(failure);
                     return;
 
                 case ISHUTTING: // Somebody else ishutting
                 case OSHUTTING: // Somebody else oshutting
-                    if (!_state.compareAndSet(s,State.CLOSED))
+                    if (!_state.compareAndSet(s, State.CLOSED))
                         continue;
                     // The thread doing the IO SHUT will call doOnClose
                     return;
@@ -234,7 +242,7 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
     @Override
     public boolean isOutputShutdown()
     {
-        switch(_state.get())
+        switch (_state.get())
         {
             case CLOSED:
             case OSHUT:
@@ -244,10 +252,11 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
                 return false;
         }
     }
+
     @Override
     public boolean isInputShutdown()
     {
-        switch(_state.get())
+        switch (_state.get())
         {
             case CLOSED:
             case ISHUT:
@@ -261,7 +270,7 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
     @Override
     public boolean isOpen()
     {
-        switch(_state.get())
+        switch (_state.get())
         {
             case CLOSED:
                 return false;
@@ -272,8 +281,8 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
 
     public void checkFlush() throws IOException
     {
-        State s=_state.get();
-        switch(s)
+        State s = _state.get();
+        switch (s)
         {
             case OSHUT:
             case OSHUTTING:
@@ -286,8 +295,8 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
 
     public void checkFill() throws IOException
     {
-        State s=_state.get();
-        switch(s)
+        State s = _state.get();
+        switch (s)
         {
             case ISHUT:
             case ISHUTTING:
@@ -333,8 +342,8 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
     public void onOpen()
     {
         if (LOG.isDebugEnabled())
-            LOG.debug("onOpen {}",this);
-        if (_state.get()!=State.OPEN)
+            LOG.debug("onOpen {}", this);
+        if (_state.get() != State.OPEN)
             throw new IllegalStateException();
     }
 
@@ -381,7 +390,7 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
         return _fillInterest;
     }
 
-    protected WriteFlusher getWriteFlusher()
+    public WriteFlusher getWriteFlusher()
     {
         return _writeFlusher;
     }
@@ -393,8 +402,8 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
         if (connection != null && !connection.onIdleExpired())
             return;
 
-        boolean output_shutdown=isOutputShutdown();
-        boolean input_shutdown=isInputShutdown();
+        boolean outputShutdown = isOutputShutdown();
+        boolean inputShutdown = isInputShutdown();
         boolean fillFailed = _fillInterest.onFail(timeout);
         boolean writeFailed = _writeFlusher.onFail(timeout);
 
@@ -405,61 +414,64 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
         // for a dispatched servlet or suspended request to extend beyond the connections idle
         // time.  So if this test would always close an idle endpoint that is not handled, then
         // we would need a mode to ignore timeouts for some HTTP states
-        if (isOpen() && (output_shutdown || input_shutdown) && !(fillFailed || writeFailed))
+        if (isOpen() && (outputShutdown || inputShutdown) && !(fillFailed || writeFailed))
             close();
         else
-            LOG.debug("Ignored idle endpoint {}",this);
+            LOG.debug("Ignored idle endpoint {}", this);
     }
 
     @Override
     public void upgrade(Connection newConnection)
     {
-        Connection old_connection = getConnection();
+        Connection oldConnection = getConnection();
 
         if (LOG.isDebugEnabled())
-            LOG.debug("{} upgrading from {} to {}", this, old_connection, newConnection);
+            LOG.debug("{} upgrading from {} to {}", this, oldConnection, newConnection);
 
-        ByteBuffer prefilled = (old_connection instanceof Connection.UpgradeFrom)
-                ?((Connection.UpgradeFrom)old_connection).onUpgradeFrom():null;
-        old_connection.onClose();
-        old_connection.getEndPoint().setConnection(newConnection);
+        ByteBuffer buffer = (oldConnection instanceof Connection.UpgradeFrom)
+            ? ((Connection.UpgradeFrom)oldConnection).onUpgradeFrom()
+            : null;
+        oldConnection.onClose();
+        oldConnection.getEndPoint().setConnection(newConnection);
 
-        if (newConnection instanceof Connection.UpgradeTo)
-            ((Connection.UpgradeTo)newConnection).onUpgradeTo(prefilled);
-        else if (BufferUtil.hasContent(prefilled))
-            throw new IllegalStateException();
-
+        if (BufferUtil.hasContent(buffer))
+        {
+            if (newConnection instanceof Connection.UpgradeTo)
+                ((Connection.UpgradeTo)newConnection).onUpgradeTo(buffer);
+            else
+                throw new IllegalStateException("Cannot upgrade: " + newConnection + " does not implement " + Connection.UpgradeTo.class.getName());
+        }
         newConnection.onOpen();
     }
 
     @Override
     public String toString()
     {
-        return String.format("%s->%s",toEndPointString(),toConnectionString());
+        return String.format("%s->%s", toEndPointString(), toConnectionString());
     }
-    
+
     public String toEndPointString()
     {
-        Class<?> c=getClass();
-        String name=c.getSimpleName();
-        while (name.length()==0 && c.getSuperclass()!=null)
+        Class<?> c = getClass();
+        String name = c.getSimpleName();
+        while (name.length() == 0 && c.getSuperclass() != null)
         {
-            c=c.getSuperclass();
-            name=c.getSimpleName();
+            c = c.getSuperclass();
+            name = c.getSimpleName();
         }
 
-        return String.format("%s@%h{%s<->%s,%s,fill=%s,flush=%s,to=%d/%d}",
-                name,
-                this,
-                getRemoteAddress(),
-                getLocalAddress(),
-                _state.get(),
-                _fillInterest.toStateString(),
-                _writeFlusher.toStateString(),
-                getIdleFor(),
-                getIdleTimeout());
+        return String.format("%s@%h{l=%s,r=%s,%s,fill=%s,flush=%s,to=%d/%d}",
+            name,
+            this,
+            getLocalAddress(),
+            getRemoteAddress(),
+            _state.get(),
+            _fillInterest.toStateString(),
+            _writeFlusher.toStateString(),
+            getIdleFor(),
+            getIdleTimeout());
     }
-    
+
     public String toConnectionString()
     {
         Connection connection = getConnection();
@@ -467,9 +479,8 @@ public abstract class AbstractEndPoint extends IdleTimeout implements EndPoint
             return "<null>";
         if (connection instanceof AbstractConnection)
             return ((AbstractConnection)connection).toConnectionString();
-        return String.format("%s@%x",connection.getClass().getSimpleName(),connection.hashCode());
+        return String.format("%s@%x", connection.getClass().getSimpleName(), connection.hashCode());
     }
-       
 
     private enum State
     {

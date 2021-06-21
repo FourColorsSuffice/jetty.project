@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,15 +18,12 @@
 
 package org.eclipse.jetty.websocket.jsr356.server;
 
-import static org.hamcrest.Matchers.lessThan;
-
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.websocket.ContainerProvider;
 import javax.websocket.Endpoint;
 import javax.websocket.EndpointConfig;
@@ -40,10 +37,12 @@ import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.websocket.jsr356.server.deploy.WebSocketServerContainerInitializer;
 import org.eclipse.jetty.websocket.jsr356.server.samples.echo.BasicEchoEndpoint;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.lessThan;
 
 public class MemoryUsageTest
 {
@@ -51,7 +50,7 @@ public class MemoryUsageTest
     private ServerConnector connector;
     private WebSocketContainer client;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         server = new Server();
@@ -68,7 +67,7 @@ public class MemoryUsageTest
         client = ContainerProvider.getWebSocketContainer();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         server.stop();
@@ -119,10 +118,10 @@ public class MemoryUsageTest
 
         // Assume no more than 25 KiB per session pair (client and server).
         long expected = 25 * 1024 * sessionCount;
-        Assert.assertThat("heap used", heapUsed,lessThan(expected));
+        assertThat("heap used", heapUsed, lessThan(expected));
     }
 
-    private static abstract class EndpointAdapter extends Endpoint implements MessageHandler.Whole<String>
+    private abstract static class EndpointAdapter extends Endpoint implements MessageHandler.Whole<String>
     {
         @Override
         public void onOpen(Session session, EndpointConfig config)

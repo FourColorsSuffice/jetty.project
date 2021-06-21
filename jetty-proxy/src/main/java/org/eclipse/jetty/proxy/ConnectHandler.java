@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
-
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -44,7 +43,6 @@ import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.io.ManagedSelector;
 import org.eclipse.jetty.io.MappedByteBufferPool;
-import org.eclipse.jetty.io.SelectChannelEndPoint;
 import org.eclipse.jetty.io.SelectorManager;
 import org.eclipse.jetty.io.SocketChannelEndPoint;
 import org.eclipse.jetty.server.Handler;
@@ -52,11 +50,9 @@ import org.eclipse.jetty.server.HttpConnection;
 import org.eclipse.jetty.server.HttpTransport;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.HandlerWrapper;
-import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.HostPort;
 import org.eclipse.jetty.util.Promise;
-import org.eclipse.jetty.util.TypeUtil;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
@@ -106,6 +102,7 @@ public class ConnectHandler extends HandlerWrapper
 
     public void setScheduler(Scheduler scheduler)
     {
+        updateBean(this.scheduler, scheduler);
         this.scheduler = scheduler;
     }
 
@@ -116,6 +113,7 @@ public class ConnectHandler extends HandlerWrapper
 
     public void setByteBufferPool(ByteBufferPool bufferPool)
     {
+        updateBean(this.bufferPool, bufferPool);
         this.bufferPool = bufferPool;
     }
 
@@ -168,10 +166,18 @@ public class ConnectHandler extends HandlerWrapper
             executor = getServer().getThreadPool();
 
         if (scheduler == null)
-            addBean(scheduler = new ScheduledExecutorScheduler());
+        {
+            scheduler = getServer().getBean(Scheduler.class);
+            if (scheduler == null)
+                scheduler = new ScheduledExecutorScheduler(String.format("Proxy-Scheduler-%x", hashCode()), false);
+            addBean(scheduler);
+        }
 
         if (bufferPool == null)
-            addBean(bufferPool = new MappedByteBufferPool());
+        {
+            bufferPool = new MappedByteBufferPool();
+            addBean(bufferPool);
+        }
 
         addBean(selector = newSelectorManager());
         selector.setConnectTimeout(getConnectTimeout());
@@ -206,9 +212,9 @@ public class ConnectHandler extends HandlerWrapper
      * <p>CONNECT requests may have authentication headers such as {@code Proxy-Authorization}
      * that authenticate the client with the proxy.</p>
      *
-     * @param baseRequest  Jetty-specific http request
-     * @param request       the http request
-     * @param response      the http response
+     * @param baseRequest Jetty-specific http request
+     * @param request the http request
+     * @param response the http response
      * @param serverAddress the remote server address in the form {@code host:port}
      */
     protected void handleConnect(Request baseRequest, HttpServletRequest request, HttpServletResponse response, String serverAddress)
@@ -378,9 +384,9 @@ public class ConnectHandler extends HandlerWrapper
      * <p>Handles the authentication before setting up the tunnel to the remote server.</p>
      * <p>The default implementation returns true.</p>
      *
-     * @param request  the HTTP request
+     * @param request the HTTP request
      * @param response the HTTP response
-     * @param address  the address of the remote server in the form {@code host:port}.
+     * @param address the address of the remote server in the form {@code host:port}.
      * @return true to allow to connect to the remote host, false otherwise
      */
     protected boolean handleAuthentication(HttpServletRequest request, HttpServletResponse response, String address)
@@ -416,10 +422,10 @@ public class ConnectHandler extends HandlerWrapper
      * <p>Reads (with non-blocking semantic) into the given {@code buffer} from the given {@code endPoint}.</p>
      *
      * @param endPoint the endPoint to read from
-     * @param buffer   the buffer to read data into
-     * @param context  the context information related to the connection
+     * @param buffer the buffer to read data into
+     * @param context the context information related to the connection
      * @return the number of bytes read (possibly 0 since the read is non-blocking)
-     *         or -1 if the channel has been closed remotely
+     * or -1 if the channel has been closed remotely
      * @throws IOException if the endPoint cannot be read
      */
     protected int read(EndPoint endPoint, ByteBuffer buffer, ConcurrentMap<String, Object> context) throws IOException
@@ -434,9 +440,9 @@ public class ConnectHandler extends HandlerWrapper
      * <p>Writes (with non-blocking semantic) the given buffer of data onto the given endPoint.</p>
      *
      * @param endPoint the endPoint to write to
-     * @param buffer   the buffer to write
+     * @param buffer the buffer to write
      * @param callback the completion callback to invoke
-     * @param context  the context information related to the connection
+     * @param context the context information related to the connection
      */
     protected void write(EndPoint endPoint, ByteBuffer buffer, Callback callback, ConcurrentMap<String, Object> context)
     {
@@ -484,13 +490,6 @@ public class ConnectHandler extends HandlerWrapper
             }
         }
         return true;
-    }
-
-    @Override
-    public void dump(Appendable out, String indent) throws IOException
-    {
-        dumpThis(out);
-        dump(out, indent, getBeans(), TypeUtil.asList(getHandlers()));
     }
 
     protected class ConnectManager extends SelectorManager
@@ -595,7 +594,7 @@ public class ConnectHandler extends HandlerWrapper
         }
 
         @Override
-        protected void write(EndPoint endPoint, ByteBuffer buffer,Callback callback)
+        protected void write(EndPoint endPoint, ByteBuffer buffer, Callback callback)
         {
             ConnectHandler.this.write(endPoint, buffer, callback, getContext());
         }
@@ -613,19 +612,27 @@ public class ConnectHandler extends HandlerWrapper
         @Override
         public void onUpgradeTo(ByteBuffer buffer)
         {
-            this.buffer = buffer == null ? BufferUtil.EMPTY_BUFFER : buffer;
+            this.buffer = buffer;
         }
 
         @Override
         public void onOpen()
         {
             super.onOpen();
-            final int remaining = buffer.remaining();
+
+            if (buffer == null)
+            {
+                fillInterested();
+                return;
+            }
+
+            int remaining = buffer.remaining();
             write(getConnection().getEndPoint(), buffer, new Callback()
             {
                 @Override
                 public void succeeded()
                 {
+                    buffer = null;
                     if (LOG.isDebugEnabled())
                         LOG.debug("{} wrote initial {} bytes to server", DownstreamConnection.this, remaining);
                     fillInterested();
@@ -634,6 +641,7 @@ public class ConnectHandler extends HandlerWrapper
                 @Override
                 public void failed(Throwable x)
                 {
+                    buffer = null;
                     if (LOG.isDebugEnabled())
                         LOG.debug(this + " failed to write initial " + remaining + " bytes to server", x);
                     close();

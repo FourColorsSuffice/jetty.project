@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,7 +20,6 @@ package org.eclipse.jetty.plus.webapp;
 
 import org.eclipse.jetty.plus.annotation.InjectionCollection;
 import org.eclipse.jetty.plus.annotation.LifeCycleCallbackCollection;
-import org.eclipse.jetty.plus.annotation.RunAsCollection;
 import org.eclipse.jetty.util.Decorator;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -28,8 +27,6 @@ import org.eclipse.jetty.webapp.WebAppContext;
 
 /**
  * PlusDecorator
- *
- *
  */
 public class PlusDecorator implements Decorator
 {
@@ -37,18 +34,14 @@ public class PlusDecorator implements Decorator
 
     protected WebAppContext _context;
 
-    public PlusDecorator (WebAppContext context)
+    public PlusDecorator(WebAppContext context)
     {
         _context = context;
     }
 
-    public Object decorate (Object o)
+    @Override
+    public Object decorate(Object o)
     {
-
-        RunAsCollection runAses = (RunAsCollection)_context.getAttribute(RunAsCollection.RUNAS_COLLECTION);
-        if (runAses != null)
-            runAses.setRunAs(o);
-
         InjectionCollection injections = (InjectionCollection)_context.getAttribute(InjectionCollection.INJECTION_COLLECTION);
         if (injections != null)
             injections.inject(o);
@@ -68,7 +61,8 @@ public class PlusDecorator implements Decorator
         return o;
     }
 
-    public void destroy (Object o)
+    @Override
+    public void destroy(Object o)
     {
         LifeCycleCallbackCollection callbacks = (LifeCycleCallbackCollection)_context.getAttribute(LifeCycleCallbackCollection.LIFECYCLE_CALLBACK_COLLECTION);
         if (callbacks != null)
@@ -79,7 +73,7 @@ public class PlusDecorator implements Decorator
             }
             catch (Exception e)
             {
-                LOG.warn("Destroying instance of "+o.getClass(), e);
+                LOG.warn("Destroying instance of " + o.getClass(), e);
             }
         }
     }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,14 +21,16 @@ package org.eclipse.jetty.http2.frames;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 import org.eclipse.jetty.http2.generator.HeaderGenerator;
 import org.eclipse.jetty.http2.generator.PriorityGenerator;
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.MappedByteBufferPool;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class PriorityGenerateParseTest
 {
@@ -48,6 +50,7 @@ public class PriorityGenerateParseTest
                 frames.add(frame);
             }
         }, 4096, 8192);
+        parser.init(UnaryOperator.identity());
 
         int streamId = 13;
         int parentStreamId = 17;
@@ -70,12 +73,12 @@ public class PriorityGenerateParseTest
             }
         }
 
-        Assert.assertEquals(1, frames.size());
+        assertEquals(1, frames.size());
         PriorityFrame frame = frames.get(0);
-        Assert.assertEquals(streamId, frame.getStreamId());
-        Assert.assertEquals(parentStreamId, frame.getParentStreamId());
-        Assert.assertEquals(weight, frame.getWeight());
-        Assert.assertEquals(exclusive, frame.isExclusive());
+        assertEquals(streamId, frame.getStreamId());
+        assertEquals(parentStreamId, frame.getParentStreamId());
+        assertEquals(weight, frame.getWeight());
+        assertEquals(exclusive, frame.isExclusive());
     }
 
     @Test
@@ -92,6 +95,7 @@ public class PriorityGenerateParseTest
                 frames.add(frame);
             }
         }, 4096, 8192);
+        parser.init(UnaryOperator.identity());
 
         int streamId = 13;
         int parentStreamId = 17;
@@ -113,12 +117,12 @@ public class PriorityGenerateParseTest
                 }
             }
 
-            Assert.assertEquals(1, frames.size());
+            assertEquals(1, frames.size());
             PriorityFrame frame = frames.get(0);
-            Assert.assertEquals(streamId, frame.getStreamId());
-            Assert.assertEquals(parentStreamId, frame.getParentStreamId());
-            Assert.assertEquals(weight, frame.getWeight());
-            Assert.assertEquals(exclusive, frame.isExclusive());
+            assertEquals(streamId, frame.getStreamId());
+            assertEquals(parentStreamId, frame.getParentStreamId());
+            assertEquals(weight, frame.getWeight());
+            assertEquals(exclusive, frame.isExclusive());
         }
     }
 }

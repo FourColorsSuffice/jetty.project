@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,7 +25,6 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -39,7 +38,6 @@ import org.eclipse.jetty.client.api.Response;
 import org.eclipse.jetty.client.api.Result;
 import org.eclipse.jetty.client.util.DeferredContentProvider;
 import org.eclipse.jetty.client.util.InputStreamContentProvider;
-import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.IteratingCallback;
 
@@ -77,9 +75,7 @@ public class ProxyServlet extends AbstractProxyServlet
             return;
         }
 
-        final Request proxyRequest = getHttpClient().newRequest(rewrittenTarget)
-                .method(request.getMethod())
-                .version(HttpVersion.fromString(request.getProtocol()));
+        Request proxyRequest = newProxyRequest(request, rewrittenTarget);
 
         copyRequestHeaders(request, proxyRequest);
 
@@ -96,7 +92,6 @@ public class ProxyServlet extends AbstractProxyServlet
             {
                 DeferredContentProvider deferred = new DeferredContentProvider();
                 proxyRequest.content(deferred);
-                proxyRequest.attribute(CLIENT_REQUEST_ATTRIBUTE, request);
                 proxyRequest.attribute(CONTINUE_ACTION_ATTRIBUTE, (Runnable)() ->
                 {
                     try

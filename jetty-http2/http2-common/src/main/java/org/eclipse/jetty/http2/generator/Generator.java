@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,6 +22,7 @@ import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.FrameType;
 import org.eclipse.jetty.http2.hpack.HpackEncoder;
+import org.eclipse.jetty.http2.hpack.HpackException;
 import org.eclipse.jetty.io.ByteBufferPool;
 
 public class Generator
@@ -55,7 +56,7 @@ public class Generator
         this.generators[FrameType.WINDOW_UPDATE.getType()] = new WindowUpdateGenerator(headerGenerator);
         this.generators[FrameType.CONTINUATION.getType()] = null; // Never generated explicitly.
         this.generators[FrameType.PREFACE.getType()] = new PrefaceGenerator();
-        this.generators[FrameType.DISCONNECT.getType()] = new DisconnectGenerator();
+        this.generators[FrameType.DISCONNECT.getType()] = new NoOpGenerator();
 
         this.dataGenerator = new DataGenerator(headerGenerator);
     }
@@ -63,6 +64,11 @@ public class Generator
     public ByteBufferPool getByteBufferPool()
     {
         return byteBufferPool;
+    }
+
+    public void setValidateHpackEncoding(boolean validateEncoding)
+    {
+        hpackEncoder.setValidateEncoding(validateEncoding);
     }
 
     public void setHeaderTableSize(int headerTableSize)
@@ -75,7 +81,7 @@ public class Generator
         headerGenerator.setMaxFrameSize(maxFrameSize);
     }
 
-    public int control(ByteBufferPool.Lease lease, Frame frame)
+    public int control(ByteBufferPool.Lease lease, Frame frame) throws HpackException
     {
         return generators[frame.getType().getType()].generate(lease, frame);
     }

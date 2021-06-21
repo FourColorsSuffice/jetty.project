@@ -9,7 +9,6 @@
   <groupId>org.eclipse.jetty.aggregate</groupId>
   <artifactId>jetty-websocket-all</artifactId>
   <name>Jetty :: Aggregate :: All WebSocket Server + Client Classes</name>
-  <url>http://www.eclipse.org/jetty</url>
   <build>
     <sourceDirectory>${project.build.directory}/sources</sourceDirectory>
     <plugins>
@@ -63,11 +62,10 @@
             </goals>
             <configuration>
               <archive>
-                <manifest>
-                </manifest>
+                <manifest></manifest>
                 <manifestEntries>
                   <mode>development</mode>
-                  <url>http://eclipse.org/jetty</url>
+                  <url>https://eclipse.org/jetty</url>
                   <Built-By>${user.name}</Built-By>
                   <package>org.eclipse.jetty</package>
                   <Bundle-License>https://raw.githubusercontent.com/eclipse/jetty.project/master/NOTICE.txt</Bundle-License>
@@ -92,17 +90,6 @@
         </executions>
       </plugin>
     </plugins>
-    <pluginManagement>
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-pmd-plugin</artifactId>
-          <configuration>
-            <skip>true</skip>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
   </build>
 
   <dependencies>

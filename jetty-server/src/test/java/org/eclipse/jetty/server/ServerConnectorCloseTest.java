@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,22 +18,18 @@
 
 package org.eclipse.jetty.server;
 
-import org.junit.After;
-import org.junit.Before;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 
-
-/* ------------------------------------------------------------ */
 public class ServerConnectorCloseTest extends ConnectorCloseTestBase
 {
-    
-    /* ------------------------------------------------------------ */
-    @Before
+    @BeforeEach
     public void init() throws Exception
     {
         startServer(new ServerConnector(_server));
     }
-    
-    @After
+
+    @AfterEach
     public void after() throws Exception
     {
         _server.stop();

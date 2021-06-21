@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,29 +18,31 @@
 
 package org.eclipse.jetty.util;
 
-
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.util.thread.ScheduledExecutorScheduler;
 import org.eclipse.jetty.util.thread.Scheduler;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class IteratingCallbackTest
 {
     private Scheduler scheduler;
 
-    @Before
+    @BeforeEach
     public void prepare() throws Exception
     {
         scheduler = new ScheduledExecutorScheduler();
         scheduler.start();
     }
 
-    @After
+    @AfterEach
     public void dispose() throws Exception
     {
         scheduler.stop();
@@ -67,8 +69,8 @@ public class IteratingCallbackTest
         };
 
         cb.iterate();
-        Assert.assertTrue(cb.waitForComplete());
-        Assert.assertEquals(10, cb.processed);
+        assertTrue(cb.waitForComplete());
+        assertEquals(10, cb.processed);
     }
 
     @Test
@@ -93,9 +95,9 @@ public class IteratingCallbackTest
 
         cb.iterate();
 
-        Assert.assertTrue(cb.waitForComplete());
+        assertTrue(cb.waitForComplete());
 
-        Assert.assertEquals(4, cb.processed);
+        assertEquals(4, cb.processed);
     }
 
     @Test
@@ -130,9 +132,9 @@ public class IteratingCallbackTest
             }
         }, 49, TimeUnit.MILLISECONDS);
 
-        Assert.assertTrue(cb.waitForComplete());
+        assertTrue(cb.waitForComplete());
 
-        Assert.assertEquals(4, cb.processed);
+        assertEquals(4, cb.processed);
     }
 
     @Test
@@ -159,8 +161,8 @@ public class IteratingCallbackTest
         };
 
         cb.iterate();
-        Assert.assertFalse(cb.waitForComplete());
-        Assert.assertEquals(5, cb.processed);
+        assertFalse(cb.waitForComplete());
+        assertEquals(5, cb.processed);
     }
 
     @Test
@@ -185,10 +187,9 @@ public class IteratingCallbackTest
 
         cb.iterate();
 
-        Assert.assertFalse(cb.waitForComplete());
-        Assert.assertEquals(2, cb.processed);
+        assertFalse(cb.waitForComplete());
+        assertEquals(2, cb.processed);
     }
-
 
     @Test
     public void testIdleWaiting() throws Exception
@@ -238,18 +239,17 @@ public class IteratingCallbackTest
 
                     default:
                         throw new IllegalStateException();
-
                 }
             }
         };
 
         cb.iterate();
         idle.await(10, TimeUnit.SECONDS);
-        Assert.assertTrue(cb.isIdle());
+        assertTrue(cb.isIdle());
 
         cb.iterate();
-        Assert.assertTrue(cb.waitForComplete());
-        Assert.assertEquals(6, cb.processed);
+        assertTrue(cb.waitForComplete());
+        assertEquals(6, cb.processed);
     }
 
     @Test
@@ -285,7 +285,7 @@ public class IteratingCallbackTest
 
         callback.iterate();
 
-        Assert.assertTrue(failureLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(failureLatch.await(5, TimeUnit.SECONDS));
     }
 
     private abstract static class TestCB extends IteratingCallback

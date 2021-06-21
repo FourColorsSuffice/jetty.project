@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,7 +19,6 @@
 package com.acme.fragment;
 
 import java.io.IOException;
-
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
@@ -29,32 +28,30 @@ import javax.servlet.http.HttpServletResponse;
 
 /**
  * FragmentServlet
- * 
- * A web fragment jar. 
+ *
+ * A web fragment jar.
  */
 
-public class FragmentServlet extends HttpServlet 
+public class FragmentServlet extends HttpServlet
 {
     private ServletConfig config;
-    
-    
+
+    @Override
     public void init(ServletConfig config) throws ServletException
     {
         super.init(config);
         this.config = config;
     }
 
-    
-    
-    /* ------------------------------------------------------------ */
+    @Override
     public void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
     {
         doGet(request, response);
     }
 
-    /* ------------------------------------------------------------ */
+    @Override
     public void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
-    {      
+    {
         try
         {
             response.setContentType("text/html");
@@ -62,7 +59,7 @@ public class FragmentServlet extends HttpServlet
             out.println("<html>");
             out.println("<h1>Jetty Fragment Servlet</h1>");
             out.println("<body>");
-            out.println("</body>");            
+            out.println("</body>");
             out.println("</html>");
             out.flush();
         }
@@ -71,8 +68,4 @@ public class FragmentServlet extends HttpServlet
             throw new ServletException(e);
         }
     }
-    
-
-  
-   
 }

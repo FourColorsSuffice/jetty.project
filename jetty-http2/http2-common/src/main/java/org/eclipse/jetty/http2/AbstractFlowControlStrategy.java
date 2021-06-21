@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,7 +29,6 @@ import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.annotation.ManagedOperation;
-import org.eclipse.jetty.util.component.ContainerLifeCycle;
 import org.eclipse.jetty.util.component.Dumpable;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -74,6 +73,7 @@ public abstract class AbstractFlowControlStrategy implements FlowControlStrategy
     @Override
     public void onStreamDestroyed(IStream stream)
     {
+        streamsStalls.remove(stream);
     }
 
     @Override
@@ -91,6 +91,8 @@ public abstract class AbstractFlowControlStrategy implements FlowControlStrategy
             this.initialStreamSendWindow = initialStreamWindow;
         }
         int delta = initialStreamWindow - previousInitialStreamWindow;
+        if (delta == 0)
+            return;
 
         // SPEC: updates of the initial window size only affect stream windows, not session's.
         for (Stream stream : session.getStreams())
@@ -197,30 +199,41 @@ public abstract class AbstractFlowControlStrategy implements FlowControlStrategy
 
     protected void onSessionUnstalled(ISession session)
     {
-        sessionStallTime.addAndGet(System.nanoTime() - sessionStall.getAndSet(0));
+        long stallTime = System.nanoTime() - sessionStall.getAndSet(0);
+        sessionStallTime.addAndGet(stallTime);
         if (LOG.isDebugEnabled())
-            LOG.debug("Session unstalled {}", session);
+            LOG.debug("Session unstalled after {} ms {}", TimeUnit.NANOSECONDS.toMillis(stallTime), session);
     }
 
     protected void onStreamUnstalled(IStream stream)
     {
         Long time = streamsStalls.remove(stream);
         if (time != null)
-            streamsStallTime.addAndGet(System.nanoTime() - time);
-        if (LOG.isDebugEnabled())
-            LOG.debug("Stream unstalled {}", stream);
+        {
+            long stallTime = System.nanoTime() - time;
+            streamsStallTime.addAndGet(stallTime);
+            if (LOG.isDebugEnabled())
+                LOG.debug("Stream unstalled after {} ms {}", TimeUnit.NANOSECONDS.toMillis(stallTime), stream);
+        }
     }
 
     @ManagedAttribute(value = "The time, in milliseconds, that the session flow control has stalled", readonly = true)
     public long getSessionStallTime()
     {
-        return TimeUnit.NANOSECONDS.toMillis(sessionStallTime.get());
+        long pastStallTime = sessionStallTime.get();
+        long currentStallTime = sessionStall.get();
+        if (currentStallTime != 0)
+            currentStallTime = System.nanoTime() - currentStallTime;
+        return TimeUnit.NANOSECONDS.toMillis(pastStallTime + currentStallTime);
     }
 
     @ManagedAttribute(value = "The time, in milliseconds, that the streams flow control has stalled", readonly = true)
     public long getStreamsStallTime()
     {
-        return TimeUnit.NANOSECONDS.toMillis(streamsStallTime.get());
+        long pastStallTime = streamsStallTime.get();
+        long now = System.nanoTime();
+        long currentStallTime = streamsStalls.values().stream().reduce(0L, (result, time) -> now - time);
+        return TimeUnit.NANOSECONDS.toMillis(pastStallTime + currentStallTime);
     }
 
     @ManagedOperation(value = "Resets the statistics", impact = "ACTION")
@@ -233,7 +246,7 @@ public abstract class AbstractFlowControlStrategy implements FlowControlStrategy
     @Override
     public String dump()
     {
-        return ContainerLifeCycle.dump(this);
+        return Dumpable.dump(this);
     }
 
     @Override

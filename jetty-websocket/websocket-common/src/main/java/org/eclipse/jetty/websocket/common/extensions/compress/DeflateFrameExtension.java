@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -35,13 +35,13 @@ public class DeflateFrameExtension extends CompressExtension
     {
         return "deflate-frame";
     }
-    
+
     @Override
     int getRsvUseMode()
     {
         return RSV_USE_ALWAYS;
     }
-    
+
     @Override
     int getTailDropMode()
     {
@@ -55,15 +55,14 @@ public class DeflateFrameExtension extends CompressExtension
         // they are read and parsed with a single thread, and
         // therefore there is no need for synchronization.
 
-        if ( frame.getType().isControl() || !frame.isRsv1() || !frame.hasPayload() )
+        if (frame.getType().isControl() || !frame.isRsv1() || !frame.hasPayload())
         {
             nextIncomingFrame(frame);
             return;
         }
 
-        try
+        try (ByteAccumulator accumulator = newByteAccumulator())
         {
-            ByteAccumulator accumulator = newByteAccumulator();
             decompress(accumulator, frame.getPayload());
             decompress(accumulator, TAIL_BYTES_BUF.slice());
             forwardIncoming(frame, accumulator);

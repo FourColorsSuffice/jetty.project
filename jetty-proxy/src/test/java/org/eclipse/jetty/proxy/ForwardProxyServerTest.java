@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,10 +20,15 @@ package org.eclipse.jetty.proxy;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.stream.Stream;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.HttpProxy;
 import org.eclipse.jetty.client.api.ContentResponse;
+import org.eclipse.jetty.client.api.Request;
+import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.io.AbstractConnection;
@@ -32,57 +37,69 @@ import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.server.AbstractConnectionFactory;
 import org.eclipse.jetty.server.ConnectionFactory;
 import org.eclipse.jetty.server.Connector;
+import org.eclipse.jetty.server.ForwardedRequestCustomizer;
+import org.eclipse.jetty.server.Handler;
+import org.eclipse.jetty.server.HttpConfiguration;
+import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.toolchain.test.MavenTestingUtils;
-import org.eclipse.jetty.toolchain.test.TestTracker;
+import org.eclipse.jetty.toolchain.test.Net;
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.Utf8StringBuilder;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.hamcrest.Matchers;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
-@RunWith(Parameterized.class)
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
 public class ForwardProxyServerTest
 {
-    @Parameterized.Parameters
-    public static Object[] parameters()
+    public static Stream<SslContextFactory.Server> serverTLS()
     {
-        return new Object[]{null, newSslContextFactory()};
+        return Stream.of(null, newServerSslContextFactory());
     }
 
-    @Rule
-    public final TestTracker tracker = new TestTracker();
-    private final SslContextFactory serverSslContextFactory;
+    private static SslContextFactory.Server newServerSslContextFactory()
+    {
+        SslContextFactory.Server serverTLS = new SslContextFactory.Server();
+        String keyStorePath = MavenTestingUtils.getTestResourceFile("server_keystore.p12").getAbsolutePath();
+        serverTLS.setKeyStorePath(keyStorePath);
+        serverTLS.setKeyStorePassword("storepwd");
+        return serverTLS;
+    }
+
     private Server server;
     private ServerConnector serverConnector;
+    private SslContextFactory.Server serverSslContextFactory;
     private Server proxy;
     private ServerConnector proxyConnector;
 
-    public ForwardProxyServerTest(SslContextFactory serverSslContextFactory)
+    protected void startServer(SslContextFactory.Server serverTLS, ConnectionFactory connectionFactory, Handler handler) throws Exception
     {
-        this.serverSslContextFactory = serverSslContextFactory;
-    }
-
-    protected void startServer(ConnectionFactory connectionFactory) throws Exception
-    {
+        serverSslContextFactory = serverTLS;
         QueuedThreadPool serverThreads = new QueuedThreadPool();
         serverThreads.setName("server");
         server = new Server(serverThreads);
         serverConnector = new ServerConnector(server, serverSslContextFactory, connectionFactory);
         server.addConnector(serverConnector);
+        server.setHandler(handler);
         server.start();
     }
 
-    protected void startProxy() throws Exception
+    protected void startProxy(ProxyServlet proxyServlet) throws Exception
     {
         QueuedThreadPool proxyThreads = new QueuedThreadPool();
         proxyThreads.setName("proxy");
@@ -96,7 +113,7 @@ public class ForwardProxyServerTest
         proxy.setHandler(connectHandler);
 
         ServletContextHandler proxyHandler = new ServletContextHandler(connectHandler, "/");
-        proxyHandler.addServlet(ProxyServlet.class, "/*");
+        proxyHandler.addServlet(new ServletHolder(proxyServlet), "/*");
 
         proxy.start();
     }
@@ -106,17 +123,7 @@ public class ForwardProxyServerTest
         return new HttpProxy("localhost", proxyConnector.getLocalPort());
     }
 
-    private static SslContextFactory newSslContextFactory()
-    {
-        SslContextFactory sslContextFactory = new SslContextFactory();
-        String keyStorePath = MavenTestingUtils.getTestResourceFile("keystore").getAbsolutePath();
-        sslContextFactory.setKeyStorePath(keyStorePath);
-        sslContextFactory.setKeyStorePassword("storepwd");
-        sslContextFactory.setKeyManagerPassword("keypwd");
-        return sslContextFactory;
-    }
-
-    @After
+    @AfterEach
     public void stop() throws Exception
     {
         stopProxy();
@@ -126,25 +133,20 @@ public class ForwardProxyServerTest
     protected void stopServer() throws Exception
     {
         if (server != null)
-        {
             server.stop();
-            server.join();
-        }
     }
 
     protected void stopProxy() throws Exception
     {
         if (proxy != null)
-        {
             proxy.stop();
-            proxy.join();
-        }
     }
 
-    @Test
-    public void testRequestTarget() throws Exception
+    @ParameterizedTest
+    @MethodSource("serverTLS")
+    public void testRequestTarget(SslContextFactory.Server serverTLS) throws Exception
     {
-        startServer(new AbstractConnectionFactory("http/1.1")
+        startServer(serverTLS, new AbstractConnectionFactory("http/1.1")
         {
             @Override
             public Connection newConnection(Connector connector, EndPoint endPoint)
@@ -167,7 +169,9 @@ public class ForwardProxyServerTest
                             ByteBuffer buffer = BufferUtil.allocate(1024);
                             int filled = 0;
                             while (filled == 0)
+                            {
                                 filled = getEndPoint().fill(buffer);
+                            }
                             Utf8StringBuilder builder = new Utf8StringBuilder();
                             builder.append(buffer);
                             String request = builder.toString();
@@ -176,14 +180,14 @@ public class ForwardProxyServerTest
                             // the client, and convert it to a relative URI.
                             // The ConnectHandler won't modify what the client
                             // sent, which must be a relative URI.
-                            Assert.assertThat(request.length(), Matchers.greaterThan(0));
+                            assertThat(request.length(), greaterThan(0));
                             if (serverSslContextFactory == null)
-                                Assert.assertFalse(request.contains("http://"));
+                                assertFalse(request.contains("http://"));
                             else
-                                Assert.assertFalse(request.contains("https://"));
+                                assertFalse(request.contains("https://"));
 
-                            String response = "" +
-                                    "HTTP/1.1 200 OK\r\n" +
+                            String response =
+                                "HTTP/1.1 200 OK\r\n" +
                                     "Content-Length: 0\r\n" +
                                     "\r\n";
                             getEndPoint().write(Callback.NOOP, ByteBuffer.wrap(response.getBytes(StandardCharsets.UTF_8)));
@@ -196,26 +200,106 @@ public class ForwardProxyServerTest
                     }
                 };
             }
-        });
-        startProxy();
+        }, new EmptyServerHandler());
+        startProxy(new ProxyServlet());
 
-        HttpClient httpClient = new HttpClient(newSslContextFactory());
+        SslContextFactory.Client clientTLS = new SslContextFactory.Client(true);
+        HttpClient httpClient = new HttpClient(clientTLS);
         httpClient.getProxyConfiguration().getProxies().add(newHttpProxy());
         httpClient.start();
 
         try
         {
             ContentResponse response = httpClient.newRequest("localhost", serverConnector.getLocalPort())
-                    .scheme(serverSslContextFactory == null ? "http" : "https")
-                    .method(HttpMethod.GET)
-                    .path("/test")
-                    .send();
+                .scheme(serverSslContextFactory == null ? "http" : "https")
+                .method(HttpMethod.GET)
+                .path("/test")
+                .send();
 
-            Assert.assertEquals(HttpStatus.OK_200, response.getStatus());
+            assertEquals(HttpStatus.OK_200, response.getStatus());
         }
         finally
         {
             httpClient.stop();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"::2", "[::3]"})
+    public void testIPv6WithXForwardedForHeader(String ipv6) throws Exception
+    {
+        Assumptions.assumeTrue(Net.isIpv6InterfaceAvailable());
+
+        HttpConfiguration httpConfig = new HttpConfiguration();
+        httpConfig.addCustomizer(new ForwardedRequestCustomizer());
+        ConnectionFactory http = new HttpConnectionFactory(httpConfig);
+        startServer(null, http, new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, org.eclipse.jetty.server.Request jettyRequest, HttpServletRequest request, HttpServletResponse response)
+            {
+                String remoteHost = jettyRequest.getRemoteHost();
+                assertThat(remoteHost, Matchers.matchesPattern("\\[.+\\]"));
+                String remoteAddr = jettyRequest.getRemoteAddr();
+                assertThat(remoteAddr, Matchers.matchesPattern("\\[.+\\]"));
+            }
+        });
+        startProxy(new ProxyServlet()
+        {
+            @Override
+            protected void addProxyHeaders(HttpServletRequest clientRequest, Request proxyRequest)
+            {
+                proxyRequest.header(HttpHeader.X_FORWARDED_FOR, ipv6);
+            }
+        });
+
+        HttpClient httpClient = new HttpClient();
+        httpClient.getProxyConfiguration().getProxies().add(newHttpProxy());
+        httpClient.start();
+
+        ContentResponse response = httpClient.newRequest("[::1]", serverConnector.getLocalPort())
+            .scheme("http")
+            .send();
+
+        assertEquals(HttpStatus.OK_200, response.getStatus());
+    }
+
+    @Test
+    public void testIPv6WithForwardedHeader() throws Exception
+    {
+        Assumptions.assumeTrue(Net.isIpv6InterfaceAvailable());
+
+        HttpConfiguration httpConfig = new HttpConfiguration();
+        httpConfig.addCustomizer(new ForwardedRequestCustomizer());
+        ConnectionFactory http = new HttpConnectionFactory(httpConfig);
+        startServer(null, http, new EmptyServerHandler()
+        {
+            @Override
+            protected void service(String target, org.eclipse.jetty.server.Request jettyRequest, HttpServletRequest request, HttpServletResponse response)
+            {
+                String remoteHost = jettyRequest.getRemoteHost();
+                assertThat(remoteHost, Matchers.matchesPattern("\\[.+\\]"));
+                String remoteAddr = jettyRequest.getRemoteAddr();
+                assertThat(remoteAddr, Matchers.matchesPattern("\\[.+\\]"));
+            }
+        });
+        startProxy(new ProxyServlet()
+        {
+            @Override
+            protected void addProxyHeaders(HttpServletRequest clientRequest, Request proxyRequest)
+            {
+                proxyRequest.header(HttpHeader.FORWARDED, "for=\"[::2]\"");
+            }
+        });
+
+        HttpClient httpClient = new HttpClient();
+        httpClient.getProxyConfiguration().getProxies().add(newHttpProxy());
+        httpClient.start();
+
+        ContentResponse response = httpClient.newRequest("[::1]", serverConnector.getLocalPort())
+            .scheme("http")
+            .send();
+
+        assertEquals(HttpStatus.OK_200, response.getStatus());
     }
 }

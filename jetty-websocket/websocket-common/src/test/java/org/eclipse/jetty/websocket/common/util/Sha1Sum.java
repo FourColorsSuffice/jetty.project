@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -32,10 +32,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.eclipse.jetty.toolchain.test.IO;
-import org.junit.Assert;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Calculate the sha1sum for various content 
+ * Calculate the sha1sum for various content
+ *
+ * @deprecated use {@link org.eclipse.jetty.toolchain.test.Sha1Sum} instead
  */
 public class Sha1Sum
 {
@@ -75,11 +78,11 @@ public class Sha1Sum
     public static String calculate(Path path) throws NoSuchAlgorithmException, IOException
     {
         MessageDigest digest = MessageDigest.getInstance("SHA1");
-        try (InputStream in = Files.newInputStream(path,StandardOpenOption.READ);
-                NoOpOutputStream noop = new NoOpOutputStream();
-                DigestOutputStream digester = new DigestOutputStream(noop,digest))
+        try (InputStream in = Files.newInputStream(path, StandardOpenOption.READ);
+             NoOpOutputStream noop = new NoOpOutputStream();
+             DigestOutputStream digester = new DigestOutputStream(noop, digest))
         {
-            IO.copy(in,digester);
+            IO.copy(in, digester);
             return Hex.asHex(digest.digest());
         }
     }
@@ -90,21 +93,20 @@ public class Sha1Sum
         digest.update(buf);
         return Hex.asHex(digest.digest());
     }
-    
+
     public static String calculate(byte[] buf, int offset, int len) throws NoSuchAlgorithmException
     {
         MessageDigest digest = MessageDigest.getInstance("SHA1");
-        digest.update(buf,offset,len);
+        digest.update(buf, offset, len);
         return Hex.asHex(digest.digest());
     }
-    
+
     public static String loadSha1(File sha1File) throws IOException
     {
         String contents = IO.readToString(sha1File);
         Pattern pat = Pattern.compile("^[0-9A-Fa-f]*");
         Matcher mat = pat.matcher(contents);
-        Assert.assertTrue("Should have found HEX code in SHA1 file: " + sha1File,mat.find());
+        assertTrue(mat.find(), "Should have found HEX code in SHA1 file: " + sha1File);
         return mat.group();
     }
-
 }

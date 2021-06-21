@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,16 +18,6 @@
 
 package org.eclipse.jetty.util.thread;
 
-import java.lang.reflect.Constructor;
-import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
-
-import org.eclipse.jetty.util.Loader;
-import org.eclipse.jetty.util.log.Log;
-import org.eclipse.jetty.util.log.Logger;
-import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
-import org.eclipse.jetty.util.thread.strategy.ExecuteProduceConsume;
-
 /**
  * <p>An {@link ExecutionStrategy} executes {@link Runnable} tasks produced by a {@link Producer}.
  * The strategy to execute the task may vary depending on the implementation; the task may be
@@ -36,16 +26,17 @@ import org.eclipse.jetty.util.thread.strategy.ExecuteProduceConsume;
  * execute tasks until the producer continues to produce them.</p>
  */
 public interface ExecutionStrategy
-{    
+{
     /**
      * <p>Initiates (or resumes) the task production and consumption.</p>
      * <p>This method guarantees that the task is never run by the
      * thread that called this method.</p>
      *
      * TODO review the need for this (only used by HTTP2 push)
+     *
      * @see #produce()
      */
-    public void dispatch();
+    void dispatch();
 
     /**
      * <p>Initiates (or resumes) the task production and consumption.</p>
@@ -54,8 +45,8 @@ public interface ExecutionStrategy
      *
      * @see #dispatch()
      */
-    public void produce();
-    
+    void produce();
+
     /**
      * <p>A producer of {@link Runnable} tasks to run.</p>
      * <p>The {@link ExecutionStrategy} will repeatedly invoke {@link #produce()} until
@@ -64,7 +55,7 @@ public interface ExecutionStrategy
      * {@link ExecutionStrategy} to be invoked again in case an external event resumes
      * the tasks production.</p>
      */
-    public interface Producer
+    interface Producer
     {
         /**
          * <p>Produces a task to be executed.</p>
@@ -73,5 +64,4 @@ public interface ExecutionStrategy
          */
         Runnable produce();
     }
-    
 }

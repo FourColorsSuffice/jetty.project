@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,13 +18,14 @@
 
 package org.eclipse.jetty.util.component;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.util.log.StacklessLogging;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LifeCycleListenerTest
 {
@@ -37,7 +38,6 @@ public class LifeCycleListenerTest
         TestListener listener = new TestListener();
         lifecycle.addLifeCycleListener(listener);
 
-
         lifecycle.setCause(cause);
 
         try (StacklessLogging stackless = new StacklessLogging(AbstractLifeCycle.class))
@@ -45,26 +45,26 @@ public class LifeCycleListenerTest
             lifecycle.start();
             assertTrue(false);
         }
-        catch(Exception e)
+        catch (Exception e)
         {
-            assertEquals(cause,e);
-            assertEquals(cause,listener.getCause());
+            assertEquals(cause, e);
+            assertEquals(cause, listener.getCause());
         }
         lifecycle.setCause(null);
 
         lifecycle.start();
 
         // check that the starting event has been thrown
-        assertTrue("The staring event didn't occur",listener.starting);
+        assertTrue(listener.starting, "The staring event didn't occur");
 
         // check that the started event has been thrown
-        assertTrue("The started event didn't occur",listener.started);
+        assertTrue(listener.started, "The started event didn't occur");
 
         // check that the starting event occurs before the started event
-        assertTrue("The starting event must occur before the started event",listener.startingTime <= listener.startedTime);
+        assertTrue(listener.startingTime <= listener.startedTime, "The starting event must occur before the started event");
 
         // check that the lifecycle's state is started
-        assertTrue("The lifecycle state is not started",lifecycle.isStarted());
+        assertTrue(lifecycle.isStarted(), "The lifecycle state is not started");
     }
 
     @Test
@@ -73,7 +73,6 @@ public class LifeCycleListenerTest
         TestLifeCycle lifecycle = new TestLifeCycle();
         TestListener listener = new TestListener();
         lifecycle.addLifeCycleListener(listener);
-
 
         // need to set the state to something other than stopped or stopping or
         // else
@@ -87,10 +86,10 @@ public class LifeCycleListenerTest
             lifecycle.stop();
             assertTrue(false);
         }
-        catch(Exception e)
+        catch (Exception e)
         {
-            assertEquals(cause,e);
-            assertEquals(cause,listener.getCause());
+            assertEquals(cause, e);
+            assertEquals(cause, listener.getCause());
         }
 
         lifecycle.setCause(null);
@@ -98,35 +97,34 @@ public class LifeCycleListenerTest
         lifecycle.stop();
 
         // check that the stopping event has been thrown
-        assertTrue("The stopping event didn't occur",listener.stopping);
+        assertTrue(listener.stopping, "The stopping event didn't occur");
 
         // check that the stopped event has been thrown
-        assertTrue("The stopped event didn't occur",listener.stopped);
+        assertTrue(listener.stopped, "The stopped event didn't occur");
 
         // check that the stopping event occurs before the stopped event
-        assertTrue("The stopping event must occur before the stopped event",listener.stoppingTime <= listener.stoppedTime);
+        assertTrue(listener.stoppingTime <= listener.stoppedTime, "The stopping event must occur before the stopped event");
         // System.out.println("STOPING TIME : " + listener.stoppingTime + " : " + listener.stoppedTime);
 
         // check that the lifecycle's state is stopped
-        assertTrue("The lifecycle state is not stooped",lifecycle.isStopped());
+        assertTrue(lifecycle.isStopped(), "The lifecycle state is not stooped");
     }
 
-
     @Test
-    public void testRemoveLifecycleListener ()
-    throws Exception
+    public void testRemoveLifecycleListener()
+        throws Exception
     {
         TestLifeCycle lifecycle = new TestLifeCycle();
         TestListener listener = new TestListener();
         lifecycle.addLifeCycleListener(listener);
 
         lifecycle.start();
-        assertTrue("The starting event didn't occur",listener.starting);
+        assertTrue(listener.starting, "The starting event didn't occur");
         lifecycle.removeLifeCycleListener(listener);
         lifecycle.stop();
-        assertFalse("The stopping event occurred", listener.stopping);
+        assertFalse(listener.stopping, "The stopping event occurred");
     }
-    
+
     private static class TestLifeCycle extends AbstractLifeCycle
     {
         Exception cause;
@@ -138,7 +136,7 @@ public class LifeCycleListenerTest
         @Override
         protected void doStart() throws Exception
         {
-            if (cause!=null)
+            if (cause != null)
                 throw cause;
             super.doStart();
         }
@@ -146,14 +144,14 @@ public class LifeCycleListenerTest
         @Override
         protected void doStop() throws Exception
         {
-            if (cause!=null)
+            if (cause != null)
                 throw cause;
             super.doStop();
         }
 
         public void setCause(Exception e)
         {
-            cause=e;
+            cause = e;
         }
     }
 
@@ -187,13 +185,13 @@ public class LifeCycleListenerTest
         public void lifeCycleStarted(LifeCycle event)
         {
             started = true;
-            startedTime = System.currentTimeMillis();
+            startedTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
         }
 
         public void lifeCycleStarting(LifeCycle event)
         {
             starting = true;
-            startingTime = System.currentTimeMillis();
+            startingTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
 
             // need to sleep to make sure the starting and started times are not
             // the same
@@ -210,13 +208,13 @@ public class LifeCycleListenerTest
         public void lifeCycleStopped(LifeCycle event)
         {
             stopped = true;
-            stoppedTime = System.currentTimeMillis();
+            stoppedTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
         }
 
         public void lifeCycleStopping(LifeCycle event)
         {
             stopping = true;
-            stoppingTime = System.currentTimeMillis();
+            stoppingTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
 
             // need to sleep to make sure the stopping and stopped times are not
             // the same
@@ -230,5 +228,4 @@ public class LifeCycleListenerTest
             }
         }
     }
-
 }

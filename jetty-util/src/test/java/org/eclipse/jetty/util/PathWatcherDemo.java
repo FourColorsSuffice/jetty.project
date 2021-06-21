@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -62,24 +62,26 @@ public class PathWatcherDemo implements PathWatcher.Listener
     {
         PathWatcher watcher = new PathWatcher();
         //watcher.addListener(new PathWatcherDemo());
-        watcher.addListener (new PathWatcher.EventListListener(){
-
-            @Override
-            public void onPathWatchEvents(List<PathWatchEvent> events)
+        watcher.addListener((PathWatcher.EventListListener)events ->
+        {
+            if (events == null)
             {
-               if (events == null)
-                   LOG.warn("Null events received");
-               if (events.isEmpty())
-                   LOG.warn("Empty events received");
-               
-               LOG.info("Bulk notification received");
-               for (PathWatchEvent e:events)
-                   onPathWatchEvent(e);
-                
+                LOG.warn("Null events received");
             }
-            
+            else if (events.isEmpty())
+            {
+                LOG.warn("Empty events received");
+            }
+            else
+            {
+                LOG.info("Bulk notification received");
+                for (PathWatchEvent e : events)
+                {
+                    onPathWatchEvent(e);
+                }
+            }
         });
-        
+
         watcher.setNotifyExistingOnStart(false);
 
         List<String> excludes = new ArrayList<>();
@@ -102,7 +104,7 @@ public class PathWatcherDemo implements PathWatcher.Listener
             }
         }
         watcher.start();
-        
+
         Thread.currentThread().join();
     }
 
@@ -119,14 +121,14 @@ public class PathWatcherDemo implements PathWatcher.Listener
         {
             try
             {
-                String fsize = String.format(" (filesize=%,d)",Files.size(event.getPath()));
+                String fsize = String.format(" (filesize=%,d)", Files.size(event.getPath()));
                 msg.append(fsize);
             }
             catch (IOException e)
             {
-                LOG.warn("Unable to get filesize",e);
+                LOG.warn("Unable to get filesize", e);
             }
         }
-        LOG.info("{}",msg.toString());
+        LOG.info("{}", msg.toString());
     }
 }

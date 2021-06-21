@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -26,6 +26,7 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceReference;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.util.tracker.ServiceTracker;
 
@@ -41,7 +42,7 @@ import org.osgi.util.tracker.ServiceTracker;
 public class JettyBootstrapActivator implements BundleActivator
 {
     private static final Logger LOG = Log.getLogger(JettyBootstrapActivator.class);
-    
+
     private static JettyBootstrapActivator INSTANCE = null;
 
     public static JettyBootstrapActivator getInstance()
@@ -50,24 +51,27 @@ public class JettyBootstrapActivator implements BundleActivator
     }
 
     private ServiceRegistration _registeredServer;
-    
+
     private PackageAdminServiceTracker _packageAdminServiceTracker;
 
     private ServiceTracker _jettyServerServiceTracker;
-    
-    
-    
-    /* ------------------------------------------------------------ */
+
     /**
      * Setup a new jetty Server, registers it as a service. Setup the Service
      * tracker for the jetty ContextHandlers that are in charge of deploying the
      * webapps. Setup the BundleListener that supports the extender pattern for
      * the jetty ContextHandler.
-     * 
+     *
      * @param context the bundle context
      */
+    @Override
     public void start(final BundleContext context) throws Exception
     {
+        ServiceReference[] references = context.getAllServiceReferences("org.eclipse.jetty.http.HttpFieldPreEncoder", null);
+
+        if (references == null || references.length == 0)
+            LOG.warn("OSGi support for java.util.ServiceLoader may not be present. You may experience runtime errors.");
+
         INSTANCE = this;
 
         // track other bundles and fragments attached to this bundle that we
@@ -77,20 +81,17 @@ public class JettyBootstrapActivator implements BundleActivator
         // track jetty Server instances that we should support as deployment targets
         _jettyServerServiceTracker = new ServiceTracker(context, context.createFilter("(objectclass=" + Server.class.getName() + ")"), new JettyServerServiceTracker());
         _jettyServerServiceTracker.open();
-        
+
         // Create a default jetty instance right now.
-        Server defaultServer = DefaultJettyAtJettyHomeHelper.startJettyAtJettyHome(context);
+        DefaultJettyAtJettyHomeHelper.startJettyAtJettyHome(context);
     }
 
-
-
-    /* ------------------------------------------------------------ */
     /**
      * Stop the activator.
-     * 
-     * @see
-     * org.osgi.framework.BundleActivator#stop(org.osgi.framework.BundleContext)
+     *
+     * @see org.osgi.framework.BundleActivator#stop(org.osgi.framework.BundleContext)
      */
+    @Override
     public void stop(BundleContext context) throws Exception
     {
         try

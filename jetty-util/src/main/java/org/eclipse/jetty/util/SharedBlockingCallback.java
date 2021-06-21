@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2017 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2021 Mort Bay Consulting Pty Ltd and others.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,6 +21,7 @@ package org.eclipse.jetty.util;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -29,7 +30,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
-import org.eclipse.jetty.util.thread.Invocable.InvocationType;
 
 /**
  * Provides a reusable {@link Callback} that can block the thread
@@ -49,18 +49,19 @@ import org.eclipse.jetty.util.thread.Invocable.InvocationType;
  */
 public class SharedBlockingCallback
 {
-    static final Logger LOG = Log.getLogger(SharedBlockingCallback.class);
+    private static final Logger LOG = Log.getLogger(SharedBlockingCallback.class);
 
-    private static Throwable IDLE = new ConstantThrowable("IDLE");
-    private static Throwable SUCCEEDED = new ConstantThrowable("SUCCEEDED");
+    private static final Throwable IDLE = new ConstantThrowable("IDLE");
+    private static final Throwable SUCCEEDED = new ConstantThrowable("SUCCEEDED");
 
-    private static Throwable FAILED = new ConstantThrowable("FAILED");
+    private static final Throwable FAILED = new ConstantThrowable("FAILED");
 
     private final ReentrantLock _lock = new ReentrantLock();
     private final Condition _idle = _lock.newCondition();
     private final Condition _complete = _lock.newCondition();
     private Blocker _blocker = new Blocker();
 
+    @Deprecated
     protected long getIdleTimeout()
     {
         return -1;
@@ -74,10 +75,10 @@ public class SharedBlockingCallback
         {
             while (_blocker._state != IDLE)
             {
-                if (idle>0 && (idle < Long.MAX_VALUE/2))
+                if (idle > 0 && (idle < Long.MAX_VALUE / 2))
                 {
                     // Wait a little bit longer than the blocker might block
-                    if (!_idle.await(idle*2,TimeUnit.MILLISECONDS))
+                    if (!_idle.await(idle * 2, TimeUnit.MILLISECONDS))
                         throw new IOException(new TimeoutException());
                 }
                 else
@@ -96,13 +97,33 @@ public class SharedBlockingCallback
         }
     }
 
+    public boolean fail(Throwable cause)
+    {
+        Objects.requireNonNull(cause);
+        _lock.lock();
+        try
+        {
+            if (_blocker._state == null)
+            {
+                _blocker._state = new BlockerFailedException(cause);
+                _complete.signalAll();
+                return true;
+            }
+        }
+        finally
+        {
+            _lock.unlock();
+        }
+        return false;
+    }
+
     protected void notComplete(Blocker blocker)
     {
-        LOG.warn("Blocker not complete {}",blocker);
+        LOG.warn("Blocker not complete {}", blocker);
         if (LOG.isDebugEnabled())
             LOG.debug(new Throwable());
     }
-    
+
     /**
      * A Closeable Callback.
      * Uses the auto close mechanism to check block has been called OK.
@@ -113,7 +134,7 @@ public class SharedBlockingCallback
     public class Blocker implements Callback, Closeable
     {
         private Throwable _state = IDLE;
-        
+
         protected Blocker()
         {
         }
@@ -123,7 +144,7 @@ public class SharedBlockingCallback
         {
             return InvocationType.NON_BLOCKING;
         }
-        
+
         @Override
         public void succeeded()
         {
@@ -136,7 +157,11 @@ public class SharedBlockingCallback
                     _complete.signalAll();
                 }
                 else
-                    throw new IllegalStateException(_state);
+                {
+                    LOG.warn("Succeeded after {}", _state.toString());
+                    if (LOG.isDebugEnabled())
+                        LOG.debug(_state);
+                }
             }
             finally
             {
@@ -152,23 +177,30 @@ public class SharedBlockingCallback
             {
                 if (_state == null)
                 {
-                    if (cause==null)
-                        _state=FAILED;
+                    if (cause == null)
+                        _state = FAILED;
                     else if (cause instanceof BlockerTimeoutException)
                         // Not this blockers timeout
-                        _state=new IOException(cause);
-                    else 
-                        _state=cause;
+                        _state = new IOException(cause);
+                    else
+                        _state = cause;
                     _complete.signalAll();
                 }
-                else if (_state instanceof BlockerTimeoutException)
+                else if (_state instanceof BlockerTimeoutException || _state instanceof BlockerFailedException)
                 {
                     // Failure arrived late, block() already
                     // modified the state, nothing more to do.
+                    if (LOG.isDebugEnabled())
+                        LOG.debug("Failed after {}", _state);
                 }
                 else
                 {
-                    throw new IllegalStateException(_state);
+                    LOG.warn("Failed after {}: {}", _state, cause);
+                    if (LOG.isDebugEnabled())
+                    {
+                        LOG.debug(_state);
+                        LOG.debug(cause);
+                    }
                 }
             }
             finally
@@ -180,9 +212,8 @@ public class SharedBlockingCallback
         /**
          * Block until the Callback has succeeded or failed and after the return leave in the state to allow reuse. This is useful for code that wants to
          * repeatable use a FutureCallback to convert an asynchronous API to a blocking API.
-         * 
-         * @throws IOException
-         *             if exception was caught during blocking, or callback was cancelled
+         *
+         * @throws IOException if exception was caught during blocking, or callback was cancelled
          */
         public void block() throws IOException
         {
@@ -227,6 +258,7 @@ public class SharedBlockingCallback
             }
             catch (final InterruptedException e)
             {
+                _state = e;
                 throw new InterruptedIOException();
             }
             finally
@@ -234,7 +266,7 @@ public class SharedBlockingCallback
                 _lock.unlock();
             }
         }
-        
+
         /**
          * Check the Callback has succeeded or failed and after the return leave in the state to allow reuse.
          */
@@ -251,19 +283,19 @@ public class SharedBlockingCallback
             }
             finally
             {
-                try 
+                try
                 {
-                    // If the blocker timed itself out, remember the state
-                    if (_state instanceof BlockerTimeoutException)
-                        // and create a new Blocker
-                        _blocker=new Blocker();
+                    // If we have a failure
+                    if (_state != null && _state != SUCCEEDED)
+                        // create a new Blocker
+                        _blocker = new Blocker();
                     else
                         // else reuse Blocker
                         _state = IDLE;
                     _idle.signalAll();
                     _complete.signalAll();
-                } 
-                finally 
+                }
+                finally
                 {
                     _lock.unlock();
                 }
@@ -276,7 +308,7 @@ public class SharedBlockingCallback
             _lock.lock();
             try
             {
-                return String.format("%s@%x{%s}",Blocker.class.getSimpleName(),hashCode(),_state);
+                return String.format("%s@%x{%s}", Blocker.class.getSimpleName(), hashCode(), _state);
             }
             finally
             {
@@ -284,8 +316,16 @@ public class SharedBlockingCallback
             }
         }
     }
-    
+
     private static class BlockerTimeoutException extends TimeoutException
-    { 
+    {
+    }
+
+    private static class BlockerFailedException extends Exception
+    {
+        public BlockerFailedException(Throwable cause)
+        {
+            super(cause);
+        }
     }
 }
